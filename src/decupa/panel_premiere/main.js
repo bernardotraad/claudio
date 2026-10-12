@@ -64,11 +64,12 @@ const QUICK = {
   notes: () => `Exporte a sequência ativa ("${ctx.sequence || ''}") como FCP XML com o MCP do Premiere, rode compare_with_nle contra a última versão do projeto decupa deste trabalho, e me mostre o que eu mudei e as notas (marcadores) que deixei. Não aplique nada ainda: proponha e espere meu ok.`,
   qc: () => `Faça o QC da sequência ativa ("${ctx.sequence || ''}", ${ctx.frame_size || ''}) antes de eu exportar: exporte como FCP XML com o MCP do Premiere e rode qc_timeline. Liste os problemas e pergunte se quero que você marque cada um como marcador na timeline.`,
   status: () => `Rode index_status e me diga o progresso em uma linha.`,
+  vault: () => `Registre este trabalho no vault (conector Vault), seguindo as regras do CLAUDE.md do vault (leia-o com read_note antes): 1) nota do trabalho com cliente, data, pasta "${jobFolder()}", material (câmeras, horas, cor/log, áudio), decisões de montagem desta conversa, versões entregues e onde estão os arquivos (.md da decupagem, XMLs, perfil do cliente); 2) entrada no diário de hoje (append_diary) com um resumo de 2–4 linhas e link pra nota; 3) se o cliente tiver página, linke. Não grave senhas nem dados sensíveis. No fim me diga o que foi escrito.`,
 };
 
 function contextBlock() {
   const sel = (ctx.selection || []).map((s) => `  - ${s.name} (${s.track_type}) timeline ${(+s.start_s).toFixed(2)}–${(+s.end_s).toFixed(2)}s, fonte ${(+s.in_s).toFixed(2)}–${(+s.out_s).toFixed(2)}s${s.media ? ' · ' + s.media : ''}`).join('\n');
-  return `[Contexto do Premiere — painel decupa]\nPasta do trabalho: ${jobFolder()}\nProjeto: ${ctx.project || '-'}\nSequência ativa: ${ctx.sequence || '-'} (${ctx.frame_size || '-'})\nPlayhead: ${ctx.playhead_s != null ? (+ctx.playhead_s).toFixed(2) + 's' : '-'}\n${sel ? 'Clipes selecionados:\n' + sel : 'Nenhum clipe selecionado.'}\nRegras: o editor está no controle — proponha antes de mudar; nunca sobrescreva a sequência dele (crie uma nova); só renderize se ele pedir.\n\n`;
+  return `[Contexto do Premiere — painel decupa]\nPasta do trabalho: ${jobFolder()}\nProjeto: ${ctx.project || '-'}\nSequência ativa: ${ctx.sequence || '-'} (${ctx.frame_size || '-'})\nPlayhead: ${ctx.playhead_s != null ? (+ctx.playhead_s).toFixed(2) + 's' : '-'}\n${sel ? 'Clipes selecionados:\n' + sel : 'Nenhum clipe selecionado.'}\nRegras: o editor está no controle — proponha antes de mudar; nunca sobrescreva a sequência dele (crie uma nova); só renderize se ele pedir. Memória: este chat é separado das outras sessões; o que importar para depois vai para o vault (conector Vault) e para os arquivos do decupa no disco — ofereça registrar no vault quando houver decisões.\n\n`;
 }
 
 async function send(text) {
@@ -77,7 +78,7 @@ async function send(text) {
   add('user', text);
   const sid = localStorage.getItem(sessionKey);
   const args = ['-p', contextBlock() + text, '--output-format', 'stream-json', '--verbose',
-                '--allowedTools', 'mcp__decupa,mcp__premiere-pro,mcp__davinci-resolve,Read,Glob,Grep',
+                '--allowedTools', 'mcp__decupa,mcp__premiere-pro,mcp__davinci-resolve,mcp__claude_ai_Vault,Read,Glob,Grep',
                 // allowedTools only pre-approves; this BLOCKS shell and file edits from the panel
                 '--disallowedTools', 'Bash,PowerShell,Edit,Write,NotebookEdit'];
   if (sid) args.push('--resume', sid);
