@@ -1,11 +1,15 @@
 [build-system]
-requires = ["setuptools>=68"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "decupa"
 version = "0.2.0"
 description = "MCP that sees and hears footage (takes, b-roll, contact sheets) and hands frame-accurate cuts to Premiere / Resolve"
+readme = "README.md"
+license = "MIT"
+authors = [{ name = "Bernardo Traad" }]
+keywords = ["mcp", "video", "editing", "premiere", "davinci-resolve", "whisper", "footage", "logging"]
 requires-python = ">=3.10"
 dependencies = [
   "mcp>=1.27,<2",
@@ -14,6 +18,9 @@ dependencies = [
   "faster-whisper>=1.1",
   "mlx-whisper; sys_platform == 'darwin' and platform_machine == 'arm64'",
 ]
+
+[project.urls]
+Homepage = "https://github.com/bernardotraad/decupa"
 
 [project.optional-dependencies]
 cuda = ["nvidia-cublas-cu12", "nvidia-cudnn-cu12>=9,<10"]

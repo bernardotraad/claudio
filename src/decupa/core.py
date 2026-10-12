@@ -513,7 +513,8 @@ SCENE_W = {'cena', 'sena', 'scene', 'seena'}
 TAKE_W = {'take', 'tomada', 'teik', 'teic', 'tek'}
 PART_W = {'parte', 'part'}
 ACTION_W = {'acao', 'action', 'gravando', 'rolando'}
-ABORT_P = ('perai', 'peraai', 'peraii', 'espera', 'denovo', 'maisuma', 'errei', 'desculpa', 'calma', 'volta', 'naonao')
+ABORT_P = ('perai', 'peraai', 'peraii', 'espera', 'denovo', 'maisuma', 'errei', 'desculpa', 'calma', 'volta', 'naonao',
+           'wait', 'holdon', 'again', 'sorry', 'onemore', 'letsgoagain', 'mybad')
 CUT_W = {'corta', 'corte', 'cut', 'cortou'}
 SHOT_W = ('contraplano', 'primeiro plano', 'plano geral', 'plano medio', 'plano detalhe', 'close', 'detalhe', 'geral', 'aberto', 'fechado')
 
