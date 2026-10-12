@@ -159,28 +159,83 @@ Pedidos curtos que funcionam bem:
 - *"Onde ela fala 'hoje eu sou da peça também'? Procura em todos os clipes."*
 - *"Acha b-rolls estáveis e nítidos com mais de 3 s nessa pasta e descreve cada um."*
 
-## Da decupagem a um corte de verdade
+## Decupagem salva no disco (`.md` ao lado de cada clipe)
 
-O `decupa` também **monta**: gera um MP4 para revisão a partir do material decupado, cortado na música, e um FCP7 XML
-do mesmo corte para finalizar no Premiere/Resolve.
+A indexação grava, **ao lado de cada vídeo**:
 
-Comece pelo prompt **`montar`** (no Claude Code: `/mcp__decupa__montar`). Ele faz uma entrevista curta, uma
-pergunta por vez: tipo de vídeo, ideia, formato, duração, legendas, **trilha primeiro**, ritmo, som direto,
-abertura/fecho. Depois decupa olhando o material e entrega uma primeira versão.
+- `C0025.md` com:
+  - arquivo, câmera, timecode, rotação;
+  - **espaço de cor**;
+  - áudio;
+  - 👁 descrição das cenas (escrita pelo Claude depois de *olhar*, via `annotate`);
+  - takes com veredito (✅ melhor / ✗ o falante criticou);
+  - claquete;
+  - trechos de b-roll aproveitáveis;
+  - transcrição com timecode.
+- `_decupa/C0025.jpg`: contact sheet linkado no `.md`.
+- `_DECUPA.md`: tabela da pasta inteira, com o progresso enquanto indexa.
 
-| Etapa | Ferramenta | O que faz |
+Qualquer agente ou pessoa lê esses arquivos e entende o material sem analisar de novo. O que você escrever fora
+dos marcadores `<!-- decupa:auto -->` nunca é apagado.
+
+## Progresso visível
+
+`index_folder`, `index_media` e `sync_multicam` mandam o progresso pro cliente: %, clipe e etapa atual, velocidade
+e minutos restantes. A mesma linha aparece no topo do `_DECUPA.md` e no `index_status`.
+
+## Espaço de cor (log × Rec.709)
+
+Cada clipe recebe câmera e perfil:
+
+- **Metadado primeiro**: `CaptureGammaEquation` da Sony, tags HLG/PQ.
+- **Depois a imagem**: log tem piso de preto alto e duro (S-Log3 ≈ 9,5 %, C-Log3 ≈ 12,5 %), altas que não clipam e
+  saturação baixa. Rec.709 chega no preto e satura.
+
+O resultado sai como *"provável S-Log3 (Sony ILCE-7M3)"* ou *"provável C-Log3 (Canon EOS R6)"*. Imagem lavada em
+log é o esperado e **nunca** conta como defeito. A cor (LUT + correção) é da edição, no NLE.
+
+## Multicâmera sem PluralEyes
+
+`sync_multicam(cameras={"CAM A": pasta, "CAM B": pasta}, external_audio=[gravador])` alinha tudo pelo áudio, como o
+PluralEyes:
+
+1. **Envelope** de cada arquivo, robusto entre microfones diferentes.
+2. **Posicionamento em grafo**: a âncora é o maior arquivo do gravador (ou o maior clipe), depois entra o encaixe
+   mais confiável, e assim por diante.
+3. **Refino** na forma de onda.
+4. **Transcrição como fallback** quando os microfones soam diferentes demais.
+5. **Drift do relógio do gravador** medido nos clipes longos (ppm), com cópia corrigida em
+   `decupa_drift_corrected/<nome>_drift_corrected±X.wav`, mesma convenção do PluralEyes.
+6. **XML no mesmo layout do PluralEyes**: "Synced Sequence", uma trilha de vídeo por câmera, pares estéreo por
+   câmera, gravador no último par, um bin por câmera.
+
+Depois, `multicam_monitor` mostra todos os ângulos lado a lado pra escolher olhando.
+
+## Do cartão às selects: ingest, selects, revisão
+
+| Etapa | Ferramenta | |
 | --- | --- | --- |
-| Trilha primeiro | `music_map`, `music_windows` | BPM (com leitura half/double-time), grade de beats, compassos, seções de energia, drop, compassos vazios. Sugere o trecho da música que cabe na duração. |
-| Som externo | `sync_audio` | Offset entre câmera e gravador. Diz `reliable: false` quando os arquivos não têm o mesmo som (ex.: locução). |
-| Multicâmera | `multicam_sync` (`montage.py`) | Sincroniza cada câmera num master longo (mesa de som): envelope + refinamento na forma de onda + drift. Usa **transcrição como fallback** quando os microfones soam diferentes demais. Validado contra um sync feito no PluralEyes (show de 1h53): 0–2 frames. |
-| Vertical | `reframe_preview`, `set_rotation` | Mostra o crop 9:16 em frames reais. `reframe_x: "auto"` segue o assunto em foco a cada plano. `set_rotation` corrige câmera gravada deitada sem metadado. |
-| Montar | `build_edit` | Encaixa no grid. **V1**: fala mantém a duração e o rabo vai até o próximo beat; o resto em beats, mais rápido nas partes de energia alta. **V2**: b-roll por cima da fala. Multicâmera: o plano só diz a câmera e segue o relógio do master. Avisa jump cut, buraco, corte fora do beat. Cada build é uma versão nova. |
-| Render | `render_edit` | Crop + grade de prévia, trilha **abaixando sob a fala**, legendas da transcrição (um bloco por vez, pontuação limpa, tabela `fix` pra nomes), títulos, fades, −14 LUFS. Devolve o MP4 e um **storyboard** do arquivo renderizado, que o Claude revisa antes de te mostrar. |
-| Finalizar | `export_edit` | FCP7 XML: V1, V2 com Basic Motion (escala/centro/rotação), A1/A2 com nível por plano, A3/A4 trilha. |
+| Descarregar | `ingest_card` | Cópia verificada (xxHash64 copiando e relendo o destino) para `BRUTOS/<câmera>`, `00 AUDIO`, `03 FOTOS`, `#projeto`, `#trilhas`. Nunca sobrescreve (outro cartão com os mesmos nomes vai pra `CARD_n`) e nunca mexe no cartão. Depois indexa. |
+| Selects | `make_selects` | No NLE, antes de cortar: **SELECTS — falas** (melhor take de cada fala), **falas únicas**, **b-roll**, e um bin com marcadores em todos os clipes. |
+| Revisão | `compare_with_nle`, `adopt_nle_timeline` | Lê a timeline como está no NLE: o que você aparou, moveu, tirou e acrescentou, e seus **marcadores como notas**. Sua timeline vira a nova base, no frame, e a próxima versão entra como sequência nova. |
 
-Nomes que o Whisper precisa acertar (marca, pessoas, lugares) vão em `vocabulary` no `index_media`/`index_folder`.
-Eles são aplicados como correção por similaridade ("Enki Empreendimento" → "INC Empreendimentos"), nunca como dica
-pro Whisper: no prompt ele escreve a dica na transcrição, e em hotwords ele perde palavras.
+Multicâmera validada num show real de 1h53: os 31 clipes com áudio em comum ficam **dentro de 1 frame** do
+PluralEyes, com o mesmo drift (`+0.079` × `+0.078`). Proxies (`Proxy/` ou `Proxies/`) são usados na análise, mas
+tudo aponta pro original.
+
+## Montando a timeline (junto com o MCP do Premiere / Resolve)
+
+A entrega é uma **timeline no seu NLE**. Você revisa, ajusta com o Claude, colore, coloca efeitos e exporta.
+Comece pelo prompt **`montar`** (`/mcp__decupa__montar`).
+
+| Etapa | Ferramenta | |
+| --- | --- | --- |
+| Estilo da casa | `read_premiere_project` | Lê seus `.prproj` prontos (só leitura): duração dos planos, b-roll sobre a fala, legendas, assinatura. |
+| Trilha primeiro | `music_map`, `music_windows` | BPM, compassos, seções, drop, melhor trecho pra duração. |
+| Montar | `build_edit` | V1 fala + V2 b-roll no beat, multicâmera pelo relógio do master, avisos, versões. |
+| Revisar | `edit_storyboard` | Quadros da **origem** com crop e rotação, mais a barra de beats. **Sem render.** |
+| Pro NLE | `export_edit` | FCP7 XML → Premiere `import_media` / Resolve `import_timeline_from_file`. |
+| Render | `render_edit` | **Só quando o usuário pedir** (`authorized_by_user=True`). |
 
 ## Como funciona
 

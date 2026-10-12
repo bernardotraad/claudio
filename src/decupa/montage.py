@@ -382,7 +382,7 @@ def fit_edit(edit, lang='pt'):
         if sh.get('snap') == 'speech':
             r = core.snap(idx, s_in, s_out, mode='speech', tighten=bool(sh.get('tighten')))
             s_in, s_out = r['in_sec'], r['out_sec']
-        avail = int(math.floor((s_out - s_in) * F + 1e-6))
+        avail = int(math.floor((s_out - s_in) * F + 0.02))   # tolerate float error: never lose a frame
         keep = sh.get('keep', sh.get('audio') == 'dialogue')
         if keep:
             length = avail
@@ -395,7 +395,7 @@ def fit_edit(edit, lang='pt'):
                     warns.append(f'shot {i + 1}: dialogue ends {(nxt[0] - t - length) / F:.2f}s before the beat and the source has no tail')
         else:
             if 'len' in sh:
-                desired = float(sh['len']) * F
+                desired = round(float(sh['len']) * F)
             else:
                 beats = sh.get('beats')
                 if beats is None:
@@ -459,14 +459,14 @@ def fit_edit(edit, lang='pt'):
                 warns.append(f'overlay run {r_i + 1}: clips {c_i + 1}+ not used (run already full)')
                 break
             idx = core.light_index(c['path'], lang); info = idx['info']
-            avail = int(math.floor((float(c['out']) - float(c['in'])) * F + 1e-6))
+            avail = int(math.floor((float(c['out']) - float(c['in'])) * F + 0.02))
             left = len(clips) - c_i
             if c_i == len(clips) - 1:
                 desired = b - pos
             elif 'beats' in c:
                 desired = c['beats'] * beat_f
             elif 'len' in c:
-                desired = float(c['len']) * F
+                desired = round(float(c['len']) * F)
             else:
                 desired = (b - pos) / left          # share what is left evenly, then snap
             end = pos + desired
@@ -474,7 +474,7 @@ def fit_edit(edit, lang='pt'):
                 cands = [g for g in grid if pos + int(0.4 * F) <= g <= min(b, pos + avail)]
                 if cands:
                     end = min(cands, key=lambda g: abs(g - end))
-            end = int(min(end, pos + avail, b))
+            end = int(round(min(end, pos + avail, b)))
             if end - pos < int(0.3 * F):
                 warns.append(f'overlay run {r_i + 1} clip {c_i + 1}: too short ({(end - pos) / F:.2f}s usable)')
                 continue
@@ -697,6 +697,30 @@ def render_edit(fit, out_path, quality='preview', workers=3, lang='pt'):
             'captions_events': n_ev, 'quality': quality}
 
 
+def source_storyboard(fit, lang='pt'):
+    """Storyboard WITHOUT rendering: for every shot (and b-roll), the source frame at its middle with the edit's
+    rotation/crop applied, plus the same timeline bar (beats, sections, b-roll layer). For reviewing a cut before it
+    goes to Premiere/Resolve."""
+    aspect = fit.get('aspect', '16:9')
+    tw = 220 if aspect in ('9:16', '4:5') else 300
+    items = sorted(fit['shots'] + fit.get('overlays', []), key=lambda s: (s['tl_in'], isinstance(s['n'], int)))
+    tiles = []
+    for s in items:
+        info = core.light_index(s['path'], lang)['info']
+        t = (s['src_in'] + s['src_out']) / 2
+        im = core.grab(info['path'], t, 960)
+        ow, oh = core.oriented(info)
+        sc = im.width / ow
+        cx, cy, cw, ch = crop_box(ow, oh, aspect, s['reframe_x'], s['reframe_y'], s['zoom'])
+        im = im.crop((int(cx * sc), int(cy * sc), int((cx + cw) * sc), int((cy + ch) * sc)))
+        im = im.resize((tw, int(tw * im.height / max(im.width, 1))))
+        core._label(im, [f"{'B' if not isinstance(s['n'], int) else '#'}{s['n']} {s['tl_in']:.2f}s",
+                         f"{s['tl_out'] - s['tl_in']:.2f}s" + (f" · {s['beats_len']}b" if s.get('beats_len') else ''),
+                         (s.get('label') or s['clip'])[:22]], core._font(12))
+        tiles.append(im)
+    return _board(fit, tiles, tw)
+
+
 def storyboard(fit, video_path, lang='pt'):
     """One tile per shot (middle frame of the RENDERED cut) + a timeline bar with beat ticks, sections and ducking."""
     shots = sorted(fit['shots'] + fit.get('overlays', []), key=lambda s: (s['tl_in'], isinstance(s['n'], int)))
@@ -709,6 +733,12 @@ def storyboard(fit, video_path, lang='pt'):
         core._label(im, [f"{'B' if not isinstance(s['n'], int) else '#'}{s['n']} {s['tl_in']:.2f}s", f"{s['tl_out'] - s['tl_in']:.2f}s" + (f" · {s['beats_len']}b" if s['beats_len'] else ''),
                          (s.get('label') or s['clip'])[:22]], core._font(12))
         tiles.append(im)
+    return _board(fit, tiles, tw)
+
+
+def _board(fit, tiles, tw):
+    aspect = fit.get('aspect', '16:9')
+    shots = fit['shots']
     th = tiles[0].height
     cols = min(len(tiles), 8 if aspect in ('9:16', '4:5') else 6)
     rows = math.ceil(len(tiles) / cols)

@@ -25,6 +25,50 @@ INDEX_VERSION = 6
 SR = 16000          # audio analysis rate
 HOP = 0.02          # RMS hop (s)
 QFPS = 4            # quality-analysis frame rate
+PROXY_DIRS = {'proxies', 'proxy', 'proxys', 'cache', '_decupa', 'decupa_drift_corrected', 'pluraleyes_drift_corrected'}
+
+
+def is_proxy(path):
+    """Premiere/Resolve proxies (Proxies/C0015_Proxy.mov, *_proxy.*) and our own folders are not camera media."""
+    parts = [p.lower() for p in re.split(r'[\\/]', path)]
+    return any(p in PROXY_DIRS for p in parts[:-1]) or re.search(r'_proxy\.[a-z0-9]+$', parts[-1]) is not None
+
+
+def analysis_source(path):
+    """What to decode for analysis: the clip's proxy when one exists AND has the same duration (an outdated proxy is
+    ignored), else the original. Everything we write (.md, XML, timelines) always points at the original."""
+    d = cache_dir(path)
+    cp = os.path.join(d, 'proxy.json')
+    if os.path.exists(cp):
+        j = json.load(open(cp))
+        if j.get('proxy') is None or os.path.exists(j['proxy']):
+            return j.get('proxy') or path
+    px = proxy_for(path)
+    ok = None
+    if px:
+        try:
+            a, b = probe(path), probe(px)
+            if abs(a['duration'] - b['duration']) < 0.25 and b.get('audio_streams'):
+                ok = px
+        except Exception:
+            ok = None
+    json.dump({'proxy': ok}, open(cp, 'w'))
+    return ok or path
+
+
+def proxy_for(path):
+    """An existing proxy of this clip (Premiere convention: <dir>/Proxies/<stem>_Proxy.*), or None."""
+    d, f = os.path.split(path)
+    stem = os.path.splitext(f)[0]
+    for sub in ('Proxies', 'Proxy', 'proxies'):
+        pd = os.path.join(d, sub)
+        if os.path.isdir(pd):
+            for x in os.listdir(pd):
+                if os.path.splitext(x)[0].lower() in (stem.lower() + '_proxy', stem.lower()):
+                    return os.path.join(pd, x)
+    return None
+
+
 VIDEO_EXT = {'.mp4', '.mov', '.mxf', '.mkv', '.avi', '.m4v', '.mts', '.m2ts', '.webm', '.braw', '.crm', '.r3d', '.mpg'}
 
 
@@ -299,11 +343,18 @@ def analyze_picture(path, d, info, progress=lambda *_: None):
             'luma_mean': round(float(np.mean(lum)) if lum else 0, 1)}
 
 
-def motion_labels(m, width_px=320):
-    """Per 4-fps sample: label camera behaviour from global shift (px/s at 320 px wide) and residual change."""
+def motion_labels(m, width_px=320, rotate=0):
+    """Per 4-fps sample: label camera behaviour from global shift (px/s at 320 px wide) and residual change.
+    rotate: the clip's user rotation, so a pan of a camera shot on its side is still called a pan."""
     if not len(m):
         return []
     vx = m[:, 5] * QFPS; vy = m[:, 6] * QFPS; conf = m[:, 7]
+    if rotate == 90:
+        vx, vy = -vy, vx
+    elif rotate == 270:
+        vx, vy = vy, -vx
+    elif rotate == 180:
+        vx, vy = -vx, -vy
     # shake = high-frequency jitter of the shift around its smoothed trend
     def smooth(v, k=5):
         return np.convolve(np.pad(v, (k // 2, k // 2), mode='edge'), np.ones(k) / k, mode='valid')
@@ -420,11 +471,26 @@ def apply_vocabulary(words, vocabulary, min_sim=0.72):
                         w['s'], w['e'] = round(s0 + j * step, 3), round(s0 + (j + 1) * step, 3)
                 for w in new:
                     w['vocab'] = True
+                if i > 0 and norm(words[i - 1]['w']) == norm(new[0]['w']):   # "INC" + corrected "INC Empreendimentos"
+                    new[0]['s'] = words[i - 1]['s']
+                    words[i - 1:i] = []
+                    i -= 1
                 words[i:i + k] = new
                 i += len(new)
             else:
                 i += 1
     return words
+
+
+def dedupe_vocab(words):
+    """Drop a word repeated right next to its vocabulary-corrected copy ("INC" "INC Empreendimentos")."""
+    out = []
+    for w in words:
+        if out and norm(out[-1]['w']) == norm(w['w']) and (out[-1].get('vocab') or w.get('vocab')):
+            out[-1] = {**w, 's': out[-1]['s'], 'vocab': True}
+            continue
+        out.append(w)
+    return out
 
 
 def _resegment(segments, words):
@@ -470,10 +536,18 @@ def transcribe(d, lang, progress=lambda *_: None, duration=1, vocabulary=None):
         ws = [{'w': w.word.strip(), 's': round(w.start, 3), 'e': round(w.end, 3), 'p': round(w.probability, 3)}
               for w in (s.words or []) if w.word.strip()]
         words.extend(ws)
-        out.append({'s': round(float(s.start), 2), 'e': round(float(s.end), 2), 'text': s.text.strip()})
+        out.append({'s': round(float(s.start), 2), 'e': round(float(s.end), 2), 'text': clean_text(s.text)})
         progress('speech', s.end / max(duration, 1))
     words = apply_vocabulary(fix_word_times(words), vocabulary)
     return {'language': info.language, 'segments': _resegment(out, words) if vocabulary else out, 'words': words}
+
+
+def clean_text(t):
+    """Typography of transcribed text: "599 ,00" → "599,00", "R $ 150" → "R$ 150", no space before punctuation."""
+    t = re.sub(r'\s+([,.!?;:])', r'\1', t)
+    t = re.sub(r'(?i)\bR\s*\$\s*', 'R$ ', t)
+    t = re.sub(r'(\d)\s*,\s*(\d)', r'\1,\2', t)
+    return re.sub(r'\s{2,}', ' ', t).strip()
 
 
 def norm(w):
@@ -484,6 +558,7 @@ FILLERS = {'ha', 'han', 'hm', 'hmm', 'eh', 'ehh', 'ahn', 'uh', 'uhm', 'um', 'hum
 
 
 CREW = {'acao', 'action', 'tres', 'dois', 'um', 'uma', '1', '2', '3', 'camera', 'rodando', 'gravando', 'corta', 'vamos', 'la',
+        'take', 'atencao', 'one', 'two', 'three', 'cena', 'sena', 'pode', 'ir', 'podemos',
         'beleza', 'ta', 'foi', 'som', 'ok', 'show', 'boa', 'pera', 'perai', 'espera', 'isso', 'valendo', 'gravou', 'rolando'}
 CRITIQUE = ('gaguejei', 'engoli', 'buguei', 'errei', 'desculpa', 'denovo', 'maisum', 'maisuma', 'perdi', 'naoficou',
             'ficouruim', 'travei', 'esqueci', 'perai', 'peraai', 'troquei', 'falelerrado', 'stumbled', 'sorry', 'again',
@@ -505,6 +580,16 @@ def utterances(words, gap=0.7):
         cur.append(w)
     if cur:
         raw.append(cur)
+    split = []
+    for u in raw:
+        cur = []
+        for w in u:
+            cur.append(w)
+            if norm(w['w']) in ('acao', 'action') and len(cur) > 1:
+                split.append(cur); cur = []
+        if cur:
+            split.append(cur)
+    raw = split
     out = []
     for u in raw:
         k = 0
@@ -563,6 +648,26 @@ def group_takes(utts, sim=0.55, window=240.0):
 
 
 # ───────────────────────────── index (orchestration) ─────────────────────────────
+def migrate(idx, d):
+    """Bring an older index up to date WITHOUT re-analysing the footage: only the parts whose logic changed."""
+    v = idx.get('version', 0)
+    if v < 5 and not os.path.exists(os.path.join(d, 'a16.pcm')) and os.path.exists(os.path.join(d, 'a16.wav')):
+        import wave
+        w = wave.open(os.path.join(d, 'a16.wav'))
+        open(os.path.join(d, 'a16.pcm'), 'wb').write(w.readframes(w.getnframes()))
+    if v < 6:                                       # word-timing fix + transcript typography
+        wp = os.path.join(d, 'words.json')
+        if os.path.exists(wp):
+            json.dump(fix_word_times(json.load(open(wp))), open(wp, 'w'), ensure_ascii=False)
+        if idx.get('speech'):
+            for s in idx['speech']['segments']:
+                s['text'] = clean_text(s['text'])
+    idx['version'] = INDEX_VERSION
+    idx['migrated_from'] = v
+    json.dump(idx, open(os.path.join(d, 'index.json'), 'w'), ensure_ascii=False, indent=1)
+    return idx
+
+
 def build_index(path, lang='pt', progress=lambda *_: None, force=False, vocabulary=None):
     """vocabulary: names Whisper must get right ("INC Empreendimentos, Juiz de Fora"). A new vocabulary on an existing
     index re-runs only the transcript."""
@@ -571,25 +676,38 @@ def build_index(path, lang='pt', progress=lambda *_: None, force=False, vocabula
     ip = os.path.join(d, 'index.json')
     if os.path.exists(ip) and not force:
         idx = json.load(open(ip))
+        if idx.get('version', 0) < INDEX_VERSION and idx.get('version', 0) >= 3:
+            idx = migrate(idx, d)
         if idx.get('version') == INDEX_VERSION:
-            if vocabulary and vocabulary != idx.get('vocabulary') and idx.get('audio'):
-                sp = transcribe(d, lang, progress, idx['info']['duration'], vocabulary)
-                json.dump(sp['words'], open(os.path.join(d, 'words.json'), 'w'), ensure_ascii=False)
-                idx['speech'] = {'language': sp['language'], 'segments': sp['segments'], 'n_words': len(sp['words'])}
+            if vocabulary and vocabulary != idx.get('vocabulary') and idx.get('speech'):
+                # vocabulary is a post-correction: re-apply it to the stored words, no re-transcription
+                wp, raw = os.path.join(d, 'words.json'), os.path.join(d, 'words_raw.json')
+                base = json.load(open(raw)) if os.path.exists(raw) else json.load(open(wp))
+                words = dedupe_vocab(apply_vocabulary([dict(w) for w in base], vocabulary))
+                json.dump(words, open(wp, 'w'), ensure_ascii=False)
+                idx['speech']['segments'] = [{**s, 'text': clean_text(s['text'])} for s in _resegment(idx['speech']['segments'], words)]
                 idx['vocabulary'] = vocabulary
                 json.dump(idx, open(ip, 'w'), ensure_ascii=False, indent=1)
             return idx
     t0 = time.time()
     info = probe(path)
+    src = analysis_source(path)
+    sinfo = info if src == path else {**probe(src), 'frames': info.get('frames'), 'fps': info.get('fps')}
     progress('probe', 1)
     idx = {'version': INDEX_VERSION, 'info': info, 'cache': d}
-    idx['audio'] = analyze_audio(path, d, info)
+    if src != path:
+        idx['analysed_from'] = nle_path(src)
+    idx['audio'] = analyze_audio(src, d, sinfo)
     progress('audio', 1)
     if info['has_video']:
-        idx['picture'] = analyze_picture(path, d, info, progress)
+        idx['picture'] = analyze_picture(src, d, sinfo, progress)
     sp = None
     if idx['audio'] and idx['audio']['speech_ratio'] > 0.02:
-        sp = transcribe(d, lang, progress, info['duration'], vocabulary)
+        sp = transcribe(d, lang, progress, info['duration'], None)
+        json.dump(sp['words'], open(os.path.join(d, 'words_raw.json'), 'w'), ensure_ascii=False)
+        if vocabulary:
+            sp['words'] = dedupe_vocab(apply_vocabulary([dict(w) for w in sp['words']], vocabulary))
+            sp['segments'] = [{**s, 'text': clean_text(s['text'])} for s in _resegment(sp['segments'], sp['words'])]
         json.dump(sp['words'], open(os.path.join(d, 'words.json'), 'w'), ensure_ascii=False)
         idx['vocabulary'] = vocabulary
     idx['speech'] = {'language': sp['language'], 'segments': sp['segments'], 'n_words': len(sp['words'])} if sp else None
@@ -612,6 +730,24 @@ def light_index(path, lang='pt'):
     if not os.path.exists(lp):
         json.dump(probe(path), open(lp, 'w'))
     return {'version': INDEX_VERSION, 'info': json.load(open(lp)), 'cache': d, 'light': True, 'picture': {}, 'audio': None}
+
+
+def words_only(path, lang='pt'):
+    """Word timestamps without the full analysis (for sync fallbacks): reuse the index if there is one, else
+    transcribe just the audio (from the proxy when available) and cache it."""
+    p = local_path(path)
+    d = cache_dir(p)
+    if os.path.exists(os.path.join(d, 'index.json')):
+        return load_words(build_index(p, lang))
+    wq = os.path.join(d, 'words_quick.json')
+    if os.path.exists(wq):
+        return json.load(open(wq))
+    if not os.path.exists(os.path.join(d, 'a16.pcm')):
+        run(['ffmpeg', '-v', 'error', '-y', '-i', analysis_source(p), '-vn', '-map', '0:a:0', '-ac', '1', '-ar', str(SR),
+             '-f', 's16le', os.path.join(d, 'a16.pcm')])
+    w = transcribe(d, lang)['words']
+    json.dump(w, open(wq, 'w'), ensure_ascii=False)
+    return w
 
 
 def load_words(idx):
@@ -637,7 +773,7 @@ def range_quality(idx, s, e):
     if not len(sel):
         sel = m[np.argmin(np.abs(m[:, 0] - s))][None]
     ref = sharp_ref(m)
-    labs = motion_labels(m)
+    labs = motion_labels(m, rotate=get_rotation(idx['info']['path']))
     li = [i for i in range(len(m)) if s <= m[i, 0] <= e] or [int(np.argmin(np.abs(m[:, 0] - s)))]
     mot = {}
     for i in li:
@@ -811,7 +947,7 @@ def broll_windows(idx, min_len=1.5, soft=0.45, max_shake=40):
     info = idx['info']
     dur = info['duration']
     ref = sharp_ref(m)
-    labs = motion_labels(m)
+    labs = motion_labels(m, rotate=get_rotation(idx['info']['path']))
     cuts = [0.0] + idx.get('picture', {}).get('cuts_sec', []) + [dur]
     sil = idx['audio']['silences'] if idx.get('audio') else []
     words = load_words(idx)
@@ -948,17 +1084,40 @@ def oriented(info):
     return (h, w) if get_rotation(info['path']) in (90, 270) else (w, h)
 
 
+def _fast(path, width):
+    """Proxy for small frames (≤ proxy width), original otherwise. Rotation always comes from the original."""
+    try:
+        src = analysis_source(path)
+    except Exception:
+        return path
+    if src != path:
+        pw = json.load(open(os.path.join(cache_dir(path), 'proxy.json'))).get('width')
+        if pw is None:
+            pw = probe(src).get('width') or 0
+            json.dump({'proxy': src, 'width': pw}, open(os.path.join(cache_dir(path), 'proxy.json'), 'w'))
+        if width <= pw * 1.05:
+            return src
+    return path
+
+
 def grab(path, t, width):
-    """One frame as PIL image (accurate seek, metadata + user rotation applied)."""
-    raw = run(['ffmpeg', '-loglevel', 'error', '-ss', f'{max(t, 0):.3f}', '-i', path, '-frames:v', '1',
+    """One frame as PIL image (accurate seek, metadata + user rotation applied; proxy used when it is big enough)."""
+    raw = run(['ffmpeg', '-loglevel', 'error', '-ss', f'{max(t, 0):.3f}', '-i', _fast(path, width), '-frames:v', '1',
                '-vf', f'{rot_vf(path)}scale={width}:-2', '-f', 'image2pipe', '-vcodec', 'png', '-']).stdout
     return Image.open(io.BytesIO(raw)).convert('RGB')
 
 
 def grab_many(path, s, e, n, width):
-    """n evenly spaced frames in [s, e) with one decode."""
+    """n evenly spaced frames in [s, e): one decode when they are close together, one seek per frame when they are
+    far apart (decoding a whole 20-min 4K range to keep 8 frames takes minutes)."""
     dur = max(e - s, 0.05)
-    raw = run(['ffmpeg', '-loglevel', 'error', '-ss', f'{s:.3f}', '-t', f'{dur:.3f}', '-i', path,
+    if dur / max(n, 1) > 3.0:
+        ts = [s + (k + 0.5) * dur / n for k in range(n)]
+        from concurrent.futures import ThreadPoolExecutor
+        with ThreadPoolExecutor(4) as ex:
+            ims = list(ex.map(lambda t: grab(path, t, width), ts))
+        return list(zip(ts, ims))
+    raw = run(['ffmpeg', '-loglevel', 'error', '-ss', f'{s:.3f}', '-t', f'{dur:.3f}', '-i', _fast(path, width),
                '-vf', f'{rot_vf(path)}fps={n / dur:.6f}:round=down,scale={width}:-2', '-frames:v', str(n),
                '-pix_fmt', 'rgb24', '-f', 'image2pipe', '-vcodec', 'ppm', '-']).stdout
     ims, i = [], 0
@@ -1092,6 +1251,98 @@ def frames_image(idx, times, width=960):
     out = Image.new('RGB', (w * cols, h * math.ceil(len(ims) / cols)), (0, 0, 0))
     for k, im in enumerate(ims):
         out.paste(im, ((k % cols) * w, (k // cols) * h))
+    return out
+
+
+# ───────────────────────────── camera + colour space ─────────────────────────────
+_CAM_PATTERNS = [
+    (rb'<Device manufacturer="([^"]+)" modelName="([^"]+)"', lambda m: f'{m.group(1).decode()} {m.group(2).decode()}'),
+    (rb'(Canon EOS [A-Z0-9][A-Z0-9 ]{0,12})', lambda m: m.group(1).decode().strip()),
+    (rb'(Canon EOS C[0-9]{2,3})', lambda m: m.group(1).decode()),
+    (rb'(Blackmagic [A-Za-z0-9 ]{3,30}Camera[A-Za-z0-9 ]{0,12})', lambda m: m.group(1).decode().strip()),
+    (rb'(DJI [A-Za-z0-9 ]{2,20})', lambda m: m.group(1).decode().strip()),
+    (rb'(GoPro ?[A-Za-z0-9 ]{0,12})', lambda m: m.group(1).decode().strip()),
+    (rb'(Panasonic|DC-[A-Z]{1,3}[0-9]{1,4}[A-Z]?)', lambda m: m.group(1).decode()),
+    (rb'(NIKON Z ?[0-9a-z]{1,4}|NIKON [A-Z0-9]{2,6})', lambda m: m.group(1).decode()),
+    (rb'(FUJIFILM [A-Z0-9-]{2,10})', lambda m: m.group(1).decode()),
+]
+LOG_BY_BRAND = {'sony': 'S-Log3 (ou S-Log2)', 'canon': 'C-Log3 (ou C-Log)', 'blackmagic': 'Blackmagic Film / Gen 5',
+                'panasonic': 'V-Log', 'nikon': 'N-Log', 'fujifilm': 'F-Log', 'dji': 'D-Log', 'apple': 'Apple Log',
+                'gopro': 'Protune flat'}
+
+
+def camera_of(path, info=None):
+    """Camera make/model from container tags or the maker metadata embedded in the file (first/last 4 MB)."""
+    tags = {}
+    try:
+        j = json.loads(run(['ffprobe', '-v', 'error', '-show_entries', 'format_tags:stream_tags', '-of', 'json', path]).stdout)
+        tags = {k.lower(): v for t in [j.get('format', {}).get('tags', {})] + [s.get('tags', {}) for s in j.get('streams', [])] for k, v in t.items()}
+    except Exception:
+        pass
+    for k in ('com.apple.quicktime.model', 'model', 'com.android.model'):
+        if tags.get(k, '').strip():
+            mk = tags.get('com.apple.quicktime.make') or tags.get('make') or ''
+            return f'{mk} {tags[k]}'.strip()
+    sz = os.path.getsize(path)
+    with open(path, 'rb') as fh:
+        b = fh.read(4_000_000)
+        if sz > 8_000_000:
+            fh.seek(sz - 4_000_000); b += fh.read()
+    for pat, fmt in _CAM_PATTERNS:
+        m = re.search(pat, b)
+        if m:
+            return fmt(m)
+    return None
+
+
+def color_profile(idx):
+    """What the picture is encoded in, so a flat image is not mistaken for a defect. Metadata first (transfer tags,
+    Sony CaptureGammaEquation), then the image: log has a hard raised black floor, highlights below clip and low
+    saturation; Rec.709 reaches true black and saturates. The real correction (LUT/grade) belongs to the edit."""
+    cp = os.path.join(idx['cache'], 'color.json')
+    if os.path.exists(cp):
+        return json.load(open(cp))
+    info = idx['info']; path = info['path']
+    cam = camera_of(path, info)
+    j = json.loads(run(['ffprobe', '-v', 'error', '-select_streams', 'v:0', '-show_entries',
+                        'stream=color_transfer,color_primaries,color_space,pix_fmt', '-of', 'json', path]).stdout)['streams'][0]
+    out = {'camera': cam, 'pix_fmt': j.get('pix_fmt'), 'transfer_tag': j.get('color_transfer'), 'primaries_tag': j.get('color_primaries')}
+    with open(path, 'rb') as fh:
+        head = fh.read(4_000_000)
+    g = re.search(rb'CaptureGammaEquation value="([^"]+)"', head)
+    if g:
+        out.update(profile=g.group(1).decode(), source='metadata', confidence='alta')
+    elif j.get('color_transfer') in ('arib-std-b67',):
+        out.update(profile='HLG (HDR)', source='metadata', confidence='alta')
+    elif j.get('color_transfer') in ('smpte2084',):
+        out.update(profile='PQ / HDR10', source='metadata', confidence='alta')
+    if info.get('has_video'):
+        d = info['duration']
+        fr = grab_many(path, d * 0.1, d * 0.9, 6, 320)
+        a = np.concatenate([np.asarray(im, np.float32).reshape(-1, 3) / 255 for _, im in fr])
+        Y = a @ np.array([0.2126, 0.7152, 0.0722], np.float32)
+        mx, mn = a.max(1), a.min(1)
+        S = np.where(mx > 0.05, (mx - mn) / np.maximum(mx, 1e-6), 0)
+        st = {'black_floor': round(float(np.percentile(Y, 0.5)), 3), 'p2': round(float(np.percentile(Y, 2)), 3),
+              'white_p99_5': round(float(np.percentile(Y, 99.5)), 3), 'saturation_p95': round(float(np.percentile(S, 95)), 3)}
+        out['stats'] = st
+        if 'profile' not in out and st['white_p99_5'] - st['black_floor'] < 0.12:
+            out.update(profile='indefinido (imagem quase uniforme)', log=False, source='imagem', confidence='baixa')
+        if 'profile' not in out:
+            hard = st['p2'] - st['black_floor'] < 0.02
+            brand = next((k for k in LOG_BY_BRAND if cam and k in cam.lower()), None)
+            flavour = LOG_BY_BRAND.get(brand, 'log')
+            if st['black_floor'] >= 0.075 and hard and st['saturation_p95'] < 0.5:
+                conf = 'alta' if st['black_floor'] >= 0.09 and st['saturation_p95'] < 0.42 else 'média'
+                out.update(profile=f'provável {flavour}', log=True, source='imagem', confidence=conf)
+            elif st['black_floor'] >= 0.06 and st['saturation_p95'] < 0.45:
+                out.update(profile='possível log (ou imagem lavada: névoa, contraluz)', log=True, source='imagem', confidence='baixa')
+            else:
+                out.update(profile='Rec.709 / perfil padrão', log=False, source='imagem', confidence='média')
+    out.setdefault('log', 'log' in (out.get('profile') or '').lower())
+    out['note'] = ('imagem lavada/sem contraste é o esperado em log — não é defeito; a correção (LUT + cor) vem na edição'
+                   if out['log'] else 'imagem já em espaço de exibição (Rec.709)')
+    json.dump(out, open(cp, 'w'), ensure_ascii=False)
     return out
 
 

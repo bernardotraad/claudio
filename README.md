@@ -189,40 +189,115 @@ Short prompts that work well:
 - *"Where does she say 'I'm from the play too'? Search all clips."*
 - *"Find steady, sharp b-roll longer than 3 s in this folder and describe each one."*
 
-## From logging to a real cut
+## Footage logs on disk (`.md` next to every clip)
 
-`decupa` also **edits**: it builds a reviewable MP4 from the logged footage, cut on the music, plus an FCP7 XML of
-the same cut for finishing in Premiere/Resolve.
+Indexing writes, **next to each video**:
 
-Start with the **`montar`** prompt (in Claude Code: `/mcp__decupa__montar`). It runs a short intake, one question
-at a time: type of video, idea, format (9:16 / 16:9 / 4:5 / 1:1), duration, captions, **music first**, pace,
-original sound, opening/closing. Then it logs the footage by looking at it and builds a first version.
+- `C0025.md` with:
+  - file, camera, timecode, rotation;
+  - **colour space**;
+  - audio;
+  - 👁 scene descriptions (written by Claude after *looking*, via `annotate`);
+  - takes with verdicts (✅ best / ✗ the speaker criticised it);
+  - slate;
+  - usable b-roll stretches;
+  - the transcript with timecode.
+- `_decupa/C0025.jpg`: a contact sheet linked from the `.md`.
+- `_DECUPA.md`: one table of every clip in the folder, with live progress while indexing runs.
 
-| Step | Tool | What it does |
+Any agent or person can read these files and understand the footage without analysing it again. Text you write
+outside the `<!-- decupa:auto -->` markers is never overwritten.
+
+## Progress you can see
+
+`index_folder` / `index_media` / `sync_multicam` stream progress to the client: percentage, current clip and step,
+speed (× real time) and minutes left. The same line is shown on top of `_DECUPA.md` and in `index_status`.
+
+## Colour space (log vs Rec.709)
+
+Each clip gets a camera and a colour profile:
+
+- **Metadata first**: Sony `CaptureGammaEquation`, HLG/PQ transfer tags.
+- **Then the image**: log has a hard raised black floor (S-Log3 ≈ 9.5 %, C-Log3 ≈ 12.5 %), highlights that don't
+  clip and low saturation. Rec.709 reaches true black and saturates.
+
+The result looks like *"likely S-Log3 (Sony ILCE-7M3)"* or *"likely C-Log3 (Canon EOS R6)"*. A flat, washed-out
+image in log is expected: it is **never** treated as a defect. The grade (LUT + correction) belongs to the editor,
+in the NLE.
+
+## Multicam sync without PluralEyes
+
+`sync_multicam(cameras={"CAM A": folder, "CAM B": folder}, external_audio=[recorder files])` aligns everything by
+audio, the way PluralEyes does:
+
+1. **Envelope.** Every file is reduced to an 8 kHz onset envelope. The envelope is robust across different mics
+   (camera on-board mic vs board feed).
+2. **Graph placement.** The anchor is the longest recorder file, else the longest clip. The most confident match is
+   placed next, and so on until every clip is on the timeline.
+3. **Refinement** on the waveform (sub-millisecond).
+4. **Transcript fallback** when two mics sound too different: it aligns what is *said*.
+5. **Recorder clock drift.** The offset is measured every 30 s on long clips with a robust slope fit (ppm). A
+   corrected copy is written to `decupa_drift_corrected/<name>_drift_corrected±X.wav`, the same convention as
+   PluralEyes.
+6. **Export.** An FCP7 XML in the PluralEyes layout: **"Synced Sequence"**, one video track per camera, stereo pairs
+   per camera, the recorder on the last pair, one bin per camera. Premiere and Resolve both import it.
+
+Then `multicam_monitor` shows every angle side by side over a stretch, to pick angles by looking.
+
+Validated two ways:
+
+- **Synthetic test with known answers**: drift measured at 20.1 ppm (truth 20), clip positions within 0.1–3 ms.
+- **A real 1h53 concert** (2 cameras at 29.97 + 23.976, board recording), compared with the PluralEyes sync of the
+  same footage:
+  - all 31 clips that share audio with the rest land **within one frame** of PluralEyes (median 6.8 ms);
+  - drift is −11.6 ppm, corrected file `…+0.079.wav`; PluralEyes wrote `…+0.078.wav`.
+
+  Four clips share no audio with anything (recorded before the board started, or 1.4 s long). PluralEyes parks those
+  at the start or end of the timeline. decupa places them by the **camera clock**, calibrated on that camera's synced
+  clips, and labels them approximate.
+
+Proxies (`Proxy/` or `Proxies/` next to the clips) are used to read audio and pictures whenever their duration
+matches the original. Everything decupa writes still points at the original media.
+
+## From card to selects: ingest, selects, review loop
+
+| Step | Tool | |
 | --- | --- | --- |
-| Music first | `music_map`, `music_windows` | Tempo (with half/double-time readings), beat grid, bars, energy sections, drop, silent bars. Suggests the stretch of the song that fits the duration. Validated on a click track: 7 ms median beat error. |
-| Dual-system sound | `sync_audio` | Offset between a camera clip and an external recorder. Says `reliable: false` when the files don't share sound, e.g. a voice-over. |
-| Multicam | (`multicam_sync` in `montage.py`) | Syncs every camera to one long master (board mix): loudness-envelope search over the whole master, waveform refinement, drift measurement, and a **transcript fallback** (aligns what is *said*) when the mics sound too different. Validated against a manual PluralEyes sync of a 1h53 concert: 0–2 frames. |
-| Vertical | `reframe_preview`, `set_rotation` | Draws the 9:16 crop on real frames. `reframe_x: "auto"` follows the in-focus subject per shot. `set_rotation` fixes cameras shot on their side without metadata. |
-| Build | `build_edit` | Fits the edit to the grid. **V1 spine**: dialogue keeps its natural length and its tail stretches to the next beat; other shots are measured in beats, faster in high-energy sections. **V2 b-roll runs** cover a stretch while speech continues underneath. Multicam angles only name the camera and follow the master clock. Warns about jump cuts, uncovered gaps, cuts off the beat. Every build is a new version. |
-| Render | `render_edit` | Reframe + optional preview grade, music **ducked under speech**, captions from the transcript (one block at a time, punctuation cleaned, `fix` table for names), titles, fades, −14 LUFS. Returns the MP4 and a **storyboard**: one tile per shot from the rendered file, plus a timeline bar with beats, sections and the b-roll layer. Claude reviews it before showing you. |
-| Finish | `export_edit` | FCP7 XML: V1, V2 b-roll with Basic Motion scale/centre/rotation, A1/A2 with per-shot levels, A3/A4 music. |
+| Offload | `ingest_card` | Verified copy (xxHash64 while copying, destination read back) into `BRUTOS/<camera>`, `BRUTOS/00 AUDIO`, `BRUTOS/03 FOTOS`, `#projeto`, `#trilhas`. Sony XML sidecars travel with their clips. Never overwrites (a new card with the same names goes to `CARD_n`), never touches the card. Writes `_ingest.md`, then starts indexing. |
+| Selects | `make_selects` | Built in the NLE before any cut: **SELECTS — falas** (best take of every repeated line, alternates in the marker), **falas únicas** (interview-like material), **b-roll**, plus a bin of every clip with markers (✅ / ✗ / 👁). |
+| Review loop | `compare_with_nle`, `adopt_nle_timeline` | Export the current timeline from the NLE (Premiere `export_as_fcp_xml`, Resolve `export_timeline FCP_7_XML`). decupa lists what you trimmed, moved, removed and added, plus your **markers as notes**. Your timeline becomes the new base version, frame-exact, and the next version is imported as a new sequence. |
 
-Names Whisper must get right (brand, people, places) go in `vocabulary` on `index_media`/`index_folder`. They are
-applied as a post-correction by similarity ("Enki Empreendimento" → "INC Empreendimentos"), never as a Whisper hint:
-as a prompt Whisper writes the hint into the transcript, and as hotwords it drops words.
+## Building the timeline (with the Premiere / Resolve MCP)
 
-### What the test runs taught it
+The deliverable is a **timeline in your NLE**. You review it, adjust it with Claude, then grade, add effects and
+export yourself. Start with the **`montar`** prompt (`/mcp__decupa__montar`). It runs a short intake, one question
+at a time: type, idea, format, duration, captions, which NLE, **music first**, pace, sound, opening/closing. Then it
+logs the footage by looking at it and builds a first version.
 
-Built against two real projects and compared with the editor's own Premiere timelines:
+| Step | Tool | |
+| --- | --- | --- |
+| House style | `read_premiere_project` | Reads your finished `.prproj` (read-only): spine shot length, b-roll over speech (count, length, % covered), caption length, end card. |
+| Music first | `music_map`, `music_windows` | Tempo (+ half/double time), beats, bars, energy sections, drop, silences, best stretch for the duration. |
+| Build | `build_edit` | **V1 spine.** Dialogue keeps its length and its tail stretches to the next beat; other shots are measured in beats. **V2 b-roll runs.** B-roll plays over speech, cut on the beat. **Multicam.** Angles follow the master clock. Each build is a new version, and it warns about jump cuts, gaps and cuts off the beat. |
+| Review | `edit_storyboard` | One tile per shot from the **source** frames with crop/rotation applied, plus a bar with beats and the b-roll layer. **No render.** |
+| Into the NLE | `export_edit` | FCP7 XML: V1 + V2 (Basic Motion scale/centre/rotation), audio levels per shot, music. Premiere: `import_media`; Resolve: `import_timeline_from_file`. |
+| Render | `render_edit` | **Only when the user asks for it** (`authorized_by_user=True`). |
 
-- **Testimonial reel (9:16, ~30 s, broker + 3D renders + end card)**: `takes` picks the same hook and CTA takes the
-  editor used (CTA in-point within 20 ms). It needed two rules for that. A take the speaker criticises right after
-  ("gaguejei", "desculpa", "mais um") is out. Completeness is measured against the consensus line, never the longest
-  attempt. Countdowns and chatter are ignored.
-- **Concert (2 cameras at 29.97 + 23.976, 1h53 board audio)**: automatic multicam sync matches the manual sync; the
-  song structure from `music_map` matches where the editor started and ended the vertical cut. Bars are counted from
-  the cut's start beat, because detected downbeat phase is unreliable on syncopated music.
+Vertical helpers: `reframe_preview` shows the crop, `reframe_x: "auto"` follows the in-focus subject, and
+`set_rotation` fixes cameras shot on their side without metadata.
+
+Names Whisper must get right go in `vocabulary` ("INC Empreendimentos, Juiz de Fora"). They are applied as a
+post-correction by similarity, never as a Whisper hint: as a prompt Whisper writes the hint into the transcript, and
+as hotwords it drops words.
+
+### What real projects taught it
+
+- **Testimonial reels.** `takes` picks the same hook and CTA takes the editor used (CTA in-point within 20 ms). Two
+  rules made that possible:
+  - a take the speaker criticises right after ("gaguejei", "desculpa", "mais um") is out;
+  - completeness is measured against the consensus line.
+- **Multicam concert** (2 cameras at 29.97 + 23.976, a 1h53 board recording). Audio sync lands within one frame of
+  PluralEyes for every clip that shares audio, with the same recorder drift correction.
 
 ## How it works
 
