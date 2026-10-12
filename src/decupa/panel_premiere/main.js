@@ -151,6 +151,7 @@ function showProgress() {
     try { const j = JSON.parse(fs.readFileSync(f, 'utf8')); if (!best || (j.updated || 0) > (best.updated || 0)) best = j; } catch (e) {}
   }
   const box = $('#prog');
+  if (best && best.state === 'running' && Date.now() / 1000 - (best.updated || 0) > 60) best.state = 'interrupted';   // writer died
   if (!best || (best.state !== 'running' && Date.now() / 1000 - (best.updated || 0) > 600)) { box.style.display = 'none'; return; }
   box.style.display = 'block';
   box.className = best.state === 'done' ? 'done' : (best.state === 'running' ? '' : 'bad');
