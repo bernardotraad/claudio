@@ -47,9 +47,20 @@ function add(cls, text) {
   return d;
 }
 
+function rawFolder() {
+  // BRUTOS is the convention; other jobs use VIDEOS / RAW / FOOTAGE / MATERIAL
+  const names = ['BRUTOS', 'VIDEOS', 'VÍDEOS', 'RAW', 'FOOTAGE', 'MATERIAL', 'CARTOES', 'CARTÕES'];
+  try {
+    const dirs = fs.readdirSync(jobFolder(), { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => d.name);
+    const hit = names.map((n) => dirs.find((d) => d.toUpperCase() === n)).find(Boolean);
+    if (hit) return path.join(jobFolder(), hit);
+  } catch (e) {}
+  return jobFolder();
+}
+
 const QUICK = {
-  index: () => `Analise o material bruto deste trabalho: index_folder na pasta "${path.join(jobFolder(), 'BRUTOS')}" (mostre o progresso). Se houver perfil do cliente (client_profile), use o vocabulário dele. No fim, me diga em 4–6 linhas o que tem no material.`,
-  selects: () => `Faça as selects deste trabalho com make_selects (pasta "${path.join(jobFolder(), 'BRUTOS')}", XML em "${path.join(jobFolder(), '#projeto', 'decupa_selects.xml')}") e importe no Premiere com import_media. Depois me resuma as escolhas.`,
+  index: () => `Analise o material bruto deste trabalho: index_folder na pasta "${rawFolder()}" (mostre o progresso). Se houver perfil do cliente (client_profile), use o vocabulário dele. No fim, me diga em 4–6 linhas o que tem no material.`,
+  selects: () => `Faça as selects deste trabalho com make_selects (pasta "${rawFolder()}", XML em "${path.join(jobFolder(), '#projeto', 'decupa_selects.xml')}") e importe no Premiere com import_media. Depois me resuma as escolhas.`,
   notes: () => `Exporte a sequência ativa ("${ctx.sequence || ''}") como FCP XML com o MCP do Premiere, rode compare_with_nle contra a última versão do projeto decupa deste trabalho, e me mostre o que eu mudei e as notas (marcadores) que deixei. Não aplique nada ainda: proponha e espere meu ok.`,
   qc: () => `Faça o QC da sequência ativa ("${ctx.sequence || ''}", ${ctx.frame_size || ''}) antes de eu exportar: exporte como FCP XML com o MCP do Premiere e rode qc_timeline. Liste os problemas e pergunte se quero que você marque cada um como marcador na timeline.`,
   status: () => `Rode index_status e me diga o progresso em uma linha.`,
@@ -66,7 +77,9 @@ async function send(text) {
   add('user', text);
   const sid = localStorage.getItem(sessionKey);
   const args = ['-p', contextBlock() + text, '--output-format', 'stream-json', '--verbose',
-                '--allowedTools', 'mcp__decupa,mcp__premiere-pro,mcp__davinci-resolve,Read,Glob,Grep'];
+                '--allowedTools', 'mcp__decupa,mcp__premiere-pro,mcp__davinci-resolve,Read,Glob,Grep',
+                // allowedTools only pre-approves; this BLOCKS shell and file edits from the panel
+                '--disallowedTools', 'Bash,PowerShell,Edit,Write,NotebookEdit'];
   if (sid) args.push('--resume', sid);
   $('#send').disabled = true; $('#stop').disabled = false;
   $('#status').textContent = 'pensando…';
@@ -112,5 +125,39 @@ $('#stop').onclick = () => { if (child) { child.kill(); add('meta', 'parado'); }
 $('#newchat').onclick = () => { localStorage.removeItem(sessionKey); log.innerHTML = ''; add('meta', 'nova conversa'); };
 document.querySelectorAll('#quick button').forEach((b) => (b.onclick = async () => { await readContext(); send(QUICK[b.dataset.q]()); }));
 
-readContext().then(() => add('meta', `pasta do trabalho: ${jobFolder()}`));
+// indexing progress: read <footage>/_decupa/progress.json (written by the background indexer) every 2 s
+function findProgressFiles() {
+  const out = [];
+  const root = jobFolder();
+  const visit = (d, depth) => {
+    let ents = [];
+    try { ents = fs.readdirSync(d, { withFileTypes: true }); } catch (e) { return; }
+    for (const e of ents) {
+      if (!e.isDirectory()) continue;
+      const p = path.join(d, e.name);
+      if (e.name === '_decupa') { const f = path.join(p, 'progress.json'); if (fs.existsSync(f)) out.push(f); }
+      else if (depth < 2 && !e.name.startsWith('#') && !/^proxies?$/i.test(e.name)) visit(p, depth + 1);
+    }
+  };
+  visit(root, 0);
+  return out;
+}
+let progFiles = [], progScan = 0;
+function showProgress() {
+  if (Date.now() - progScan > 15000) { progFiles = findProgressFiles(); progScan = Date.now(); }
+  let best = null;
+  for (const f of progFiles) {
+    try { const j = JSON.parse(fs.readFileSync(f, 'utf8')); if (!best || (j.updated || 0) > (best.updated || 0)) best = j; } catch (e) {}
+  }
+  const box = $('#prog');
+  if (!best || (best.state !== 'running' && Date.now() / 1000 - (best.updated || 0) > 600)) { box.style.display = 'none'; return; }
+  box.style.display = 'block';
+  box.className = best.state === 'done' ? 'done' : (best.state === 'running' ? '' : 'bad');
+  const name = path.basename(String(best.folder || '').replace(/\\/g, '/'));
+  box.querySelector('.txt').textContent = `${best.state === 'running' ? 'Indexando' : best.state === 'done' ? 'Indexado' : 'Indexação parada'} ${name}: ${best.line || ''}`;
+  box.querySelector('.fill').style.width = Math.round((best.fraction || 0) * 100) + '%';
+}
+setInterval(showProgress, 2000);
+
+readContext().then(() => { add('meta', `pasta do trabalho: ${jobFolder()}`); showProgress(); });
 setInterval(() => { if (!child) readContext(); }, 4000);

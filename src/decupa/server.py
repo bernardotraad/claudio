@@ -225,51 +225,65 @@ def set_rotation(degrees: int, paths: list[str] = None, folder: str = None) -> d
 
 
 @mcp.tool()
-async def index_folder(folder: str, ctx: Context, language: str = 'pt', recursive: bool = True, vocabulary: str = None,
-                       wait_minutes: float = 30, write_md: bool = True) -> dict:
-    """Index every video in a folder (e.g. a card dump). Shows live progress to the user (percentage, current clip and
-    step, time left) and keeps _DECUPA.md in the folder updated; writes <clip>.md + _decupa/<clip>.jpg next to each
-    video so any agent can read the footage later without re-analysing. Returns when done or after wait_minutes
-    (indexing continues in background — index_status).
-    vocabulary: names the transcript must get right — brand, people, places ("INC Empreendimentos, Juiz de Fora")."""
+async def index_folder(folder: str, ctx: Context, language: str = 'pt', vocabulary: str = None, wait_minutes: float = 10) -> dict:
+    """Index every video in a folder (card dump / VIDEOS / BRUTOS). Runs in its OWN background process — it keeps going
+    if this chat ends or the Premiere panel closes — and skips clips already indexed. Writes <clip>.md + contact sheet
+    next to each video and keeps _DECUPA.md updated with the progress. Shows live progress here for up to wait_minutes,
+    then returns; index_status(folder) reports it any time later.
+    vocabulary: names the transcript must get right — brand, people, places ("INC Empreendimentos, Juiz de Fora").
+    4K long-GOP footage the GPU can't decode (e.g. Canon HEVC 4:2:2) is analysed from keyframes (~3× faster);
+    proxies (Proxy/ or Proxies/) are used when present; links always point to the originals."""
+    import asyncio, subprocess as sp
+    from decupa import indexer
     root = core.local_path(folder)
-    files = []
-    for dp, dn, fn in os.walk(root):
-        dn[:] = [x for x in dn if x.lower() not in core.PROXY_DIRS and not x.startswith(('_decupa', '.'))]
-        files += [os.path.join(dp, f) for f in sorted(fn) if os.path.splitext(f)[1].lower() in core.VIDEO_EXT
-                  and not f.startswith('._')]
-        if not recursive:
+    files = indexer.list_videos(root)
+    pending = [f for f in files if not _is_indexed(f) or vocabulary]
+    j = indexer.read_job(root)
+    if pending and not (j and j.get('state') == 'running'):
+        logf = open(os.path.join(core.cache_dir(root) if os.path.isfile(root) else indexer.JOBS, 'indexer.log'), 'a')
+        cmd = [sys.executable, '-m', 'decupa.indexer', root, '--language', language] + (['--vocabulary', vocabulary] if vocabulary else [])
+        sp.Popen(cmd, stdout=logf, stderr=logf, stdin=sp.DEVNULL, start_new_session=True, close_fds=True)
+        await asyncio.sleep(3)
+    # already-indexed clips without their .md get one now
+    for f in files:
+        if f not in pending:
+            try:
+                if not os.path.exists(sidecar.md_path(f)):
+                    sidecar.write_clip_md(core.build_index(f))
+            except Exception:
+                pass
+    t0 = _time.time()
+    j = indexer.read_job(root)
+    while pending and _time.time() - t0 < wait_minutes * 60:
+        j = indexer.read_job(root)
+        if not j or j.get('state') != 'running':
             break
-    queued = [f for f in files if not _is_indexed(f) or vocabulary]
-    for f in queued:
-        _enqueue(f, language, vocabulary=vocabulary, md=write_md)
-    if write_md:                                   # already-indexed clips get their .md too
-        for f in files:
-            if f not in queued:
-                try:
-                    md = sidecar.md_path(f)
-                    if not os.path.exists(md):
-                        sidecar.write_clip_md(core.build_index(f))
-                except Exception:
-                    pass
-        for d in sorted({os.path.dirname(f) for f in files}):
-            sidecar.write_folder_md(d, progress=_progress_line() if queued else None)
-    finished = await _wait_with_progress(ctx, [core.local_path(f) for f in queued], wait_minutes * 60) if queued else True
-    out = {'videos': len(files), 'indexed_now': len(queued), 'already_indexed': len(files) - len(queued),
-           'finished': finished, 'progress': _progress_line(), 'errors': _progress()['errors']}
-    if write_md:
-        out['folder_index'] = [core.nle_path(os.path.join(d, '_DECUPA.md')) for d in sorted({os.path.dirname(f) for f in files})]
-    return out
+        try:
+            await ctx.report_progress(j.get('fraction', 0) * 100, 100, indexer.progress_line(j))
+        except Exception:
+            pass
+        await asyncio.sleep(3)
+    j = indexer.read_job(root) if pending else j
+    return {'videos': len(files), 'to_index': len(pending), 'already_indexed': len(files) - len(pending),
+            'progress': indexer.progress_line(j) if pending else 'tudo já indexado',
+            'state': (j or {}).get('state', 'done' if not pending else 'starting'),
+            'continues_in_background': bool(j and j.get('state') == 'running'),
+            'errors': (j or {}).get('errors', []),
+            'folder_index': core.nle_path(os.path.join(root, '_DECUPA.md'))}
 
 
 @mcp.tool()
-def index_status() -> dict:
-    """Progress of background indexing: percentage, clips done/total, current clip and step, speed, minutes left.
-    Tell the user the `progress` line so they know it is working."""
+def index_status(folder: str = None) -> dict:
+    """Progress of indexing: percentage, clips done/total, current clip and step, speed, minutes left — for a folder or
+    for every recent job. Background folder jobs survive the chat that started them. Tell the user the `progress` line."""
+    from decupa import indexer
+    jobs = [indexer.read_job(folder)] if folder else indexer.all_jobs()
+    jobs = [j for j in jobs if j]
+    out = {'jobs': [{'folder': j['folder'], 'progress': indexer.progress_line(j), 'state': j['state'], 'errors': j.get('errors', [])[:10]} for j in jobs]}
     pr = _progress()
-    return {'progress': _progress_line(pr), **pr, 'pending': _q.qsize(),
-            'jobs': {core.nle_path(p): {k: v for k, v in j.items() if k not in ('trace',)} for p, j in _jobs.items()
-                     if j['state'] in ('queued', 'running', 'error')}}
+    if pr['files_total']:
+        out['this_session'] = _progress_line(pr)
+    return out
 
 
 @mcp.tool()

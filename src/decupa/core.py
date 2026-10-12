@@ -300,6 +300,40 @@ def nvdec_ok(path):
     return codec in ('h264', 'hevc', 'av1', 'vp9') and gpu_ffmpeg() is not None
 
 
+def heavy_codec(path):
+    """4K or 10-bit / 4:2:2 long-GOP footage the CPU struggles to decode frame by frame."""
+    try:
+        j = json.loads(run(['ffprobe', '-v', 'error', '-select_streams', 'v:0', '-show_entries', 'stream=codec_name,pix_fmt,width',
+                            '-of', 'json', path]).stdout)['streams'][0]
+    except Exception:
+        return False
+    pf = j.get('pix_fmt') or ''
+    return j.get('codec_name') in ('hevc', 'h264') and ((j.get('width') or 0) >= 3000 or '10' in pf or '422' in pf)
+
+
+def _analyze_keyframes(path, d, info, qw, qh, progress):
+    qf = 2
+    qraw = os.path.join(d, 'q.gray')
+    run(['ffmpeg', '-y', '-loglevel', 'error', '-skip_frame', 'nokey', '-i', path, '-vf',
+         f'fps={qf},scale={qw}:{qh}:flags=area,format=gray', '-f', 'rawvideo', qraw])
+    progress('picture', 0.9)
+    q = np.fromfile(qraw, np.uint8)
+    q = q[:len(q) // (qw * qh) * qw * qh].reshape(-1, qh, qw).astype(np.float32)
+    os.remove(qraw)
+    rows, prev = [], None
+    for i, f in enumerate(q):
+        lap = (-4 * f[1:-1, 1:-1] + f[:-2, 1:-1] + f[2:, 1:-1] + f[1:-1, :-2] + f[1:-1, 2:])
+        small = f[::2, ::2]
+        dx, dy, conf = _phase_shift(prev, small) if prev is not None else (0, 0, 1.0)
+        prev = small
+        rows.append((i / qf, float(lap.var()), float(f.mean()), float((f > 250).mean()), float((f < 6).mean()), dx * 2, dy * 2, conf))
+    m = np.array(rows, np.float32) if rows else np.zeros((0, 8), np.float32)
+    np.save(os.path.join(d, 'q.npy'), m)
+    progress('picture', 1)
+    return {'cuts_frames': [], 'cuts_sec': [], 'samples': len(m), 'mode': 'keyframes',
+            'luma_mean': round(float(m[:, 2].mean()), 1) if len(m) else 0}
+
+
 def analyze_picture(path, d, info, progress=lambda *_: None):
     """One decode: tiny full-rate frames (cut detection) and 4 fps 320-px frames (quality + motion)."""
     W, H = info['width'], info['height']
@@ -307,6 +341,9 @@ def analyze_picture(path, d, info, progress=lambda *_: None):
     tw, th = 64, max(2, int(round(64 * H / W / 2)) * 2)
     qraw = os.path.join(d, 'q.gray')
     gpu = gpu_ffmpeg() if nvdec_ok(path) else None
+    fast = not gpu and heavy_codec(path) and os.environ.get('DECUPA_FAST', '1') != '0'
+    if fast:     # keyframes only (~2/s): ~3× faster on 4K HEVC 4:2:2; in-file cuts are not detected (camera originals have none)
+        return _analyze_keyframes(path, d, info, qw, qh, progress)
     if gpu:      # NVDEC decode + downscale on the GPU, only 320-px frames come back to the CPU (~2× faster on 4K)
         cmd = [gpu, '-y', '-loglevel', 'error', '-hwaccel', 'cuda', '-hwaccel_output_format', 'cuda', '-i', path,
                '-filter_complex', f'[0:v:0]scale_cuda={qw}:{qh},hwdownload,format=nv12,format=gray,split=2[a][b];'
@@ -383,7 +420,8 @@ def motion_labels(m, width_px=320, rotate=0):
     rotate: the clip's user rotation, so a pan of a camera shot on its side is still called a pan."""
     if not len(m):
         return []
-    vx = m[:, 5] * QFPS; vy = m[:, 6] * QFPS; conf = m[:, 7]
+    qf = 1.0 / float(np.median(np.diff(m[:, 0]))) if len(m) > 2 else QFPS
+    vx = m[:, 5] * qf; vy = m[:, 6] * qf; conf = m[:, 7]
     if rotate == 90:
         vx, vy = -vy, vx
     elif rotate == 270:

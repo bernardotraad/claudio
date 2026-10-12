@@ -27,19 +27,26 @@
   footer { border-top:1px solid var(--line); padding:8px 10px; display:flex; gap:6px; }
   textarea { flex:1; resize:none; height:56px; background:var(--panel); color:var(--text); border:1px solid var(--line); border-radius:4px; padding:6px; font:inherit; }
   #status { font-size:11px; color:var(--muted); padding:0 10px 6px; min-height:16px; }
+  #prog { display:none; padding:6px 10px 8px; border-top:1px solid var(--line); }
+  #prog .bar { height:6px; background:var(--panel); border-radius:3px; overflow:hidden; margin-top:4px; }
+  #prog .fill { height:100%; width:0; background:var(--accent); transition:width .6s; }
+  #prog .txt { font-size:11px; color:var(--text); }
+  #prog.done .fill { background:var(--ok); }
+  #prog.bad .fill { background:var(--err); }
 </style>
 </head>
 <body>
 <div id="app">
   <header><b>decupa</b><span id="ctx">lendo o projeto…</span><button id="newchat" title="Nova conversa">＋</button></header>
   <div id="quick">
-    <button data-q="index">Analisar BRUTOS</button>
+    <button data-q="index">Analisar material</button>
     <button data-q="selects">Selects</button>
     <button data-q="notes">Ler minhas notas</button>
     <button data-q="qc">QC antes de exportar</button>
     <button data-q="status">Status</button>
   </div>
   <div id="log"></div>
+  <div id="prog"><div class="txt"></div><div class="bar"><div class="fill"></div></div></div>
   <div id="status"></div>
   <footer>
     <textarea id="input" placeholder="Fale com o Claude sobre este projeto… (Ctrl+Enter envia)"></textarea>
