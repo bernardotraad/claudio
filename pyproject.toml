@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "decupa"
-version = "0.2.0"
+version = "0.3.0"
 description = "MCP that sees and hears footage (takes, b-roll, contact sheets) and hands frame-accurate cuts to Premiere / Resolve"
 readme = "README.md"
 license = "MIT"

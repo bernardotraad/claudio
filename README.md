@@ -189,6 +189,41 @@ Short prompts that work well:
 - *"Where does she say 'I'm from the play too'? Search all clips."*
 - *"Find steady, sharp b-roll longer than 3 s in this folder and describe each one."*
 
+## From logging to a real cut
+
+`decupa` also **edits**: it builds a reviewable MP4 from the logged footage, cut on the music, plus an FCP7 XML of
+the same cut for finishing in Premiere/Resolve.
+
+Start with the **`montar`** prompt (in Claude Code: `/mcp__decupa__montar`). It runs a short intake, one question
+at a time: type of video, idea, format (9:16 / 16:9 / 4:5 / 1:1), duration, captions, **music first**, pace,
+original sound, opening/closing. Then it logs the footage by looking at it and builds a first version.
+
+| Step | Tool | What it does |
+| --- | --- | --- |
+| Music first | `music_map`, `music_windows` | Tempo (with half/double-time readings), beat grid, bars, energy sections, drop, silent bars. Suggests the stretch of the song that fits the duration. Validated on a click track: 7 ms median beat error. |
+| Dual-system sound | `sync_audio` | Offset between a camera clip and an external recorder. Says `reliable: false` when the files don't share sound, e.g. a voice-over. |
+| Multicam | (`multicam_sync` in `montage.py`) | Syncs every camera to one long master (board mix): loudness-envelope search over the whole master, waveform refinement, drift measurement, and a **transcript fallback** (aligns what is *said*) when the mics sound too different. Validated against a manual PluralEyes sync of a 1h53 concert: 0–2 frames. |
+| Vertical | `reframe_preview`, `set_rotation` | Draws the 9:16 crop on real frames. `reframe_x: "auto"` follows the in-focus subject per shot. `set_rotation` fixes cameras shot on their side without metadata. |
+| Build | `build_edit` | Fits the edit to the grid. **V1 spine**: dialogue keeps its natural length and its tail stretches to the next beat; other shots are measured in beats, faster in high-energy sections. **V2 b-roll runs** cover a stretch while speech continues underneath. Multicam angles only name the camera and follow the master clock. Warns about jump cuts, uncovered gaps, cuts off the beat. Every build is a new version. |
+| Render | `render_edit` | Reframe + optional preview grade, music **ducked under speech**, captions from the transcript (one block at a time, punctuation cleaned, `fix` table for names), titles, fades, −14 LUFS. Returns the MP4 and a **storyboard**: one tile per shot from the rendered file, plus a timeline bar with beats, sections and the b-roll layer. Claude reviews it before showing you. |
+| Finish | `export_edit` | FCP7 XML: V1, V2 b-roll with Basic Motion scale/centre/rotation, A1/A2 with per-shot levels, A3/A4 music. |
+
+Names Whisper must get right (brand, people, places) go in `vocabulary` on `index_media`/`index_folder`. They are
+applied as a post-correction by similarity ("Enki Empreendimento" → "INC Empreendimentos"), never as a Whisper hint:
+as a prompt Whisper writes the hint into the transcript, and as hotwords it drops words.
+
+### What the test runs taught it
+
+Built against two real projects and compared with the editor's own Premiere timelines:
+
+- **Testimonial reel (9:16, ~30 s, broker + 3D renders + end card)**: `takes` picks the same hook and CTA takes the
+  editor used (CTA in-point within 20 ms). It needed two rules for that. A take the speaker criticises right after
+  ("gaguejei", "desculpa", "mais um") is out. Completeness is measured against the consensus line, never the longest
+  attempt. Countdowns and chatter are ignored.
+- **Concert (2 cameras at 29.97 + 23.976, 1h53 board audio)**: automatic multicam sync matches the manual sync; the
+  song structure from `music_map` matches where the editor started and ended the vertical cut. Bars are counted from
+  the cut's start beat, because detected downbeat phase is unreliable on syncopated music.
+
 ## How it works
 
 One `ffmpeg` decode per clip produces two streams: tiny full-rate frames (frame-accurate hard-cut detection that

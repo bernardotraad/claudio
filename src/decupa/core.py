@@ -21,7 +21,7 @@ from PIL import Image, ImageDraw, ImageFont
 
 CACHE = os.path.expanduser(os.environ.get('DECUPA_CACHE', '~/.cache/decupa'))
 WHISPER_MODEL = os.environ.get('DECUPA_WHISPER', 'large-v3-turbo')
-INDEX_VERSION = 5
+INDEX_VERSION = 6
 SR = 16000          # audio analysis rate
 HOP = 0.02          # RMS hop (s)
 QFPS = 4            # quality-analysis frame rate
@@ -131,7 +131,12 @@ class Clock:
 
 # ───────────────────────────── probe ─────────────────────────────
 def run(cmd, **kw):
-    return subprocess.run(cmd, capture_output=True, check=True, **kw)
+    """subprocess.run that raises with ffmpeg's own error text (e.g. 'Permission denied') instead of an exit code."""
+    r = subprocess.run(cmd, capture_output=True, **kw)
+    if r.returncode:
+        err = (r.stderr.decode('utf-8', 'replace') if isinstance(r.stderr, bytes) else str(r.stderr or '')).strip().splitlines()
+        raise RuntimeError(f'{os.path.basename(cmd[0])} failed: ' + ' | '.join(err[-3:]))
+    return r
 
 
 def probe(path):
@@ -232,7 +237,7 @@ def analyze_picture(path, d, info, progress=lambda *_: None):
     qw = 320; qh = max(2, int(round(qw * H / W / 2)) * 2)
     tw, th = 64, max(2, int(round(64 * H / W / 2)) * 2)
     qraw = os.path.join(d, 'q.gray')
-    cmd = ['ffmpeg', '-y', '-loglevel', 'error', '-threads', '0', '-i', path, '-filter_complex',
+    cmd = ['ffmpeg', '-y', '-loglevel', 'error', '-threads', '0', '-skip_loop_filter', 'all', '-flags2', 'fast', '-i', path, '-filter_complex',
            f'[0:v:0]split=2[a][b];[a]scale={tw}:{th}:flags=area,format=gray[t];'
            f'[b]fps={QFPS},scale={qw}:{qh}:flags=area,format=gray[q]',
            '-map', '[t]', '-f', 'rawvideo', 'pipe:1', '-map', '[q]', '-f', 'rawvideo', qraw]
@@ -369,9 +374,80 @@ def whisper():
 PROMPT_PT = 'Hã, é... então, tipo, né? Vamos de novo. Corta. Gravando.'
 
 
-def transcribe(d, lang, progress=lambda *_: None, duration=1):
+def apply_vocabulary(words, vocabulary, min_sim=0.72):
+    """Replace misheard names with the right spelling: every window of transcript words whose letters are similar
+    enough to a vocabulary term ("Enki Empreendimento" ≈ "INC Empreendimentos") takes the term, keeping timings."""
+    if not vocabulary:
+        return words
+    terms = [t.strip() for t in re.split(r'[,;\n]', vocabulary) if t.strip()]
+    for term in terms:
+        tt = term.split(); target = norm(term.replace(' ', ''))
+        def best_at(i):
+            best = None
+            for k in {max(1, len(tt) - 1), len(tt), len(tt) + 1}:
+                if i + k > len(words):
+                    continue
+                cand = norm(''.join(w['w'] for w in words[i:i + k]))
+                if not cand or abs(len(cand) - len(target)) > max(3, len(target) // 3):
+                    continue
+                sim = difflib.SequenceMatcher(None, cand, target).ratio()
+                rank = sim + (0.06 if k == len(tt) else 0)      # same word count wins unless another is clearly better
+                if sim >= min_sim and (best is None or rank > best[2]):
+                    best = (sim, k, rank)
+            return best
+
+        i = 0
+        while i < len(words):
+            best = best_at(i)
+            nxt = best_at(i + 1) if best else None
+            if best and nxt and nxt[2] >= best[2]:      # the window starting one word later fits better
+                i += 1
+                continue
+            if best and norm(''.join(w['w'] for w in words[i:i + best[1]])) != target:
+                k = best[1]
+                tail = re.search(r'[,.!?;:]+$', words[i + k - 1]['w'])
+                seg = words[i:i + k]
+                new = [{**seg[0], 'w': tt[0]}]
+                for j, part in enumerate(tt[1:], 1):
+                    src = seg[min(j, k - 1)]
+                    new.append({**src, 'w': part})
+                if tail:
+                    new[-1]['w'] += tail.group(0)
+                if len(new) > 1:   # spread the original span over the new words
+                    s0, e0 = seg[0]['s'], seg[-1]['e']
+                    step = (e0 - s0) / len(new)
+                    for j, w in enumerate(new):
+                        w['s'], w['e'] = round(s0 + j * step, 3), round(s0 + (j + 1) * step, 3)
+                for w in new:
+                    w['vocab'] = True
+                words[i:i + k] = new
+                i += len(new)
+            else:
+                i += 1
+    return words
+
+
+def _resegment(segments, words):
+    """Rebuild segment texts from (corrected) words."""
+    return [{**s, 'text': ' '.join(w['w'] for w in words if s['s'] - 0.01 <= w['s'] < s['e'] + 0.01) or s['text']} for s in segments]
+
+
+def fix_word_times(words):
+    """Whisper stretches the first word after a pause back across the silence ("família" 53.6→63.3 s when it is said
+    at ~63 s). A word far longer than its letters allow is moved to the END of its span, where it was spoken."""
+    for w in words:
+        est = 0.075 * len(w['w']) + 0.35
+        if w['e'] - w['s'] > max(1.2, 2.5 * est):
+            w['s'] = round(w['e'] - est, 3)
+            w['stretched'] = True
+    return words
+
+
+def transcribe(d, lang, progress=lambda *_: None, duration=1, vocabulary=None):
     audio = load_pcm(d)
     prompt = PROMPT_PT if (lang or '').startswith('pt') else None
+    # vocabulary is NOT given to Whisper (in the prompt it gets hallucinated into the text; as hotwords it drops
+    # words): we transcribe faithfully and correct names afterwards (apply_vocabulary)
     words, out = [], []
     if whisper_backend() == 'mlx':
         import mlx_whisper
@@ -383,7 +459,8 @@ def transcribe(d, lang, progress=lambda *_: None, duration=1):
                           'p': round(float(w.get('probability', 1)), 3)} for w in s.get('words', []) if w['word'].strip())
             out.append({'s': round(float(s['start']), 2), 'e': round(float(s['end']), 2), 'text': s['text'].strip()})
         progress('speech', 1)
-        return {'language': r.get('language', lang), 'segments': out, 'words': words}
+        words = apply_vocabulary(fix_word_times(words), vocabulary)
+        return {'language': r.get('language', lang), 'segments': _resegment(out, words) if vocabulary else out, 'words': words}
     segs, info = whisper().transcribe(
         audio, language=lang or None, word_timestamps=True, vad_filter=True,
         vad_parameters={'min_silence_duration_ms': 300},
@@ -395,7 +472,8 @@ def transcribe(d, lang, progress=lambda *_: None, duration=1):
         words.extend(ws)
         out.append({'s': round(float(s.start), 2), 'e': round(float(s.end), 2), 'text': s.text.strip()})
         progress('speech', s.end / max(duration, 1))
-    return {'language': info.language, 'segments': out, 'words': words}
+    words = apply_vocabulary(fix_word_times(words), vocabulary)
+    return {'language': info.language, 'segments': _resegment(out, words) if vocabulary else out, 'words': words}
 
 
 def norm(w):
@@ -405,37 +483,79 @@ def norm(w):
 FILLERS = {'ha', 'han', 'hm', 'hmm', 'eh', 'ehh', 'ahn', 'uh', 'uhm', 'um', 'hum'}   # not 'é' (verb) / 'né' / 'tipo' (often meaningful)
 
 
+CREW = {'acao', 'action', 'tres', 'dois', 'um', 'uma', '1', '2', '3', 'camera', 'rodando', 'gravando', 'corta', 'vamos', 'la',
+        'beleza', 'ta', 'foi', 'som', 'ok', 'show', 'boa', 'pera', 'perai', 'espera', 'isso', 'valendo', 'gravou', 'rolando'}
+CRITIQUE = ('gaguejei', 'engoli', 'buguei', 'errei', 'desculpa', 'denovo', 'maisum', 'maisuma', 'perdi', 'naoficou',
+            'ficouruim', 'travei', 'esqueci', 'perai', 'peraai', 'troquei', 'falelerrado', 'stumbled', 'sorry', 'again',
+            'onemore', 'mybad', 'messedup')
+
+
+def _is_critique(ws):
+    flat = ''.join(norm(w['w']) for w in ws)
+    return any(c in flat for c in CRITIQUE)
+
+
 def utterances(words, gap=0.7):
-    """Split word stream at pauses ≥ gap — each utterance is one candidate line/attempt."""
-    out, cur = [], []
+    """Split the word stream at pauses >= gap, strip a leading countdown/slate ("camera rodando, 3, 2, 1, acao"),
+    split off a trailing self-critique ("...do aluguel. Mas eu gaguejei") and mark chatter (< 4 content words)."""
+    raw, cur = [], []
     for w in words:
         if cur and w['s'] - cur[-1]['e'] >= gap:
-            out.append(cur); cur = []
+            raw.append(cur); cur = []
         cur.append(w)
     if cur:
-        out.append(cur)
-    return [{'s': u[0]['s'], 'e': u[-1]['e'], 'text': ' '.join(x['w'] for x in u),
-             'n': len(u), 'conf': round(float(np.mean([x['p'] for x in u])), 3),
-             'fillers': sum(norm(x['w']) in FILLERS for x in u)} for u in out]
+        raw.append(cur)
+    out = []
+    for u in raw:
+        k = 0
+        while k < len(u) - 1 and norm(u[k]['w']) in CREW:
+            k += 1
+        u = u[k:] if sum(norm(x['w']) not in CREW for x in u[k:]) >= 3 else u
+        parts, flagged = [u], False
+        for j in range(4, len(u)):                    # line followed by the speaker's critique -> split it off
+            before = sum(norm(x['w']) not in CREW for x in u[:j])
+            if _is_critique(u[j:j + 3]) and (re.search(r'[.?!,]$', u[j - 1]['w']) or before >= 5):
+                parts, flagged = [u[:j], u[j:]], True
+                break
+        for pi, p in enumerate(parts):
+            content = [x for x in p if norm(x['w']) not in CREW]
+            out.append({'s': p[0]['s'], 'e': p[-1]['e'], 'text': ' '.join(x['w'] for x in p), 'n': len(p),
+                        'words': p, 'conf': round(float(np.mean([x['p'] for x in p])), 3),
+                        'fillers': sum(norm(x['w']) in FILLERS for x in p),
+                        'chatter': len(content) < 4 or (pi == 1 and flagged) or (len(parts) == 1 and _is_critique(p) and len(content) < 8),
+                        'self_critique_after': flagged and pi == 0})
+    # a critique uttered right after a take (next utterance, within 3 s) flags that take
+    for i in range(len(out) - 1):
+        if not out[i]['chatter'] and out[i + 1]['s'] - out[i]['e'] < 3.0 and _is_critique(out[i + 1]['words']):
+            out[i]['self_critique_after'] = True
+    return out
 
 
-def group_takes(utts, sim=0.55):
-    """Cluster repeated attempts of the same line. A false start (prefix of a later attempt) joins its group."""
-    toks = [[norm(w) for w in u['text'].split() if norm(w)] for u in utts]
+def _toks(u):
+    return [norm(w['w']) for w in u['words'] if norm(w['w']) and norm(w['w']) not in CREW]
+
+
+def group_takes(utts, sim=0.55, window=240.0):
+    """Cluster repeated attempts of the same line (false starts join as a prefix). Chatter is ignored. Attempts of one
+    line can be minutes apart with chatter between them, so grouping is by time window, not by position."""
     groups = []
-    for i, t in enumerate(toks):
-        if not t:
+    for i, u in enumerate(utts):
+        if u['chatter']:
             continue
+        t = _toks(u)
         best, bs = None, 0
         for g in groups:
-            ref = toks[g[-1]]
-            r = difflib.SequenceMatcher(None, ref, t, autojunk=False).ratio()
-            short, long_ = (t, ref) if len(t) < len(ref) else (ref, t)
-            pref = difflib.SequenceMatcher(None, short, long_[:len(short)], autojunk=False).ratio() if len(short) >= 3 else 0
-            score = max(r, pref * 0.95)
-            if score > bs:
-                best, bs = g, score
-        if best is not None and bs >= sim and i - best[-1] <= 6:
+            if u['s'] - utts[g[-1]]['e'] > window:
+                continue
+            for j in g[-3:]:
+                ref = _toks(utts[j])
+                r = difflib.SequenceMatcher(None, ref, t, autojunk=False).ratio()
+                short, long_ = (t, ref) if len(t) < len(ref) else (ref, t)
+                pref = difflib.SequenceMatcher(None, short, long_[:len(short)], autojunk=False).ratio() if len(short) >= 3 else 0
+                sc = max(r, pref * 0.95)
+                if sc > bs:
+                    best, bs = g, sc
+        if best is not None and bs >= sim:
             best.append(i)
         else:
             groups.append([i])
@@ -443,13 +563,21 @@ def group_takes(utts, sim=0.55):
 
 
 # ───────────────────────────── index (orchestration) ─────────────────────────────
-def build_index(path, lang='pt', progress=lambda *_: None, force=False):
+def build_index(path, lang='pt', progress=lambda *_: None, force=False, vocabulary=None):
+    """vocabulary: names Whisper must get right ("INC Empreendimentos, Juiz de Fora"). A new vocabulary on an existing
+    index re-runs only the transcript."""
     path = local_path(path)
     d = cache_dir(path)
     ip = os.path.join(d, 'index.json')
     if os.path.exists(ip) and not force:
         idx = json.load(open(ip))
         if idx.get('version') == INDEX_VERSION:
+            if vocabulary and vocabulary != idx.get('vocabulary') and idx.get('audio'):
+                sp = transcribe(d, lang, progress, idx['info']['duration'], vocabulary)
+                json.dump(sp['words'], open(os.path.join(d, 'words.json'), 'w'), ensure_ascii=False)
+                idx['speech'] = {'language': sp['language'], 'segments': sp['segments'], 'n_words': len(sp['words'])}
+                idx['vocabulary'] = vocabulary
+                json.dump(idx, open(ip, 'w'), ensure_ascii=False, indent=1)
             return idx
     t0 = time.time()
     info = probe(path)
@@ -461,12 +589,29 @@ def build_index(path, lang='pt', progress=lambda *_: None, force=False):
         idx['picture'] = analyze_picture(path, d, info, progress)
     sp = None
     if idx['audio'] and idx['audio']['speech_ratio'] > 0.02:
-        sp = transcribe(d, lang, progress, info['duration'])
+        sp = transcribe(d, lang, progress, info['duration'], vocabulary)
         json.dump(sp['words'], open(os.path.join(d, 'words.json'), 'w'), ensure_ascii=False)
+        idx['vocabulary'] = vocabulary
     idx['speech'] = {'language': sp['language'], 'segments': sp['segments'], 'n_words': len(sp['words'])} if sp else None
     idx['seconds_to_index'] = round(time.time() - t0, 1)
     json.dump(idx, open(ip, 'w'), ensure_ascii=False, indent=1)
     return idx
+
+
+def light_index(path, lang='pt'):
+    """The full index if it exists, else just probe + cache dir (enough to cut/render/export a clip without
+    paying for the full analysis — e.g. 20-min multicam angles)."""
+    path = local_path(path)
+    d = cache_dir(path)
+    ip = os.path.join(d, 'index.json')
+    if os.path.exists(ip):
+        idx = json.load(open(ip))
+        if idx.get('version') == INDEX_VERSION:
+            return idx
+    lp = os.path.join(d, 'probe.json')
+    if not os.path.exists(lp):
+        json.dump(probe(path), open(lp, 'w'))
+    return {'version': INDEX_VERSION, 'info': json.load(open(lp)), 'cache': d, 'light': True, 'picture': {}, 'audio': None}
 
 
 def load_words(idx):
@@ -619,30 +764,41 @@ def scenes_report(idxs, prefer='last'):
 
 # ───────────────────────────── takes (dialogue) ─────────────────────────────
 def takes_report(idx, gap=0.7, prefer='last'):
+    """Repeated attempts of each line, ranked. Completeness is measured against the CONSENSUS line (medoid of the
+    attempts); a take followed by the speaker's own critique ("gaguejei", "desculpa", "mais um") is penalised;
+    countdowns and chatter are ignored; each take is trimmed to the line (no trailing comments)."""
     words = performance_words(idx) if slate(idx)['has_slate'] else load_words(idx)
     if not words:
         return {'groups': [], 'note': 'no speech found in this clip'}
     U = utterances(words, gap)
     G = group_takes(U)
+    sm = lambda a, b: difflib.SequenceMatcher(None, a, b, autojunk=False)
     groups = []
     for gi, g in enumerate(G):
+        toks = [_toks(U[i]) for i in g]
+        cons = max(toks, key=lambda a: sum(sm(a, b).ratio() for b in toks)) if len(toks) > 1 else toks[0]
         cands = []
-        longest = max(U[i]['n'] for i in g)
-        for rank_in_time, i in enumerate(g):
+        for k, i in enumerate(g):
             u = U[i]
+            t = toks[k]
+            matched = sum(bl.size for bl in sm(cons, t).get_matching_blocks())
+            coverage = matched / max(len(cons), 1)
+            extra = max(0, len(t) - matched)
             q = range_quality(idx, u['s'], u['e'])
-            complete = u['n'] >= 0.85 * longest
-            score = (2.0 * complete + 1.5 * u['conf'] - 0.4 * u['fillers'] + 0.6 * min(q.get('sharpness', 1), 1)
+            score = (3.0 * coverage + 1.2 * u['conf'] - 0.4 * u['fillers'] - 0.15 * extra
+                     - 2.5 * u['self_critique_after'] + 0.6 * min(q.get('sharpness', 1), 1)
                      - 0.5 * (q.get('motion') in ('shaky', 'chaotic')) - 0.02 * q.get('clipped_highlights_pct', 0)
-                     + (0.6 * rank_in_time / max(len(g) - 1, 1) if prefer == 'last' else 0))
-            cands.append({'take': rank_in_time + 1, 's': u['s'], 'e': u['e'], 'text': u['text'], 'words': u['n'],
-                          'asr_conf': u['conf'], 'fillers': u['fillers'], 'complete': complete,
+                     + (0.6 * k / max(len(g) - 1, 1) if prefer == 'last' else 0))
+            cands.append({'take': k + 1, 's': u['s'], 'e': u['e'], 'text': u['text'], 'words': u['n'],
+                          'coverage': round(coverage, 2), 'complete': coverage >= 0.9, 'extra_words': extra,
+                          'asr_conf': u['conf'], 'fillers': u['fillers'], 'self_critique_after': u['self_critique_after'],
                           'picture': q, 'score': round(score, 2)})
         best = max(cands, key=lambda c: c['score'])
-        groups.append({'group': gi + 1, 'attempts': len(g), 'line': best['text'], 'best_take': best['take'],
-                       'candidates': cands})
-    return {'groups': groups, 'utterances': len(U),
-            'how_to_verify': 'look at timeline_strip for the best take (start/end) and for any close runner-up'}
+        groups.append({'group': gi + 1, 'attempts': len(g), 'line': ' '.join(cons), 'best_take': best['take'],
+                       'best': {'s': best['s'], 'e': best['e']}, 'candidates': cands})
+    groups.sort(key=lambda g: g['candidates'][0]['s'])
+    return {'groups': groups, 'utterances': len(U), 'chatter_ignored': sum(u['chatter'] for u in U),
+            'how_to_verify': 'timeline_strip the best take (and a close runner-up); a take the speaker criticised is out'}
 
 
 # ───────────────────────────── b-roll (no speech) ─────────────────────────────
@@ -727,11 +883,11 @@ def snap(idx, s, e, pad_in=0.12, pad_out=0.20, mode='speech', tighten=False):
             s = max(first['s'] - pad_in, (prev[-1]['e'] + 0.04) if prev else 0)
             e = min(last['e'] + pad_out, (nxt[0]['s'] - 0.04) if nxt else dur)
         else:
-            for w in words:                       # in-point inside a word → before it
-                if w['s'] - pad_in < s < w['e']:
+            for w in words:                       # in-point inside a word → before it (≤ 0.6 s: more = bad timestamp)
+                if w['s'] - pad_in < s < w['e'] and s - (w['s'] - pad_in) <= 0.6:
                     s = max(0, w['s'] - pad_in); break
             for w in reversed(words):             # out-point inside a word → after it
-                if w['s'] < e < w['e'] + pad_out:
+                if w['s'] < e < w['e'] + pad_out and (w['e'] + pad_out) - e <= 0.6:
                     e = min(dur, w['e'] + pad_out); break
         p = os.path.join(idx['cache'], 'rms_db.npy')
         if os.path.exists(p):
@@ -765,10 +921,37 @@ def _font(size):
     return ImageFont.load_default()
 
 
+ROT_VF = {90: 'transpose=1', 270: 'transpose=2', 180: 'hflip,vflip'}
+
+
+def get_rotation(path):
+    """Extra rotation set by the user/Claude for clips shot sideways without metadata (0/90/180/270, clockwise)."""
+    p = os.path.join(cache_dir(local_path(path)), 'orientation.json')
+    return json.load(open(p)).get('rotate', 0) if os.path.exists(p) else 0
+
+
+def set_rotation(path, degrees):
+    degrees = int(degrees) % 360
+    assert degrees in (0, 90, 180, 270), 'rotation must be 0, 90, 180 or 270 (clockwise)'
+    json.dump({'rotate': degrees}, open(os.path.join(cache_dir(local_path(path)), 'orientation.json'), 'w'))
+    return degrees
+
+
+def rot_vf(path):
+    r = ROT_VF.get(get_rotation(path))
+    return r + ',' if r else ''
+
+
+def oriented(info):
+    """(width, height) as the picture is meant to be seen (after the user rotation)."""
+    w, h = info['width'], info['height']
+    return (h, w) if get_rotation(info['path']) in (90, 270) else (w, h)
+
+
 def grab(path, t, width):
-    """One frame as PIL image (accurate seek, rotation applied by ffmpeg)."""
+    """One frame as PIL image (accurate seek, metadata + user rotation applied)."""
     raw = run(['ffmpeg', '-loglevel', 'error', '-ss', f'{max(t, 0):.3f}', '-i', path, '-frames:v', '1',
-               '-vf', f'scale={width}:-2', '-f', 'image2pipe', '-vcodec', 'png', '-']).stdout
+               '-vf', f'{rot_vf(path)}scale={width}:-2', '-f', 'image2pipe', '-vcodec', 'png', '-']).stdout
     return Image.open(io.BytesIO(raw)).convert('RGB')
 
 
@@ -776,8 +959,8 @@ def grab_many(path, s, e, n, width):
     """n evenly spaced frames in [s, e) with one decode."""
     dur = max(e - s, 0.05)
     raw = run(['ffmpeg', '-loglevel', 'error', '-ss', f'{s:.3f}', '-t', f'{dur:.3f}', '-i', path,
-               '-vf', f'fps={n / dur:.6f}:round=down,scale={width}:-2', '-frames:v', str(n),
-               '-f', 'image2pipe', '-vcodec', 'ppm', '-']).stdout
+               '-vf', f'{rot_vf(path)}fps={n / dur:.6f}:round=down,scale={width}:-2', '-frames:v', str(n),
+               '-pix_fmt', 'rgb24', '-f', 'image2pipe', '-vcodec', 'ppm', '-']).stdout
     ims, i = [], 0
     while i < len(raw):
         hdr = raw[i:i + 64].split(maxsplit=4)
@@ -819,7 +1002,7 @@ def contact_sheet(idx, s=None, e=None, n=12, cols=None, width=None):
     info = idx['info']; clk = clock_of(info)
     s = 0 if s is None else max(0, s)
     e = info['duration'] if e is None else min(e, info['duration'])
-    portrait = info['height'] > info['width']
+    portrait = oriented(info)[1] > oriented(info)[0]
     cols = cols or (6 if portrait else 4)
     width = width or (260 if portrait else 400)
     words = load_words(idx)

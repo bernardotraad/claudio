@@ -159,6 +159,29 @@ Pedidos curtos que funcionam bem:
 - *"Onde ela fala 'hoje eu sou da peça também'? Procura em todos os clipes."*
 - *"Acha b-rolls estáveis e nítidos com mais de 3 s nessa pasta e descreve cada um."*
 
+## Da decupagem a um corte de verdade
+
+O `decupa` também **monta**: gera um MP4 para revisão a partir do material decupado, cortado na música, e um FCP7 XML
+do mesmo corte para finalizar no Premiere/Resolve.
+
+Comece pelo prompt **`montar`** (no Claude Code: `/mcp__decupa__montar`). Ele faz uma entrevista curta, uma
+pergunta por vez: tipo de vídeo, ideia, formato, duração, legendas, **trilha primeiro**, ritmo, som direto,
+abertura/fecho. Depois decupa olhando o material e entrega uma primeira versão.
+
+| Etapa | Ferramenta | O que faz |
+| --- | --- | --- |
+| Trilha primeiro | `music_map`, `music_windows` | BPM (com leitura half/double-time), grade de beats, compassos, seções de energia, drop, compassos vazios. Sugere o trecho da música que cabe na duração. |
+| Som externo | `sync_audio` | Offset entre câmera e gravador. Diz `reliable: false` quando os arquivos não têm o mesmo som (ex.: locução). |
+| Multicâmera | `multicam_sync` (`montage.py`) | Sincroniza cada câmera num master longo (mesa de som): envelope + refinamento na forma de onda + drift. Usa **transcrição como fallback** quando os microfones soam diferentes demais. Validado contra um sync feito no PluralEyes (show de 1h53): 0–2 frames. |
+| Vertical | `reframe_preview`, `set_rotation` | Mostra o crop 9:16 em frames reais. `reframe_x: "auto"` segue o assunto em foco a cada plano. `set_rotation` corrige câmera gravada deitada sem metadado. |
+| Montar | `build_edit` | Encaixa no grid. **V1**: fala mantém a duração e o rabo vai até o próximo beat; o resto em beats, mais rápido nas partes de energia alta. **V2**: b-roll por cima da fala. Multicâmera: o plano só diz a câmera e segue o relógio do master. Avisa jump cut, buraco, corte fora do beat. Cada build é uma versão nova. |
+| Render | `render_edit` | Crop + grade de prévia, trilha **abaixando sob a fala**, legendas da transcrição (um bloco por vez, pontuação limpa, tabela `fix` pra nomes), títulos, fades, −14 LUFS. Devolve o MP4 e um **storyboard** do arquivo renderizado, que o Claude revisa antes de te mostrar. |
+| Finalizar | `export_edit` | FCP7 XML: V1, V2 com Basic Motion (escala/centro/rotação), A1/A2 com nível por plano, A3/A4 trilha. |
+
+Nomes que o Whisper precisa acertar (marca, pessoas, lugares) vão em `vocabulary` no `index_media`/`index_folder`.
+Eles são aplicados como correção por similaridade ("Enki Empreendimento" → "INC Empreendimentos"), nunca como dica
+pro Whisper: no prompt ele escreve a dica na transcrição, e em hotwords ele perde palavras.
+
 ## Como funciona
 
 Um decode do `ffmpeg` por clipe gera dois fluxos: frames minúsculos em taxa cheia (detecção de corte exata por

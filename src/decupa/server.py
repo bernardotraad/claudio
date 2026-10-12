@@ -12,7 +12,7 @@ Workflow the tools are designed for:
 import os, queue, sys, threading, traceback
 
 from mcp.server.fastmcp import FastMCP, Image
-from decupa import core
+from decupa import core, montage
 
 mcp = FastMCP('decupa', instructions=__doc__)
 
@@ -22,11 +22,11 @@ _jobs, _q = {}, queue.Queue()
 
 def _worker():
     while True:
-        path, lang, force = _q.get()
+        path, lang, force, vocab = _q.get()
         job = _jobs[path]
         try:
             job['state'] = 'running'
-            core.build_index(path, lang, lambda stage, f: job.update(stage=stage, progress=round(min(f, 1), 2)), force)
+            core.build_index(path, lang, lambda stage, f: job.update(stage=stage, progress=round(min(f, 1), 2)), force, vocab)
             job['state'] = 'done'
         except Exception as e:
             job.update(state='error', error=f'{e}', trace=traceback.format_exc()[-1500:])
@@ -37,7 +37,7 @@ def _worker():
 threading.Thread(target=_worker, daemon=True).start()
 
 
-def _enqueue(path, lang, force=False):
+def _enqueue(path, lang, force=False, vocabulary=None):
     path = core.local_path(path)
     if not os.path.isfile(path):
         raise FileNotFoundError(path)
@@ -45,7 +45,7 @@ def _enqueue(path, lang, force=False):
     if j and j['state'] in ('queued', 'running'):
         return path
     _jobs[path] = {'state': 'queued', 'stage': None, 'progress': 0}
-    _q.put((path, lang, force))
+    _q.put((path, lang, force, vocabulary))
     return path
 
 
@@ -84,12 +84,12 @@ def _summary(idx):
 
 # ───────────────────────────── indexing ─────────────────────────────
 @mcp.tool()
-def index_media(path: str, language: str = 'pt', wait_seconds: int = 40, force: bool = False) -> dict:
+def index_media(path: str, language: str = 'pt', wait_seconds: int = 40, force: bool = False, vocabulary: str = None) -> dict:
     """Analyse one video (Windows path like D:\\Footage\\A001.mov or Linux path). Runs in background on the GPU:
     probe + audio + picture (cuts, sharpness, exposure, camera motion) + transcript with word timestamps.
     Waits up to wait_seconds; if not finished returns state=running — poll index_status. Cached afterwards."""
     import time
-    p = _enqueue(path, language, force) if force or not _is_indexed(path) else core.local_path(path)
+    p = _enqueue(path, language, force, vocabulary) if force or vocabulary or not _is_indexed(path) else core.local_path(path)
     t0 = time.time()
     while time.time() - t0 < wait_seconds and _jobs.get(p, {}).get('state') in ('queued', 'running'):
         time.sleep(0.5)
@@ -108,8 +108,20 @@ def _is_indexed(path):
 
 
 @mcp.tool()
-def index_folder(folder: str, language: str = 'pt', recursive: bool = True) -> dict:
-    """Queue every video in a folder (e.g. a card dump) for indexing. Returns the list; poll index_status."""
+def set_rotation(degrees: int, paths: list[str] = None, folder: str = None) -> dict:
+    """Clips shot with the camera on its side (vertical framing) often carry no rotation metadata: if a contact sheet
+    shows people sideways, set 90 (clockwise) / 270 / 180 here. Applies everywhere after: sheets, crops, renders, XML."""
+    files = [core.local_path(p) for p in (paths or [])]
+    if folder:
+        root = core.local_path(folder)
+        files += [os.path.join(dp, f) for dp, _, fn in os.walk(root) for f in sorted(fn) if os.path.splitext(f)[1].lower() in core.VIDEO_EXT]
+    return {'rotated': [core.nle_path(f) for f in files if core.set_rotation(f, degrees) is not None], 'degrees': degrees}
+
+
+@mcp.tool()
+def index_folder(folder: str, language: str = 'pt', recursive: bool = True, vocabulary: str = None) -> dict:
+    """Queue every video in a folder (e.g. a card dump) for indexing. Returns the list; poll index_status.
+    vocabulary: names the transcript must get right — brand, people, places ("INC Empreendimentos, Juiz de Fora")."""
     root = core.local_path(folder)
     files = []
     for dp, dn, fn in os.walk(root):
@@ -117,9 +129,9 @@ def index_folder(folder: str, language: str = 'pt', recursive: bool = True) -> d
                   and not f.startswith('._')]
         if not recursive:
             break
-    queued = [f for f in files if not _is_indexed(f)]
+    queued = [f for f in files if not _is_indexed(f) or vocabulary]
     for f in queued:
-        _enqueue(f, language)
+        _enqueue(f, language, vocabulary=vocabulary)
     return {'videos': len(files), 'queued': len(queued), 'already_indexed': len(files) - len(queued),
             'files': [core.nle_path(f) for f in files]}
 
@@ -312,6 +324,228 @@ def export_timeline(plan: dict, out_path: str, format: str = 'fcp7xml') -> dict:
 for _f in (nle_cut_list, export_timeline):
     _f.__doc__ += '\n' + PLAN_DOC
     mcp.tool()(_f)
+
+# ───────────────────────────── montage: from logged footage to a reviewable cut ─────────────────────────────
+import json as _json
+
+_render_jobs = {}
+
+
+@mcp.tool()
+def music_map(path: str, start: float = 0.0, end: float = None) -> dict:
+    """MUSIC FIRST. Map a song (or any audio, incl. a concert's board mix): tempo (with half/double-time
+    alternatives), beat grid, bar downbeats, energy sections (low/mid/high), the drop, quiet bars. Use it before
+    choosing shots — the song decides where cuts land. Full grid is cached for build_edit."""
+    return montage.music_summary(montage.music_map(path, start, end))
+
+
+@mcp.tool()
+def music_windows(path: str, duration: float, n: int = 3) -> list:
+    """Best stretches of a song for a cut of `duration` seconds: start and end on downbeats, prefer ending on a
+    section change and holding the drop in the first 20–60 %. Offer these to the user before building."""
+    return montage.music_windows(montage.music_map(path), duration, n)
+
+
+@mcp.tool()
+def sync_audio(video: str, audio: str, max_offset: float = 120.0) -> dict:
+    """Offset between a camera clip and an external recorder file (audio_time = video_time + offset_sec). Use it
+    for ext_audio on a shot. reliable=False means the two files don't share sound (e.g. a voice-over)."""
+    return montage.sync_audio(video, audio, max_offset)
+
+
+@mcp.tool()
+def reframe_preview(path: str, times: list[float], aspect: str = '9:16', x: float = None, y: float = None,
+                    zoom: float = 1.0) -> list:
+    """See the crop for a vertical/square version: frames with the crop box drawn (outside dimmed). Without x/y it
+    suggests the crop from where the in-focus subject is. Returns the image + the reframe_x/reframe_y/zoom to put on
+    the shot."""
+    img, meta = montage.crop_preview(_idx(path), [float(t) for t in times], aspect, x, y, zoom)
+    return [Image(data=core.to_jpeg(img), format='jpeg'), _json.dumps(meta)]
+
+
+@mcp.tool()
+def save_brief(project: str, brief: dict) -> dict:
+    """Store the answers of the intake (see the `montar` prompt) in <project>/brief.json so every version follows them."""
+    p = montage.project_dir(project)
+    _json.dump(brief, open(os.path.join(p, 'brief.json'), 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
+    return {'saved': core.nle_path(os.path.join(p, 'brief.json'))}
+
+
+@mcp.tool()
+def read_project(project: str) -> dict:
+    """Brief + list of edit versions (with duration/warnings) + renders of a project folder."""
+    p = montage.project_dir(project)
+    bp = os.path.join(p, 'brief.json')
+    vers = []
+    for f in sorted(os.listdir(p)):
+        if f.startswith('edit_v') and f.endswith('.json'):
+            e = _json.load(open(os.path.join(p, f), encoding='utf-8'))
+            vers.append({'file': f, 'duration': e.get('duration'), 'shots': len(e.get('shots', [])),
+                         'broll': len(e.get('overlays', [])), 'warnings': e.get('warnings', [])})
+    return {'brief': _json.load(open(bp, encoding='utf-8')) if os.path.exists(bp) else None, 'versions': vers,
+            'renders': [core.nle_path(os.path.join(p, 'renders', f)) for f in sorted(os.listdir(os.path.join(p, 'renders')))]}
+
+
+@mcp.tool()
+def multicam_sync(master: str, project: str, folder: str = None, paths: list[str] = None) -> dict:
+    """Sync every camera clip to one long master recording (board mix / recorder). Per clip: offset
+    (master_time = clip_time + offset), confidence, method (audio | transcript fallback when mics sound too
+    different), drift over the clip. Saved to <project>/multicam.json for multicam_monitor and multicam edits:
+    a shot {"path": clip, "offset": offset, "beats": 8} with edit.music = {"path": master, "master": true, "start": t}."""
+    files = [core.local_path(p) for p in (paths or [])]
+    if folder:
+        root = core.local_path(folder)
+        files += [os.path.join(dp, f) for dp, _, fn in os.walk(root) for f in sorted(fn)
+                  if os.path.splitext(f)[1].lower() in core.VIDEO_EXT and not f.startswith('._')]
+    res = montage.multicam_sync(master, sorted(set(files)))
+    p = montage.project_dir(project)
+    _json.dump({'master': core.local_path(master), 'clips': res}, open(os.path.join(p, 'multicam.json'), 'w'), indent=1)
+    return {'master': core.nle_path(core.local_path(master)), 'clips': [{k: r.get(k) for k in
+            ('clip', 'offset', 'confidence', 'reliable', 'method', 'master_in', 'master_out', 'fps', 'drift_ms_over_clip')} for r in res]}
+
+
+@mcp.tool()
+def multicam_monitor(project: str, start: float, end: float, columns: int = 8) -> list:
+    """LOOK at every synced angle side by side: one row per camera, one column per moment of MASTER time in
+    [start, end] (black = that camera wasn't rolling). Choose the angle for each bar from this."""
+    p = montage.project_dir(project)
+    mc = _json.load(open(os.path.join(p, 'multicam.json')))
+    img, ts = montage.multicam_grid(mc['clips'], start, end, max(2, min(columns, 12)), 260)
+    return [Image(data=core.to_jpeg(img), format='jpeg'), _json.dumps({'columns_at_master_seconds': ts})]
+
+
+EDIT_DOC = """edit = {
+  "name": "INC — Guilherme v1", "aspect": "9:16" | "16:9" | "1:1" | "4:5", "fps": optional "30000/1001",
+  "music": {"path": "D:\\x\\song.wav", "start": 63.32 (a downbeat, from music_windows), "gain_db": -4, "duck_db": -14,
+            "fade_out": 1.5},
+  "cut_on": "beat" | "downbeat" | "half" | "none",   "pace": "calm" | "medium" | "fast" | "hype",
+  "pace_follows_music": true (faster in high-energy sections, slower in low),
+  "shots": [                                   # V1 spine, in order
+    {"path": "...C0025.MP4", "in": 9.2, "out": 22.3, "audio": "dialogue", "snap": "speech", "label": "fala 1",
+     "reframe_x": 0.42},                       # dialogue keeps its length; tail stretched to the next beat if the source allows
+    {"path": "...C0031.MP4", "in": 3.0, "out": 9.0, "audio": "ambient", "beats": 4},   # or "len": seconds
+    {"path": "...ASSINATURA.mp4", "in": 5.37, "out": 10.78, "audio": "mute", "label": "end card"}],
+  multicam shot: {"path": "...C0015.MP4", "offset": <multicam_sync offset>, "beats": 8, "reframe_x": "auto", "grade": "auto"}
+  "overlays": [                                # V2 b-roll runs over the spine (speech keeps playing)
+    {"from": 5.2, "to": 13.0, "clips": [{"path": "...FACHADA.mp4", "in": 0, "out": 6}, {"path": "...", "in": 2, "out": 7}]}],
+  "captions": {"enabled": true, "max_words": 4, "uppercase": true, "fix": {"Enki": "INC"}},
+  "texts": [{"text": "Guilherme\nCorretor INC", "at": 0.5, "dur": 2.5, "style": "lower" | "title"}],
+  "ambient_db": -16, "fade_in": 0.3, "fade_out": 0.8 }
+Optional per shot/clip: "anchor": "start"|"center"|"end", "zoom", "reframe_y", "gain_db",
+"ext_audio": {"path": "...wav", "offset": <sync_audio offset_sec>}."""
+
+
+def build_edit(project: str, edit: dict) -> dict:
+    """Fit an edit to the beat grid and save it as the next version (<project>/edit_vN.json). Returns the timeline
+    (V1 spine + V2 b-roll with timeline/source times and length in beats) and warnings. Then render_edit to see it."""
+    p = montage.project_dir(project)
+    fit = montage.fit_edit(edit)
+    v = montage.next_version(p)
+    fit['version'] = v
+    _json.dump(fit, open(os.path.join(p, f'edit_v{v}.json'), 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
+    return {'version': v, 'duration': fit['duration'], 'bpm': fit.get('bpm'), 'warnings': fit['warnings'],
+            'timeline': montage.timeline_table(fit)}
+
+
+def _render_worker(key, p, v, quality):
+    job = _render_jobs[key]
+    try:
+        _, fit = montage.load_fit(p, v)
+        out = os.path.join(p, 'renders', f'edit_v{v}_{quality}.mp4')
+        job['state'] = 'rendering'
+        res = montage.render_edit(fit, out, quality)
+        sb = montage.storyboard(fit, out)
+        sbp = os.path.join(p, 'renders', f'edit_v{v}_storyboard.jpg')
+        open(sbp, 'wb').write(core.to_jpeg(sb, max_side=3000))
+        job.update(state='done', result={**res, 'storyboard': core.nle_path(sbp)}, storyboard=sbp)
+    except Exception as e:
+        job.update(state='error', error=str(e)[-1500:])
+
+
+@mcp.tool()
+def render_edit(project: str, version: int = None, quality: str = 'preview', wait_seconds: int = 50) -> list:
+    """Render an edit version to MP4 the user can watch: spine + b-roll overlays (reframed), music ducked under
+    speech, captions/titles burned in, fades, loudness −14 LUFS. quality='preview' (fast, small) or 'final' (full
+    res). Returns the file path and a STORYBOARD image (one tile per shot taken from the rendered file + timeline bar
+    with beats/sections) — check it before showing the user. Long renders continue in background: call again."""
+    p = montage.project_dir(project)
+    v, _ = montage.load_fit(p, version)
+    key = f'{p}|{v}|{quality}'
+    j = _render_jobs.get(key)
+    if not j or j['state'] in ('done', 'error') and not j.get('seen_pending'):
+        if not j or j['state'] == 'error':
+            _render_jobs[key] = j = {'state': 'queued'}
+            threading.Thread(target=_render_worker, args=(key, p, v, quality), daemon=True).start()
+    import time
+    t0 = time.time()
+    while time.time() - t0 < wait_seconds and j['state'] in ('queued', 'rendering'):
+        time.sleep(0.5)
+    if j['state'] == 'done':
+        out = [_json.dumps(j['result'])]
+        out.append(Image(data=open(j['storyboard'], 'rb').read(), format='jpeg'))
+        _render_jobs.pop(key, None)          # next call re-renders (after edits)
+        return out
+    return [_json.dumps({k: v_ for k, v_ in j.items() if k != 'storyboard'})]
+
+
+def export_edit(project: str, out_path: str = None, version: int = None) -> dict:
+    """Export an edit version as FCP7 XML for finishing: V1 spine, V2 b-roll (with Basic Motion scale/centre for the
+    reframe), A1/A2 production audio with per-shot levels, A3/A4 music. Premiere: import_media([xml]);
+    Resolve: import_timeline_from_file(xml). Captions/titles are not in the XML (re-create them in the NLE or burn
+    from the render)."""
+    p = montage.project_dir(project)
+    v, fit = montage.load_fit(p, version)
+    out = core.local_path(out_path) if out_path else os.path.join(p, f'edit_v{v}.xml')
+    return montage.export_edit_fcp7(fit, out)
+
+
+for _f in (build_edit, export_edit):
+    _f.__doc__ += '\n' + EDIT_DOC
+    mcp.tool()(_f)
+
+
+@mcp.prompt()
+def montar(pasta: str = '', pedido: str = '') -> str:
+    """Montar um vídeo a partir do material bruto: entrevista guiada → trilha primeiro → decupagem com imagens →
+    corte no beat → render pra revisão → XML pro Premiere/Resolve."""
+    return MONTAR.format(pasta=pasta or '(ask the user for the footage folder)', pedido=pedido or '(none yet)')
+
+
+MONTAR = """You are editing a real video with the decupa MCP. Footage: {pasta}. User request: {pedido}.
+
+Work like a senior editor: decide from evidence (transcripts, measured quality, images you LOOK at), never from file
+names. Ask in the user's language, ONE step at a time, with AskUserQuestion (max 4 questions per call, best option
+first marked "(Recomendado)" with a one-line reason). Skip any question the request already answered.
+
+0. Start indexing right away: index_folder(<footage>) — it runs in background while you ask the questions.
+1. TYPE (decides the rest): "Depoimento / entrevista com b-roll" · "Aftermovie / resumo de evento" ·
+   "Beat edit / hype sem fala" · "Show / clipe musical multicâmera" · "Cena / curta narrativo".
+2. IDEA (plain message): what is it about, the one message, must-have moments/people/lines, and who watches.
+   If they say "você decide": finish the decupagem first, then propose 3 ideas grounded in what the footage holds.
+3. SETTINGS (one call): Format (multiSelect: 9:16 Reels/TikTok/Shorts · 16:9 YouTube · 4:5 feed · 1:1) ·
+   Duration (15 s · 30 s · 60 s · 90 s+) · Versions (1 · 2 variations) · Captions (burned social style — recommended
+   for vertical / discreet / none).
+4. MUSIC FIRST: "Tenho a trilha (arquivo)" · "Escolhe entre as da pasta" · "Sem música — só som direto / do show".
+   Then music_map → tell in one line: BPM (and the half-time reading if it feels slow), sections, drop, silences.
+   music_windows(duration) → offer the 2–3 best stretches; the cut is built on that grid.
+5. PACE & SOUND (one call): Pace ("Segue a música" recommended · calmo · médio · rápido) · Cuts on (beat ·
+   compasso/downbeat — recommended for half-time or calm songs) · Original audio (fala em primeiro plano com a
+   trilha abaixando — depoimento · ambiente baixo sob a trilha — aftermovie · só trilha) · Opening/closing (hook
+   with the strongest line in the first 3 s; end card/logo file?; CTA text?).
+6. DECUPAGEM with your eyes: scenes / takes (best take, usually the last complete one) · broll (usable windows) ·
+   find_phrase for the hook · contact_sheet on every candidate you plan to use · timeline_strip for tight speech cuts
+   · reframe_preview for vertical · annotate what you saw. save_brief(project, answers).
+7. STRUCTURE: write a short beat sheet (hook → body → peak on the drop → end card) mapping music sections to
+   material; show it to the user in 4–6 lines only if the idea is open, otherwise build straight away.
+8. build_edit(project, edit) → fix every warning → render_edit(project) → LOOK at the storyboard (and a
+   contact_sheet of the render if in doubt): flash frames, soft shots, repeated angles back-to-back, captions over
+   faces, a cut that misses the beat, dead air. Fix and rebuild before showing anything.
+9. Hand the user the preview path + a 3–5 line summary (structure, song stretch, what you chose and why) and ask
+   for notes. Each round of notes = a new version (build_edit again); never overwrite.
+10. When approved: render_edit(quality="final") and/or export_edit → Premiere (import_media) / Resolve
+    (import_timeline_from_file) for finishing.
+"""
+
 
 def main():
     mcp.run()
