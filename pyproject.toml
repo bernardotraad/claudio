@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "decupa"
-version = "0.4.0"
+version = "0.5.0"
 description = "MCP that sees and hears footage (takes, b-roll, contact sheets) and hands frame-accurate cuts to Premiere / Resolve"
 readme = "README.md"
 license = "MIT"
@@ -17,6 +17,7 @@ dependencies = [
   "pillow",
   "faster-whisper>=1.1",
   "mlx-whisper; sys_platform == 'darwin' and platform_machine == 'arm64'",
+  "xxhash",
 ]
 
 [project.urls]
@@ -30,3 +31,6 @@ decupa = "decupa.server:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+decupa = ["panel_premiere/*", "panel_premiere/CSXS/*"]

@@ -267,6 +267,56 @@ matches the original. Everything decupa writes still points at the original medi
 | Selects | `make_selects` | Built in the NLE before any cut: **SELECTS — falas** (best take of every repeated line, alternates in the marker), **falas únicas** (interview-like material), **b-roll**, plus a bin of every clip with markers (✅ / ✗ / 👁). |
 | Review loop | `compare_with_nle`, `adopt_nle_timeline` | Export the current timeline from the NLE (Premiere `export_as_fcp_xml`, Resolve `export_timeline FCP_7_XML`). decupa lists what you trimmed, moved, removed and added, plus your **markers as notes**. Your timeline becomes the new base version, frame-exact, and the next version is imported as a new sequence. |
 
+## Client profiles
+
+`client_profile` / `save_client_profile` keep one `<client>.md` per client in `$DECUPA_CLIENTS` (default
+`D:\Documentos\decupa\clientes`). The file is readable by people and agents, with a JSON block decupa reads. It
+holds:
+
+- vocabulary;
+- formats;
+- end card;
+- music;
+- captions;
+- structure;
+- notes and past jobs;
+- **house style**, measured from the client's finished Premiere sequences (`learn_from_prproj`): typical duration,
+  speech shot length, b-roll length and coverage, caption block length, end card.
+
+The next job for that client starts from the profile, and the intake shrinks to "anything different this time?".
+
+## QC before export
+
+`qc_timeline(nle_xml, platform)` checks the timeline as it is in the NLE. It reports and changes nothing:
+
+- flash frames, black gaps, overlaps;
+- offline media, disabled clips, clips past the end of their media;
+- the same take used twice, jump cuts;
+- speech level jumps between cuts, clipped source audio;
+- size and duration vs the platform (reels / tiktok / shorts / feed / youtube).
+
+Each issue comes with a timecode, ready to drop as a marker.
+
+## GPU decoding
+
+If an ffmpeg with CUDA is present (`$DECUPA_FFMPEG_GPU` or `~/.local/opt/ffmpeg-*/bin/ffmpeg`, e.g. a BtbN static
+build), picture analysis decodes on NVDEC and downscales on the GPU. On 4K H.264 that is ~2× faster than CPU (4.8×
+vs 2.5× real time on an RTX 3060). It falls back to the CPU automatically. NVDEC can't decode HEVC/H.264 4:2:2 (e.g.
+Canon 10-bit 4:2:2): for those, proxies are the fast path.
+
+## Panel inside Premiere
+
+`python -m decupa.panel install` adds **Window › Extensions › decupa**, a chat with Claude Code inside Premiere:
+
+- It runs `claude -p` in the job folder with the same MCP servers (decupa, Premiere, Resolve), and the session
+  continues between messages.
+- Every message carries the Premiere context: project, active sequence, playhead, selected clips.
+- One-click actions: analyse BRUTOS · selects · read my notes · QC · status.
+- Tools are limited to the MCP servers and file reading (no shell). Claude proposes and creates new sequences; it
+  never overwrites yours.
+
+Requires Claude Code installed and logged in on the same machine.
+
 ## Building the timeline (with the Premiere / Resolve MCP)
 
 The deliverable is a **timeline in your NLE**. You review it, adjust it with Claude, then grade, add effects and

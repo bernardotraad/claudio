@@ -275,16 +275,48 @@ def _phase_shift(a, b):
     return x, y, float(r.max())
 
 
+_GPU_BAD = set()
+
+
+def gpu_ffmpeg():
+    """An ffmpeg with CUDA/NVDEC: $DECUPA_FFMPEG_GPU, else ~/.local/opt/ffmpeg-*/bin/ffmpeg. None if absent/disabled."""
+    import glob
+    if os.environ.get('DECUPA_GPU', '1') == '0':
+        return None
+    cand = [os.environ.get('DECUPA_FFMPEG_GPU')] + sorted(glob.glob(os.path.expanduser('~/.local/opt/ffmpeg-*/bin/ffmpeg')))
+    return next((c for c in cand if c and os.path.exists(c)), None)
+
+
+def nvdec_ok(path):
+    """NVDEC (RTX 30xx) decodes H.264/HEVC 4:2:0 (8/10-bit), AV1, VP9 — not HEVC/H.264 4:2:2 (Canon R6 10-bit 4:2:2)."""
+    try:
+        j = json.loads(run(['ffprobe', '-v', 'error', '-select_streams', 'v:0', '-show_entries', 'stream=codec_name,pix_fmt',
+                            '-of', 'json', path]).stdout)['streams'][0]
+    except Exception:
+        return False
+    codec, pf = j.get('codec_name'), j.get('pix_fmt') or ''
+    if codec in _GPU_BAD or '422' in pf or '444' in pf and codec == 'h264':
+        return False
+    return codec in ('h264', 'hevc', 'av1', 'vp9') and gpu_ffmpeg() is not None
+
+
 def analyze_picture(path, d, info, progress=lambda *_: None):
     """One decode: tiny full-rate frames (cut detection) and 4 fps 320-px frames (quality + motion)."""
     W, H = info['width'], info['height']
     qw = 320; qh = max(2, int(round(qw * H / W / 2)) * 2)
     tw, th = 64, max(2, int(round(64 * H / W / 2)) * 2)
     qraw = os.path.join(d, 'q.gray')
-    cmd = ['ffmpeg', '-y', '-loglevel', 'error', '-threads', '0', '-skip_loop_filter', 'all', '-flags2', 'fast', '-i', path, '-filter_complex',
-           f'[0:v:0]split=2[a][b];[a]scale={tw}:{th}:flags=area,format=gray[t];'
-           f'[b]fps={QFPS},scale={qw}:{qh}:flags=area,format=gray[q]',
-           '-map', '[t]', '-f', 'rawvideo', 'pipe:1', '-map', '[q]', '-f', 'rawvideo', qraw]
+    gpu = gpu_ffmpeg() if nvdec_ok(path) else None
+    if gpu:      # NVDEC decode + downscale on the GPU, only 320-px frames come back to the CPU (~2× faster on 4K)
+        cmd = [gpu, '-y', '-loglevel', 'error', '-hwaccel', 'cuda', '-hwaccel_output_format', 'cuda', '-i', path,
+               '-filter_complex', f'[0:v:0]scale_cuda={qw}:{qh},hwdownload,format=nv12,format=gray,split=2[a][b];'
+               f'[a]scale={tw}:{th}:flags=area[t];[b]fps={QFPS}[q]',
+               '-map', '[t]', '-f', 'rawvideo', 'pipe:1', '-map', '[q]', '-f', 'rawvideo', qraw]
+    else:
+        cmd = ['ffmpeg', '-y', '-loglevel', 'error', '-threads', '0', '-skip_loop_filter', 'all', '-flags2', 'fast', '-i', path, '-filter_complex',
+               f'[0:v:0]split=2[a][b];[a]scale={tw}:{th}:flags=area,format=gray[t];'
+               f'[b]fps={QFPS},scale={qw}:{qh}:flags=area,format=gray[q]',
+               '-map', '[t]', '-f', 'rawvideo', 'pipe:1', '-map', '[q]', '-f', 'rawvideo', qraw]
     p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
     fsz = tw * th
     diffs, lum, prev, k = [], [], None, 0
@@ -306,6 +338,9 @@ def analyze_picture(path, d, info, progress=lambda *_: None):
         k += len(fr)
         progress('picture', k / total)
     p.wait()
+    if gpu and (p.returncode != 0 or k < 0.9 * total):       # GPU path failed or stopped short: redo on the CPU
+        _GPU_BAD.add(info.get('codec'))
+        return analyze_picture(path, d, info, progress)
     diffs = np.array(diffs, np.float32)
     fps = float(Fraction(info['fps']))
     # cuts: spike vs local median (frame accurate)

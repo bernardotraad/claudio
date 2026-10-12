@@ -223,6 +223,22 @@ Multicâmera validada num show real de 1h53: os 31 clipes com áudio em comum fi
 PluralEyes, com o mesmo drift (`+0.079` × `+0.078`). Proxies (`Proxy/` ou `Proxies/`) são usados na análise, mas
 tudo aponta pro original.
 
+## Perfil de cliente · QC · GPU · painel no Premiere
+
+- **Perfil de cliente** (`client_profile`, `save_client_profile`): um `<cliente>.md` em `D:\Documentos\decupa\clientes`
+  com vocabulário, formatos, assinatura, trilhas, legendas, estrutura, histórico e o **estilo da casa medido** nas
+  suas sequências finalizadas. O próximo job começa daí.
+- **QC antes de exportar** (`qc_timeline`): só aponta, não mexe. Verifica flash frame, buraco preto, mídia offline,
+  take repetido, jump cut, salto de volume, áudio estourado e formato/duração por plataforma. Cada problema vem com
+  timecode, pronto pra virar marcador.
+- **GPU**: com um ffmpeg com CUDA (`~/.local/opt/ffmpeg-*`), a análise decodifica na NVDEC, ~2× mais rápido em 4K
+  H.264. HEVC 4:2:2 (Canon) não roda na NVDEC; nesse caso use proxies.
+- **Painel no Premiere** (`python -m decupa.panel install` → Janela › Extensões › decupa):
+  - chat com o Claude Code dentro do Premiere, com os mesmos MCPs;
+  - contexto automático (projeto, sequência, playhead, clipes selecionados);
+  - botões: Analisar BRUTOS, Selects, Ler minhas notas, QC, Status;
+  - só usa ferramentas MCP e leitura de arquivos, e nunca sobrescreve a sua sequência.
+
 ## Montando a timeline (junto com o MCP do Premiere / Resolve)
 
 A entrega é uma **timeline no seu NLE**. Você revisa, ajusta com o Claude, colore, coloca efeitos e exporta.

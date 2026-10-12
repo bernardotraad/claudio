@@ -684,6 +684,43 @@ def adopt_nle_timeline(project: str, nle_xml: str, version: int = None) -> dict:
             'timeline': montage.timeline_table(new)}
 
 
+# ───────────────────────────── client profiles · QC ─────────────────────────────
+@mcp.tool()
+def client_profile(name: str) -> dict:
+    """Read a client's profile (vocabulary, formats, end card, music, captions, structure, house style measured from
+    finished edits, notes, past jobs). READ IT FIRST on a new job for a known client: it replaces most intake
+    questions — ask only what is different this time. Returns null profile if the client is new."""
+    from decupa import clients
+    p = clients.load(name)
+    return {'profile': p, 'folder': core.nle_path(clients.clients_dir()),
+            'known_clients': sorted(os.path.splitext(f)[0] for f in os.listdir(clients.clients_dir()) if f.endswith('.md'))}
+
+
+@mcp.tool()
+def save_client_profile(name: str, updates: dict, learn_from_prproj: str = None) -> dict:
+    """Create/update a client profile (<clients>/<client>.md — readable by people and agents). updates may hold:
+    vocabulary (str), formats (list), end_card {path,in,out}, music {tracks,style}, captions, structure, notes,
+    jobs [{date,name,folder}] (appended). learn_from_prproj: a finished Premiere project of this client — measures
+    the house style (shot lengths, b-roll coverage, captions, end card) from its finished sequences."""
+    from decupa import clients
+    p = clients.save(name, updates)
+    if learn_from_prproj:
+        p = clients.learn_style(name, learn_from_prproj)
+    return p
+
+
+@mcp.tool()
+def qc_timeline(nle_xml: str, platform: str = None, sequence_width: int = None, sequence_height: int = None) -> dict:
+    """Check the timeline AS IT IS in the NLE before the editor exports (export it first — Premiere export_as_fcp_xml,
+    Resolve export_timeline FCP_7_XML). Reports only: flash frames, black gaps, overlaps, offline media, disabled
+    clips, clips past their media, same take twice, jump cuts, speech level jumps, clipped source audio, and
+    size/duration vs platform (reels · tiktok · shorts · feed · youtube · youtube4k). Offer to drop each issue as a
+    marker in the NLE; the editor decides what to fix."""
+    from decupa import qc
+    size = (sequence_width, sequence_height) if sequence_width and sequence_height else None
+    return qc.qc_timeline(nle_xml, platform, size)
+
+
 EDIT_DOC = """edit = {
   "name": "INC — Guilherme v1", "aspect": "9:16" | "16:9" | "1:1" | "4:5", "fps": optional "30000/1001",
   "music": {"path": "D:\\x\\song.wav", "start": 63.32 (a downbeat, from music_windows), "gain_db": -4, "duck_db": -14,
@@ -809,8 +846,9 @@ marked "(Recomendado)" with a one-line reason). Skip what the request already an
 0. Start right away: index_folder(<footage>, vocabulary=<brand/people/places if known>) — it shows progress and writes a
    <clip>.md next to every video. If the folder already has _DECUPA.md / <clip>.md files, READ them first: the footage
    is already logged. Several cameras of one event (+ recorder audio)? → sync_multicam first.
-1. Reference: if the user has a previous edit of the same client/format (a .prproj), read_premiere_project → use its
-   patterns (shot length, b-roll %, captions, end card) as the house style.
+1. Client: client_profile(<client>) — if it exists, it answers most of the questions below (vocabulary, format, end
+   card, music, captions, structure, house style): confirm it in ONE question ("igual da última vez?") and ask only
+   what changed. New client with a finished project → save_client_profile(..., learn_from_prproj=...).
 2. TYPE: "Depoimento / entrevista com b-roll" · "Aftermovie / resumo de evento" · "Beat edit / hype sem fala" ·
    "Show / clipe musical multicâmera" · "Cena / curta narrativo".
 3. IDEA (plain message): what it is about, the one message, must-have moments/people/lines, who watches.
@@ -821,6 +859,8 @@ marked "(Recomendado)" with a one-line reason). Skip what the request already an
    BPM (+ half-time reading), sections, drop, silences. music_windows(duration) → offer the 2–3 best stretches.
 6. PACE & SOUND (one call): pace (follow the music · calm · medium · fast) · cuts on beat or bar · original sound
    (speech in front, music ducked · low ambience · music only) · opening/closing (hook in 3 s, end card file, CTA).
+6b. SELECTS first (the editor checks your logging in the NLE before any cut): make_selects → import → ask if the
+   choices of takes / b-roll look right.
 7. LOGGING with your eyes: scenes / takes (best take — usually the last complete one; a take the speaker criticised is
    out) · broll · find_phrase · contact_sheet on every candidate · timeline_strip for tight speech cuts ·
    reframe_preview + set_rotation for vertical / sideways cameras · annotate what you saw (it goes into the .md).
@@ -830,8 +870,12 @@ marked "(Recomendado)" with a one-line reason). Skip what the request already an
    cutting heads, b-roll that does not match the words, dead air. Fix and rebuild.
 9. Put it in the NLE: export_edit → Premiere: import_media([xml]) · Resolve: import_timeline_from_file(xml) (or
    nle_cut_list + insert tools). Tell the user in 3–5 lines what you built and why, and ask for notes.
-10. Each round of notes = a new version (build_edit again → export_edit → import), never overwrite.
-11. Render (render_edit with authorized_by_user=True) ONLY if the user asks for a rendered file.
+10. Each round of notes: export the CURRENT timeline from the NLE → compare_with_nle (what the editor changed + their
+    marker notes) → adopt_nle_timeline (their changes become the base) → apply the notes → export_edit → import as a
+    NEW sequence. Never overwrite the editor's sequence; never undo their manual changes.
+11. Before they finalise: qc_timeline(current XML, platform) → offer the issues as markers; they decide.
+12. Render (render_edit with authorized_by_user=True) ONLY if the user asks for a rendered file. At the end,
+    save_client_profile(jobs=[...], plus anything learned) so the next job starts from here.
 """
 
 
