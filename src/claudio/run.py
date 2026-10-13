@@ -7,6 +7,7 @@
   stereo      {"nle_xml", "normalize"?}            one-sided audio → both sides (+ speech levelled)
   flatten     {"nle_xml"}                          nested sequences → clips straight on the tracks
   qc          {"nle_xml", "platform"?}             timeline + audio QC (loudness, ducking)
+  multicam_plan {"folder"}                        cameras/recorders from the folders + colours (no AI)
   sync        {"cameras", "external_audio"?, "out_xml"?, "labels"?}   multicam sync (PluralEyes-style)
 
 Paths can be Windows paths (D:\\...) — they are translated on WSL — and come back as the editor's paths.
@@ -58,10 +59,50 @@ def _sync(a):
     res = multicam.sync_cameras(a['cameras'], a.get('external_audio'), a.get('fps'), a.get('correct_drift', True))
     base = _os.path.dirname(_os.path.commonpath([n['path'] for n in res['nodes']]))
     out = core.local_path(a['out_xml']) if a.get('out_xml') else _os.path.join(base, 'claudio_sync.xml')
-    return {'xml': multicam.export_xml(res, out, labels=a.get('labels')), **multicam.summary(res)}
+    _os.makedirs(_os.path.dirname(out), exist_ok=True)
+    x = multicam.export_xml(res, out, labels=a.get('labels'))
+    summ = multicam.summary(res)
+    sj = _os.path.splitext(out)[0] + '.json'                    # for multicam_monitor (the visual check)
+    json.dump({'fps': res['fps'], 'drift': res['drift'], 'clips': [{**r, 'path': n['path']} for r, n in
+               zip(summ['clips'], sorted(res['nodes'], key=lambda n: (n['cam'], n.get('t0') if n.get('t0') is not None else 1e12)))]},
+              open(sj, 'w'), ensure_ascii=False, indent=1)
+    return {'xml': x, 'sync_json': core.nle_path(sj), **summ}
 
 
-ACTIONS = {'status': _status, 'index': _index, 'stereo': _stereo, 'flatten': _flatten, 'qc': _qc, 'sync': _sync}
+def _multicam_plan(a):
+    """Cameras and recorders of a job from its folders, without AI: every folder with videos is a camera (named after
+    the folder + the camera model), folders with only audio files are external recorders. Colours: the multicam palette."""
+    from claudio import core, multicam
+    root = core.local_path(a['folder'])
+    skip = lambda n: n.startswith(('#', '_', '.')) or n.lower() in core.PROXY_DIRS
+    cams, ext = {}, []
+    for dp, dn, fn in os.walk(root):
+        dn[:] = sorted(x for x in dn if not skip(x))
+        if os.path.relpath(dp, root).count(os.sep) > 2:
+            dn[:] = []
+            continue
+        vids = [f for f in fn if os.path.splitext(f)[1].lower() in core.VIDEO_EXT and not f.startswith('._')]
+        auds = [f for f in fn if os.path.splitext(f)[1].lower() in multicam.AUDIO_EXT and not f.startswith('._')]
+        if vids:
+            model = ''
+            try:
+                model = core.camera_of(os.path.join(dp, vids[0])) or ''
+            except Exception:
+                pass
+            name = os.path.basename(dp) if dp != root else 'CAM'
+            cams[name + (f' — {model}' if model and model.lower() not in name.lower() else '')] = {
+                'folder': core.nle_path(dp), 'clips': len(vids), 'model': model}
+        elif auds:
+            ext.append({'folder': core.nle_path(dp), 'files': len(auds)})
+    labels = multicam.camera_labels(list(cams) + (['AUDIO'] if ext else []))
+    for k in cams:
+        cams[k]['label'] = labels[k]
+    return {'cameras': cams, 'external_audio': ext, 'audio_label': labels.get('AUDIO'),
+            'ready': len(cams) + (1 if ext else 0) >= 2,
+            'note': None if len(cams) + (1 if ext else 0) >= 2 else 'precisa de pelo menos 2 fontes (câmeras e/ou gravador)'}
+
+
+ACTIONS = {'multicam_plan': _multicam_plan, 'status': _status, 'index': _index, 'stereo': _stereo, 'flatten': _flatten, 'qc': _qc, 'sync': _sync}
 
 
 def main():

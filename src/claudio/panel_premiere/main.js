@@ -313,6 +313,7 @@ const LOCAL = {
     add('local', r.ok ? (r.started ? `Indexação iniciada em segundo plano: ${r.files} vídeos em \`${rawFolder()}\`. A barra embaixo mostra o progresso; pode fechar o painel.` : `Já está indexando: ${r.line}`) : r.error);
     progScan = 0;
   }),
+  multicam: () => multicamPlan(),
   stereo: () => {
     const d = add('local', 'Áudio que sai de um lado só (lapela ou um microfone em L ou R) passa a sair dos dois. Quer também **nivelar as falas** (cada clipe com fala no mesmo volume, até +12 dB)? O resultado vem numa sequência nova.', false);
     for (const [txt, norm] of [['Só deixar estéreo', false], ['Estéreo + nivelar falas', true]]) {
@@ -340,6 +341,49 @@ const LOCAL = {
       ((a.ducking || []).length ? '\n\n| começa | termina | abaixar a música |\n|---|---|---|\n' + a.ducking.map((d) => `| \`${d.tc}\` | ${dur(d.end)} | ${d.lower_music_by_db} dB |`).join('\n') : ''));
   }),
 };
+async function multicamPlan() {
+  await localJob('multicâmera: lendo as pastas', async () => {
+    const r = await runLocal('multicam_plan', { folder: jobFolder() });
+    if (!r.ok) return add('local err', r.error);
+    const cams = Object.entries(r.cameras || {});
+    const rows = cams.map(([n, c]) => `| ${n} | \`${path.basename(c.folder.replace(/\\/g, '/'))}\` | ${c.clips} | ${c.label} |`)
+      .concat((r.external_audio || []).map((e) => `| áudio externo | \`${path.basename(e.folder.replace(/\\/g, '/'))}\` | ${e.files} | ${r.audio_label} |`));
+    const d = add('local', `**Multicâmera** — achei ${cams.length} câmera(s)` + ((r.external_audio || []).length ? ' e um gravador externo' : '') + ':\n\n' +
+      '| fonte | pasta | arquivos | cor |\n|---|---|---|---|\n' + rows.join('\n') +
+      (r.ready ? '\n\nSincronizo pelo áudio (sem IA) e gero a "Synced Sequence" com cada câmera na sua cor? Se o mapeamento estiver errado, peça ao Cláudio.' : `\n\n${r.note}`));
+    if (!r.ready) return;
+    const go = document.createElement('button'); go.textContent = 'Sincronizar (sem IA)';
+    const ai = document.createElement('button'); ai.textContent = 'Ajustar com o Cláudio (IA)';
+    go.onclick = () => { go.disabled = ai.disabled = true; multicamSync(r); };
+    ai.onclick = async () => { go.disabled = ai.disabled = true; await readContext(); send(QUICK.multicam()); };
+    d.appendChild(go); d.appendChild(ai);
+  });
+}
+async function multicamSync(plan) {
+  await localJob('multicâmera: sincronizando pelo áudio', async () => {
+    const cameras = {}, labels = {};
+    for (const [n, c] of Object.entries(plan.cameras)) { cameras[n] = c.folder; labels[n] = c.label; }
+    if (plan.audio_label) labels.AUDIO = plan.audio_label;
+    const r = await runLocal('sync', { cameras, external_audio: (plan.external_audio || []).map((e) => e.folder), labels,
+                                       out_xml: path.join(jobFolder(), '#projeto', 'claudio_sync.xml') });
+    if (!r.ok) return add('local err', r.error);
+    const clips = r.clips || [];
+    const placed = clips.filter((c) => c.start_s != null);
+    const approx = placed.filter((c) => /relógio|aprox/i.test(String(c.method || '')));
+    const dr = r.drift;
+    const drift = dr ? [`${dr.reference}: ${dr.ppm} ppm` + (dr.corrected_file ? ` → \`${path.basename(dr.corrected_file.replace(/\\/g, '/'))}\`` : '')] : [];
+    const m = add('local', `**Sincronizado:** ${placed.length} de ${clips.length} clipe(s)` + (approx.length ? `, ${approx.length} pelo relógio da câmera (aproximados — sem áudio em comum)` : '') + '.' +
+      ((r.unplaced || []).length ? `\n\nNão posicionados: ${r.unplaced.slice(0, 8).join(', ')}` : '') +
+      (drift.length ? `\n\nDrift do gravador corrigido: ${drift.join('; ')}` : '') +
+      `\n\nXML: \`${r.xml.nle_path}\` — ${r.xml.tracks_video} trilha(s) de vídeo, ${r.xml.tracks_audio} de áudio, cada câmera na sua cor.`);
+    importButtons(m, r.xml.nle_path);
+    const chk = document.createElement('button'); chk.textContent = 'Conferir o sync com os olhos (IA)';
+    chk.onclick = async () => { chk.disabled = true; await readContext();
+      send(`Confira o sync multicâmera com multicam_monitor (sync_json "${r.sync_json}") em 2 ou 3 momentos em que todas as câmeras estão rodando e me diga em poucas linhas se algo parece fora de sincronia.`); };
+    m.appendChild(chk);
+  });
+}
+
 async function stereoRun(normalize) {
   await localJob('áudio estéreo', async () => {
     const x = await exportActive(); if (!x) return;
