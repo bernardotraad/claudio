@@ -18,8 +18,13 @@ function evalHost(script) {
 
 async function readContext() {
   try { ctx = JSON.parse(await evalHost('claudioContext()')); } catch (e) { ctx = {}; }
-  const proj = ctx.project ? path.basename(ctx.project) : 'sem projeto';
-  $('#ctx').textContent = `${proj}${ctx.sequence ? ' · ' + ctx.sequence : ''}${ctx.selection && ctx.selection.length ? ' · ' + ctx.selection.length + ' selecionado(s)' : ''}`;
+  // the slate: project · sequence (+ selection) · playhead
+  $('#s-proj').textContent = ctx.project ? path.basename(ctx.project, path.extname(ctx.project)) : 'sem projeto';
+  const nsel = ctx.selection && ctx.selection.length;
+  $('#s-seq').textContent = (ctx.sequence || '—') + (nsel ? ` · ${nsel} sel.` : '');
+  $('#s-seq').title = ctx.sequence ? `${ctx.sequence} (${ctx.frame_size || ''})` : '';
+  $('#s-proj').title = ctx.project || '';
+  $('#s-tc').textContent = ctx.playhead_s != null ? clock(+ctx.playhead_s) : '--:--';
   sessionKey = 'claudio-session:' + (ctx.project || 'none');
   try {                                   // keep the chat from before the rename (decupa → Cláudio)
     const old = localStorage.getItem('decupa-session:' + (ctx.project || 'none'));
@@ -53,7 +58,7 @@ function loadHist() {
   if (!h || !h.messages || !h.messages.length) return;
   if (h.session_id && !localStorage.getItem(sessionKey)) localStorage.setItem(sessionKey, h.session_id);
   for (const m of h.messages) {
-    const d = add(m.cls, m.text, false);
+    const d = add(m.cls, m.text, false, m.t || Date.now());
     if (m.cls === 'claude') importButtons(d, m.text);
     hist.push(m);
   }
@@ -74,11 +79,80 @@ function claudeExe() {
   return cands.find((c) => c && fs.existsSync(c)) || 'claude';
 }
 
-function add(cls, text, keep = true) {
-  if (keep) { hist.push({ cls, text }); saveHist(); }
+function clock(sec) {
+  const h = Math.floor(sec / 3600), m = Math.floor(sec / 60) % 60, x = (sec % 60).toFixed(1).padStart(4, '0');
+  return (h ? h + ':' + String(m).padStart(2, '0') : String(m).padStart(2, '0')) + ':' + x;
+}
+
+// Claude answers in Markdown: render the parts it uses (paragraphs, lists, tables, code, bold/italic, headings),
+// escaping everything first so nothing in a reply can inject HTML into the panel.
+function esc(s) { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+function inline(s) {
+  return esc(s).replace(/`([^`]+)`/g, '<code>$1</code>').replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>')
+    .replace(/(^|[^*\w])\*([^*\n]+)\*(?!\w)/g, '$1<i>$2</i>');
+}
+// a Premiere label name in a table cell (multicam colours) gets a swatch of that colour
+const LABEL_HEX = { cerulean: '#2ba3dc', mango: '#f0962c', forest: '#5fa94c', magenta: '#d4529f', yellow: '#e6cf3a', violet: '#a68ae0',
+  teal: '#2db3a6', rose: '#e8768f', caribbean: '#22c4a0', lavender: '#c8a2e8', tan: '#c9a77c', brown: '#9a6b4a', purple: '#8e5ccf',
+  iris: '#7d7df0', blue: '#3d6fe0', green: '#3fae5a' };
+function swatch(c) { const k = c.replace(/[`*]/g, '').trim().toLowerCase(); return LABEL_HEX[k] ? `<span class="sw" style="background:${LABEL_HEX[k]}"></span>` : ''; }
+const LI = /^\s*([-*•]|\d+[.)])\s+/, ROW = /^\s*\|.*\|\s*$/;
+function md(src) {
+  const L = String(src).replace(/\r/g, '').split('\n'), out = [];
+  let i = 0;
+  while (i < L.length) {
+    const l = L[i];
+    if (/^```/.test(l)) {
+      const b = []; i++;
+      while (i < L.length && !/^```/.test(L[i])) b.push(L[i++]);
+      i++; out.push('<pre>' + esc(b.join('\n')) + '</pre>'); continue;
+    }
+    if (ROW.test(l) && i + 1 < L.length && /^\s*\|?[\s:|-]+\|?\s*$/.test(L[i + 1]) && L[i + 1].includes('-')) {
+      const cells = (r) => r.trim().replace(/^\||\|$/g, '').split('|').map((c) => c.trim());
+      const head = cells(l), rows = []; i += 2;
+      while (i < L.length && ROW.test(L[i])) rows.push(cells(L[i++]));
+      out.push('<table><thead><tr>' + head.map((c) => '<th>' + inline(c) + '</th>').join('') + '</tr></thead><tbody>' +
+               rows.map((r) => '<tr>' + r.map((c) => '<td>' + (swatch(c) ? `<span class="lab">${swatch(c)}${inline(c)}</span>` : inline(c)) + '</td>').join('') + '</tr>').join('') + '</tbody></table>');
+      continue;
+    }
+    let m = l.match(/^#{1,6}\s+(.*)/);
+    if (m) { out.push('<h4>' + inline(m[1]) + '</h4>'); i++; continue; }
+    if (LI.test(l)) {
+      const n = l.match(/^\s*(\d+)[.)]/), items = [];
+      while (i < L.length && LI.test(L[i])) {
+        let t = L[i++].replace(LI, '');
+        while (i < L.length && /^\s{2,}\S/.test(L[i]) && !LI.test(L[i])) t += ' ' + L[i++].trim();
+        items.push('<li>' + inline(t) + '</li>');
+      }
+      out.push(n ? `<ol start="${n[1]}">${items.join('')}</ol>` : `<ul>${items.join('')}</ul>`); continue;
+    }
+    if (/^>\s?/.test(l)) {
+      const b = [];
+      while (i < L.length && /^>\s?/.test(L[i])) b.push(L[i++].replace(/^>\s?/, ''));
+      out.push('<blockquote>' + inline(b.join(' ')) + '</blockquote>'); continue;
+    }
+    if (!l.trim()) { i++; continue; }
+    const p = [L[i++]];
+    while (i < L.length && L[i].trim() && !/^```|^#{1,6}\s|^>\s?/.test(L[i]) && !LI.test(L[i]) && !ROW.test(L[i])) p.push(L[i++]);
+    out.push('<p>' + p.map(inline).join('<br>') + '</p>');
+  }
+  return out.join('');
+}
+
+function add(cls, text, keep = true, t = Date.now()) {
+  if (keep) { hist.push({ cls, text, t }); saveHist(); }
   const d = document.createElement('div');
   d.className = 'msg ' + cls;
-  d.textContent = text;
+  if (cls === 'user' || cls.startsWith('claude')) {
+    const hd = document.createElement('div'), bd = document.createElement('div');
+    hd.className = 'hd'; bd.className = 'bd';
+    const when = new Date(t);
+    hd.innerHTML = `<b>${cls === 'user' ? 'você' : 'cláudio'}</b><time>${String(when.getHours()).padStart(2, '0')}:${String(when.getMinutes()).padStart(2, '0')}</time>`;
+    if (cls === 'user') bd.textContent = text; else bd.innerHTML = md(text);
+    d.append(hd, bd);
+  } else {
+    d.textContent = text;
+  }
   log.appendChild(d);
   log.scrollTop = log.scrollHeight;
   return d;
@@ -146,7 +220,7 @@ async function send(text) {
                 // allowedTools only pre-approves; this BLOCKS shell and file edits from the panel
                 '--disallowedTools', 'Bash,PowerShell,Edit,Write,NotebookEdit'];
   if (sid) args.push('--resume', sid);
-  $('#send').disabled = true; $('#stop').disabled = false;
+  $('#send').disabled = true; $('#stop').disabled = false; document.body.classList.add('busy');
   $('#status').textContent = 'pensando…';
   let cur = null, buf = '';
   // stdin closed: otherwise claude -p waits 3 s for piped input ("no stdin data received")
@@ -181,7 +255,7 @@ async function send(text) {
   });
   child.stderr.on('data', (d) => { const t = d.toString().trim(); if (t) $('#status').textContent = t.slice(-160); });
   child.on('close', (code) => {
-    child = null; $('#send').disabled = false; $('#stop').disabled = true;
+    child = null; $('#send').disabled = false; $('#stop').disabled = true; document.body.classList.remove('busy');
     if (code && code !== 0) add('claude err', `O Claude Code terminou com código ${code}. Ele está instalado e logado no Windows? (${claudeExe()})`);
     $('#status').textContent = '';
     readContext();
@@ -191,6 +265,12 @@ async function send(text) {
 $('#send').onclick = () => { const t = $('#input').value; $('#input').value = ''; send(t); };
 $('#input').addEventListener('keydown', (e) => { if (e.key === 'Enter' && e.ctrlKey) { e.preventDefault(); $('#send').click(); } });
 $('#stop').onclick = () => { if (child) { child.kill(); add('meta', 'parado'); } };
+// the bin of actions folds away to give the conversation the room (remembered)
+try { if (localStorage.getItem('claudio-bin-shut') === '1') document.body.classList.add('binshut'); } catch (e) {}
+$('#binhead').onclick = () => {
+  const shut = document.body.classList.toggle('binshut');
+  try { localStorage.setItem('claudio-bin-shut', shut ? '1' : '0'); } catch (e) {}
+};
 $('#newchat').onclick = () => { localStorage.removeItem(sessionKey); log.innerHTML = ''; hist = []; saveHist(); add('meta', 'nova conversa', false); };
 document.querySelectorAll('#quick button').forEach((b) => (b.onclick = async () => { await readContext(); send(QUICK[b.dataset.q]()); }));
 
