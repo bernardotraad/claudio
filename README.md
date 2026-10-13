@@ -375,6 +375,12 @@ As variáveis antigas `DECUPA_*` continuam valendo.
   Mídia comum (overlays `.mov`, `.wav`, `.srt`) pode ir pelo MCP.
 - O ranking de takes é evidência, não veredito. Em atuação, olhe o vencedor e o segundo colocado.
 
+## Testes
+
+`pytest -q` roda em segundos, sem GPU, sem Whisper e sem Premiere, com material sintético: sync multicâmera e cores,
+desaninhar sequências, grade de batida, caminhos com `#`/espaço/apóstrofo, overlay com alpha e o painel (layout em
+300 px, nada sobreposto, HTML de resposta escapado, detector de mudanças). Roda também a cada push no GitHub Actions.
+
 ## Licença
 
 [MIT](LICENSE)

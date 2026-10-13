@@ -26,6 +26,7 @@ Homepage = "https://github.com/bernardotraad/claudio"
 [project.optional-dependencies]
 cuda = ["nvidia-cublas-cu12", "nvidia-cudnn-cu12>=9,<10"]
 motion = ["playwright", "edge-tts"]
+test = ["pytest"]
 
 [project.scripts]
 claudio = "claudio.server:main"
@@ -38,3 +39,6 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 claudio = ["panel_premiere/*", "panel_premiere/CSXS/*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

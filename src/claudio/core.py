@@ -140,8 +140,13 @@ def local_path(p):
         m = re.match(r'^([A-Za-z]):[\\/](.*)$', p)
         if m:
             return f'/mnt/{m.group(1).lower()}/' + m.group(2).replace('\\', '/')
-    if p.startswith('file://'):
-        p = urllib.parse.unquote(re.sub(r'^file://(localhost)?', '', p))
+    if p.startswith('file:'):
+        p = urllib.parse.unquote(re.sub(r'^file:(//localhost(?=/)|//(?=/)|//(?=[A-Za-z]:)|//(?=wsl))?', '', p))
+        m = re.match(r'^/*wsl(?:\.localhost|\$)/[^/]+(/.*)$', p, re.I)   # file://wsl.localhost/<distro>/… (a WSL file)
+        if m:
+            return m.group(1) if IS_WSL else '\\\\' + p.lstrip('/').replace('/', '\\')
+        if re.match(r'^/?[A-Za-z]:[\\/]', p):                     # file://localhost/E:/… → E:/… (→ /mnt/e/… on WSL)
+            return local_path(p.lstrip('/'))
         if IS_WIN and re.match(r'^/[A-Za-z]:', p):
             p = p[1:]
     return os.path.abspath(os.path.expanduser(p))

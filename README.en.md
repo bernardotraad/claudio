@@ -374,6 +374,12 @@ The old `DECUPA_*` variables still work.
   Regular media (`.mov` overlays, `.wav`, `.srt`) can go through the MCP.
 - Take ranking is evidence, not a verdict. For performances, look at the winner and the runner-up.
 
+## Tests
+
+`pytest -q` runs in seconds with no GPU, Whisper or Premiere, on synthetic media: multicam sync and colours, nested
+sequence flattening, beat grid, paths with `#`/spaces/apostrophes, alpha overlays and the panel (300 px layout, no
+overlaps, reply HTML escaped, change detector). It also runs on every push in GitHub Actions.
+
 ## License
 
 [MIT](LICENSE)

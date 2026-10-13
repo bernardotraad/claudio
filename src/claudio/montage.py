@@ -19,6 +19,7 @@ from claudio import core
 
 MSR = 22050
 MHOP = 512
+ONSET_LAG = 0.0185
 ASPECTS = {'16:9': (16, 9), '9:16': (9, 16), '1:1': (1, 1), '4:5': (4, 5), '4:3': (4, 3)}
 RES = {'final': {'16:9': (1920, 1080), '9:16': (1080, 1920), '1:1': (1080, 1080), '4:5': (1080, 1350), '4:3': (1440, 1080)},
        'preview': {'16:9': (1280, 720), '9:16': (540, 960), '1:1': (720, 720), '4:5': (720, 900), '4:3': (960, 720)}}
@@ -74,11 +75,32 @@ def _beat_track(onset, fps_o, bpm_hint=None):
     return 60 * fps_o / period, beats
 
 
+def _refine_beats(onset, bf, reach=2):
+    """Each beat frame moved to the onset peak within ±reach frames, interpolated between frames. Beats with no real
+    onset nearby (a held note, a break) keep the tracker's position."""
+    if not len(bf):
+        return np.asarray(bf, float)
+    ref = float(np.median([onset[f] for f in bf])) or 0.0
+    out = []
+    for f in bf:
+        lo, hi = max(1, f - reach), min(len(onset) - 2, f + reach)
+        if hi < lo:
+            out.append(float(f)); continue
+        k = lo + int(np.argmax(onset[lo:hi + 1]))
+        if onset[k] < 0.3 * ref:
+            out.append(float(f)); continue
+        a, b, c = onset[k - 1], onset[k], onset[k + 1]
+        den = a - 2 * b + c
+        d = 0.5 * (a - c) / den if den else 0.0
+        out.append(k + max(-0.5, min(0.5, d)))
+    return np.array(out)
+
+
 def music_map(path, start=0.0, end=None):
     """Full map of a song (cached). Times are seconds of the source file."""
     path = core.local_path(path)
     d = core.cache_dir(path)
-    key = f'music_{start:.2f}_{end or 0:.2f}.json'
+    key = f'music2_{start:.2f}_{end or 0:.2f}.json'          # v2: refined beats (sub-frame, lag-corrected)
     mp = os.path.join(d, key)
     if os.path.exists(mp):
         return json.load(open(mp))
@@ -99,7 +121,14 @@ def music_map(path, start=0.0, end=None):
     onset = np.maximum(onset - np.convolve(onset, np.ones(k) / k, 'same'), 0)
     fps_o = MSR / MHOP
     bpm, bf = _beat_track(onset, fps_o)
-    beats = (bf * MHOP + n_fft / 2) / MSR      # frame time = window centre (an onset registers as it enters the window)
+    # the tracker works on whole onset frames, so its period is a whole number of frames and the grid drifts against the
+    # real tempo (up to ~30 ms on a 128 BPM click): move each beat to its onset peak, with sub-frame (parabolic) precision
+    bff = _refine_beats(onset, bf)
+    # frame time = window centre, plus the measured lag of the flux peak behind the transient (constant ~18.5 ms for
+    # clicks of 2–20 ms and noise bursts alike, calibrated in tests/test_beats.py)
+    beats = (bff * MHOP + n_fft / 2) / MSR + ONSET_LAG
+    if len(beats) >= 8:
+        bpm = 60.0 / float(np.median(np.diff(beats)))
     rms = np.sqrt((S ** 2).mean(1)) + 1e-9
     db = 20 * np.log10(rms)
     # downbeats: the phase (of 4) whose beats carry the most low-end onset energy
