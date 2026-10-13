@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<ExtensionManifest Version="7.0" ExtensionBundleId="com.claudio.panel" ExtensionBundleVersion="0.7.0" ExtensionBundleName="Cláudio, o Editor">
+<ExtensionManifest Version="7.0" ExtensionBundleId="com.claudio.panel" ExtensionBundleVersion="0.8.0" ExtensionBundleName="Cláudio, o Editor">
   <ExtensionList>
-    <Extension Id="com.claudio.panel.main" Version="0.7.0"/>
+    <Extension Id="com.claudio.panel.main" Version="0.8.0"/>
   </ExtensionList>
   <ExecutionEnvironment>
     <HostList>

@@ -18,7 +18,7 @@ AUTO_BEGIN, AUTO_END = '<!-- claudio:auto:begin -->', '<!-- claudio:auto:end -->
 def _old_markers(txt):
     """Logs written before the rename (v0.7) used decupa markers."""
     return txt.replace('<!-- decupa:auto:', '<!-- claudio:auto:')
-VERSION = '0.7'
+VERSION = '0.8'
 
 
 def md_path(video):
