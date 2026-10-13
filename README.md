@@ -148,6 +148,11 @@ claude mcp add -s user premiere-pro -- cmd /c premiere-pro-mcp
 Abra o Premiere com um projeto → **Janela › Extensões › MCP for Adobe Premiere Pro** → status *Running*. Para conferir:
 `premiere-pro-mcp --doctor`. O nome `premiere-pro` importa: é o que o painel do decupa espera.
 
+- Se aparecer *server disconnected*, registre com o modo de protocolo legado:
+  `claude mcp add -s user -e PREMIERE_MCP_PROTOCOL_MODE=legacy premiere-pro -- cmd /c premiere-pro-mcp`.
+- Já usa o MCP do Premiere pelo Claude Desktop (bundle `.mcpb`)? Ele continua lá. O painel do decupa usa o **Claude
+  Code**, que precisa do registro acima (é outro cliente, então não duplica nada).
+
 #### 7. MCP do DaVinci Resolve — [hiteshK03/davinci-resolve-mcp](https://github.com/hiteshK03/davinci-resolve-mcp)
 
 Resolve 18+ (funciona no Free). No PowerShell, na pasta onde você guarda projetos:
@@ -238,7 +243,8 @@ claude mcp add -s user premiere-pro -- "$(which premiere-pro-mcp)"
 ```
 
 Abra o Premiere → **Janela › Extensões › MCP for Adobe Premiere Pro** → *Running*. Para conferir:
-`premiere-pro-mcp --doctor`.
+`premiere-pro-mcp --doctor`. Se aparecer *server disconnected*, registre com `-e PREMIERE_MCP_PROTOCOL_MODE=legacy`. Se
+o Premiere e o Resolve já estão no Claude Desktop, registre-os também no Claude Code (é o que o painel usa).
 
 #### 5. MCP do DaVinci Resolve — [hiteshK03/davinci-resolve-mcp](https://github.com/hiteshK03/davinci-resolve-mcp)
 
