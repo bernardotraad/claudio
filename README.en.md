@@ -1,4 +1,7 @@
-# decupa
+# Cláudio, o Editor
+
+> Formerly **decupa**. Renamed in v0.7, once it did far more than logging: it cuts, captions and syncs too. Already
+> indexed jobs keep working (see [Coming from Cláudio](#coming-from-claudio-before-v07)).
 
 **An MCP server that lets Claude _see_ and _hear_ your raw footage before it cuts — and delivers the edit as a timeline
 in Premiere Pro or DaVinci Resolve, with you in control.**
@@ -8,21 +11,21 @@ in Premiere Pro or DaVinci Resolve, with you in control.**
 The Premiere and Resolve MCP servers let an AI *operate* the editor (import, place clips, trim, export). What's missing
 is looking at the footage: without that, "the best take" or "a good b-roll of the hands" is a guess from file names.
 
-`decupa` (from Portuguese *decupagem*, footage logging) is the missing eyes and ears:
+Cláudio is the missing eyes and ears:
 
 - **What is said** — word-level transcript (Whisper), including the spoken slate ("scene 3, take 2… action… cut").
 - **What is seen** — contact sheets, frames and waveform timelines returned as **images**, with timecode.
 - **What is usable** — relative focus, exposure, camera motion, repeated takes, takes the speaker criticised, colour
   (log vs Rec.709), silences.
 
-The decision comes from that evidence. `decupa` turns it into **frame-accurate in/out points**, and the timeline goes
+The decision comes from that evidence. Cláudio turns it into **frame-accurate in/out points**, and the timeline goes
 into Premiere/Resolve as a **new sequence** for you to review, adjust, grade and export. It **never renders the final
 video** unless you ask.
 
 ```
 card ─► ingest ─► logging (.md next to every clip) ─► overview + questions ─► selects ─► timeline
                                                                                            │
-          you review in the NLE (markers = notes) ◄── new version ◄── decupa reads your changes ◄┘
+          you review in the NLE (markers = notes) ◄── new version ◄── Cláudio reads your changes ◄┘
                               │
                               └─► QC ─► you finish (grade, effects) and export
 ```
@@ -32,7 +35,7 @@ card ─► ingest ─► logging (.md next to every clip) ─► overview + que
 | Step | Tools | |
 | --- | --- | --- |
 | Offload | `ingest_card` | Verified copy (xxHash64 while copying, destination read back) into `BRUTOS/<camera>`, `00 AUDIO`, `03 FOTOS`, `#projeto`, `#trilhas`. Never overwrites: another card with the same names goes to `CARD_n`. Never touches the card. Then indexes. |
-| Index | `index_folder`, `index_status` | Runs in its own process (keeps going if the chat or Premiere close), with a progress bar. Uses proxies (`Proxy/` or `Proxies/`) when present, and GPU (NVDEC) or keyframes only for heavy 4K. Writes **`<clip>.md`** + contact sheet next to every video and **`_DECUPA.md`** per folder. |
+| Index | `index_folder`, `index_status` | Runs in its own process (keeps going if the chat or Premiere close), with a progress bar. Uses proxies (`Proxy/` or `Proxies/`) when present, and GPU (NVDEC) or keyframes only for heavy 4K. Writes **`<clip>.md`** + contact sheet next to every video and **`_CLAUDIO.md`** per folder. |
 | Understand | `project_digest`, `save_project_overview` | Reads every `.md` and writes **`_VISAO_GERAL.md`**. Asks for the final duration and the soundtrack (a specific track or a mood/genre), then proposes 2–4 directions. |
 | Look | `contact_sheet`, `timeline_strip`, `frames`, `reframe_preview`, `multicam_monitor` | Real images of the footage, with TC and the words spoken at that instant. |
 | Choose | `scenes`, `takes`, `broll`, `find_phrase`, `annotate` | Best take of every line (usually the last complete one; a take the speaker criticised is out) and usable b-roll stretches. Notes go into the `.md`. |
@@ -44,19 +47,19 @@ card ─► ingest ─► logging (.md next to every clip) ─► overview + que
 | Finish | `qc_timeline` | Flags flash frames, black gaps, offline media, takes used twice, jump cuts, volume jumps and the wrong format for the platform. It fixes nothing on its own. |
 | Remember | `client_profile`, `save_client_profile`, `read_premiere_project` | One profile per client: vocabulary, end card, music, and the house style measured from your finished projects. |
 
-Plus a **panel inside Premiere** (Window › Extensions › decupa): a chat with Claude Code that knows the project (active
+Plus a **panel inside Premiere** (Window › Extensions › Cláudio, o Editor): a chat with Claude Code that knows the project (active
 sequence, playhead, selected clips), buttons for every step, and a progress bar.
 
 ---
 
 ## Installation
 
-decupa works with three other pieces: **Claude Code** (where you talk) and the **Premiere MCP** and/or the **Resolve
+Cláudio works with three other pieces: **Claude Code** (where you talk) and the **Premiere MCP** and/or the **Resolve
 MCP** (which operate the editor). Full step-by-step below.
 
 | | Windows (recommended with an NVIDIA card) | macOS (Apple Silicon) |
 | --- | --- | --- |
-| decupa | inside **WSL** (Ubuntu), on the GPU | native |
+| Cláudio | inside **WSL** (Ubuntu), on the GPU | native |
 | Transcription | faster-whisper on the GPU (CUDA) | mlx-whisper |
 | Decoding | NVDEC (optional) or CPU; proxies | VideoToolbox; proxies |
 | Premiere / Resolve / Claude Code | on Windows | on the Mac |
@@ -65,12 +68,12 @@ MCP** (which operate the editor). Full step-by-step below.
 
 ### Claude Desktop chat or the Premiere panel?
 
-decupa works in both. The only difference is **where you talk**:
+Cláudio works in both. The only difference is **where you talk**:
 
-| | Claude Desktop chat | decupa panel in Premiere |
+| | Claude Desktop chat | Cláudio panel in Premiere |
 | --- | --- | --- |
 | What runs underneath | Claude Desktop itself | **Claude Code** (`claude -p`) |
-| Where to register decupa, Premiere and Resolve | `claude_desktop_config.json` (or a `.mcpb` bundle) | `claude mcp add -s user ...` |
+| Where to register Cláudio, Premiere and Resolve | `claude_desktop_config.json` (or a `.mcpb` bundle) | `claude mcp add -s user ...` |
 | claude.ai connectors | yes | yes |
 | Advantage | nicer conversation, paste images | next to the timeline, quick buttons, progress bar |
 
@@ -80,7 +83,7 @@ Claude Code inside Premiere. That is why it sees the MCPs registered **in Claude
 only use the Desktop chat, register the MCPs there and skip the panel.
 
 The two conversations are separate. What connects them is what lives on disk: the `.md` next to each clip,
-`_DECUPA.md`, `_VISAO_GERAL.md` and the index in `_decupa/`.
+`_CLAUDIO.md`, `_VISAO_GERAL.md` and the index in `_claudio/`.
 
 ### Windows
 
@@ -118,19 +121,19 @@ wsl --install -d Ubuntu
 
 Restart if asked, open **Ubuntu** from the Start menu and create your user.
 
-#### 4. decupa (inside Ubuntu)
+#### 4. Cláudio (inside Ubuntu)
 
 ```bash
 sudo apt update && sudo apt install -y ffmpeg git curl
 curl -LsSf https://astral.sh/uv/install.sh | sh
 source ~/.bashrc
-uv tool install --python 3.12 "decupa[cuda,motion] @ git+https://github.com/bernardotraad/decupa.git"
-decupa-doctor --fix-browser
+uv tool install --python 3.12 "claudio[cuda,motion] @ git+https://github.com/bernardotraad/claudio.git"
+claudio-doctor --fix-browser
 ```
 
 - `[cuda]` brings the GPU transcription libraries; `[motion]` brings the browser used for captions and overlays.
-- `decupa-doctor` checks everything and tells you what is missing. Run it again at the end.
-- To update later: `uv tool upgrade decupa`.
+- `claudio-doctor` checks everything and tells you what is missing. Run it again at the end.
+- To update later: `uv tool upgrade claudio`.
 
 **Optional — GPU decoding (NVDEC):** about 2× faster on 4K H.264. NVDEC can't decode HEVC 4:2:2 (e.g. Canon 10-bit);
 use proxies for those files.
@@ -144,15 +147,15 @@ tar xf ff.tar.xz && rm ff.tar.xz && cd ~
 **Optional — more cores and memory for WSL:** create `C:\Users\<you>\.wslconfig` with a `[wsl2]` section containing
 `processors=<cores>` and `memory=<GB>GB`, then run `wsl --shutdown`.
 
-#### 5. Register decupa with Claude Code (PowerShell)
+#### 5. Register Cláudio with Claude Code (PowerShell)
 
 Replace `<user>` with your Ubuntu user:
 
 ```powershell
-claude mcp add -s user decupa -- C:\Windows\System32\wsl.exe -d Ubuntu -- /home/<user>/.local/bin/decupa
+claude mcp add -s user claudio -- C:\Windows\System32\wsl.exe -d Ubuntu -- /home/<user>/.local/bin/claudio
 ```
 
-`D:\...` paths work as they are: decupa translates them for WSL and returns everything (XML, `.md`) with Windows paths.
+`D:\...` paths work as they are: Cláudio translates them for WSL and returns everything (XML, `.md`) with Windows paths.
 
 #### 6. Premiere Pro MCP — [leancoderkavy/premiere-pro-mcp](https://github.com/leancoderkavy/premiere-pro-mcp)
 
@@ -165,11 +168,11 @@ claude mcp add -s user premiere-pro -- cmd /c premiere-pro-mcp
 ```
 
 Open Premiere with a project → **Window › Extensions › MCP for Adobe Premiere Pro** → status *Running*. To check:
-`premiere-pro-mcp --doctor`. The name `premiere-pro` matters: it is what the decupa panel expects.
+`premiere-pro-mcp --doctor`. The name `premiere-pro` matters: it is what the Cláudio panel expects.
 
 - If you get *server disconnected*, register it in legacy protocol mode:
   `claude mcp add -s user -e PREMIERE_MCP_PROTOCOL_MODE=legacy premiere-pro -- cmd /c premiere-pro-mcp`.
-- Already using the Premiere MCP in Claude Desktop (`.mcpb` bundle)? Keep it. The decupa panel uses **Claude Code**,
+- Already using the Premiere MCP in Claude Desktop (`.mcpb` bundle)? Keep it. The Cláudio panel uses **Claude Code**,
   which needs the registration above (a different client, so nothing is duplicated).
 
 #### 7. DaVinci Resolve MCP — [hiteshK03/davinci-resolve-mcp](https://github.com/hiteshK03/davinci-resolve-mcp)
@@ -188,14 +191,14 @@ claude mcp add -s user davinci-resolve -- "$PWD\venv\Scripts\python.exe" "$PWD\s
 `mcp<2` is needed because the server breaks with the 2.x `mcp` package. Every time you open Resolve: **Workspace ›
 Scripts › Utility › CursorBridge** (the console shows *Bridge is running*).
 
-#### 8. The decupa panel in Premiere (inside Ubuntu)
+#### 8. The Cláudio panel in Premiere (inside Ubuntu)
 
 ```bash
-decupa-panel
+claudio-panel
 ```
 
 It installs the panel in Windows Premiere and allows unsigned extensions. Restart Premiere → **Window › Extensions ›
-decupa**.
+Cláudio, o Editor**.
 
 #### 9. Optional
 
@@ -204,15 +207,15 @@ decupa**.
 - **ElevenLabs** (more natural narration): save the key in `~/.config/elevenlabs/api_key` inside Ubuntu. Without it,
   narration uses free edge-tts.
 - **Claude Desktop**: in `claude_desktop_config.json`, use the same command as step 5:
-  `"command": "C:\\Windows\\System32\\wsl.exe", "args": ["-d", "Ubuntu", "--", "/home/<user>/.local/bin/decupa"]`.
+  `"command": "C:\\Windows\\System32\\wsl.exe", "args": ["-d", "Ubuntu", "--", "/home/<user>/.local/bin/claudio"]`.
 
 #### 10. Check
 
 ```bash
-decupa-doctor
+claudio-doctor
 ```
 
-In PowerShell, `claude mcp list` should show `decupa`, `premiere-pro` and `davinci-resolve` as *Connected*.
+In PowerShell, `claude mcp list` should show `claudio`, `premiere-pro` and `davinci-resolve` as *Connected*.
 
 ---
 
@@ -236,19 +239,19 @@ curl -fsSL https://claude.ai/install.sh | bash
 
 Run `claude` and log in (`/login`).
 
-#### 3. decupa
+#### 3. Cláudio
 
 ```bash
-uv tool install --python 3.12 "decupa[motion] @ git+https://github.com/bernardotraad/decupa.git"
-decupa-doctor --fix-browser
-claude mcp add -s user decupa -- "$HOME/.local/bin/decupa"
+uv tool install --python 3.12 "claudio[motion] @ git+https://github.com/bernardotraad/claudio.git"
+claudio-doctor --fix-browser
+claude mcp add -s user claudio -- "$HOME/.local/bin/claudio"
 ```
 
-On the Mac, transcription uses **mlx-whisper** (installed with decupa) and decoding uses **VideoToolbox**. The first
+On the Mac, transcription uses **mlx-whisper** (installed with Cláudio) and decoding uses **VideoToolbox**. The first
 transcription downloads the `whisper-large-v3-turbo` model (~1.6 GB).
 
 > On the Mac, always register MCP servers with **absolute paths**: Premiere opened from the Dock doesn't see Terminal's
-> PATH, and the decupa panel runs from it.
+> PATH, and the Cláudio panel runs from it.
 
 #### 4. Premiere Pro MCP — [leancoderkavy/premiere-pro-mcp](https://github.com/leancoderkavy/premiere-pro-mcp)
 
@@ -278,20 +281,20 @@ claude mcp add -s user davinci-resolve -- "$PWD/venv/bin/python" "$PWD/src/resol
 
 Every time you open Resolve: **Workspace › Scripts › Utility › CursorBridge**.
 
-#### 6. The decupa panel in Premiere
+#### 6. The Cláudio panel in Premiere
 
 ```bash
-decupa-panel
+claudio-panel
 ```
 
-Restart Premiere → **Window › Extensions › decupa**.
+Restart Premiere → **Window › Extensions › Cláudio, o Editor**.
 
 #### 7. Optional and check
 
 - **motion-designer skill**: copy the folder to `~/.claude/skills/motion-designer`.
 - **ElevenLabs**: save the key in `~/.config/elevenlabs/api_key`.
-- **Claude Desktop**: `"command": "/Users/<you>/.local/bin/decupa"`.
-- To check: `decupa-doctor` and `claude mcp list`.
+- **Claude Desktop**: `"command": "/Users/<you>/.local/bin/claudio"`.
+- To check: `claudio-doctor` and `claude mcp list`.
 
 ---
 
@@ -299,21 +302,21 @@ Restart Premiere → **Window › Extensions › decupa**.
 
 1. Set up the project in Premiere/Resolve and **save the `.prproj` inside `<job>/#projeto/`**: the panel finds the
    footage folder from there.
-2. Open the **decupa** panel and click **Analisar material**. The bar shows the progress. You can close the panel,
+2. Open the **Cláudio** panel and click **Analisar material**. The bar shows the progress. You can close the panel,
    Claude Desktop or Premiere: indexing keeps going.
 3. When it finishes, the panel offers the **overview**: what the project is, the questions (duration, soundtrack) and
    possible directions. Pick one or explain your own idea.
 4. **Selects** → check the take and b-roll choices in the NLE.
 5. Ask for the edit. It comes in as a new sequence. Review it, change anything, and leave **markers** with notes.
-6. **Ler minhas notas** (read my notes) → decupa compares with what it delivered, adopts your changes and applies your
+6. **Ler minhas notas** (read my notes) → Cláudio compares with what it delivered, adopts your changes and applies your
    notes in a new version.
 7. **Legendas** (captions) → corrected sentences (speech → caption table), a preview of the 6 styles with the
    recommended one starred, an editable SRT and/or an alpha overlay.
 8. **QC antes de exportar** (QC before export) → a list of issues with timecode. You finish (grade, effects) and export.
 
-You can also do everything from the Claude Code terminal with the guided prompt `/mcp__decupa__montar`.
+You can also do everything from the Claude Code terminal with the guided prompt `/mcp__claudio__montar`.
 
-**decupa's rules:** you are always in control. It proposes before changing anything, never overwrites your sequence (it
+**Cláudio's rules:** you are always in control. It proposes before changing anything, never overwrites your sequence (it
 makes a new one), never undoes your manual changes, and only renders the final video if you ask. Log footage (S-Log,
 C-Log, BMD Film) looks flat on purpose: grading is yours, in the NLE.
 
@@ -321,20 +324,20 @@ C-Log, BMD Film) looks flat on purpose: grading is yours, in the NLE.
 
 | Where | What |
 | --- | --- |
-| next to every video | `<clip>.md` (technical, colour, scenes, takes, transcript) and `_decupa/<clip>.jpg` |
-| in every footage folder | `_DECUPA.md` (folder table + progress) and `_decupa/progress.json` |
+| next to every video | `<clip>.md` (technical, colour, scenes, takes, transcript) and `_claudio/<clip>.jpg` |
+| in every footage folder | `_CLAUDIO.md` (folder table + progress) and `_claudio/progress.json` |
 | at the job root | `_VISAO_GERAL.md`, `_ingest.md` / `_ingest.json` |
-| `#projeto/` | XMLs (selects, sync, edit versions) and `decupa_overlays/` (captions, overlays, narration) |
-| `D:\Documentos\decupa\clientes` (Mac: `~/decupa/clientes`) | client profiles (`<client>.md`) |
-| `~/.cache/decupa/` | indexes (transcript, metrics, audio). Deleting it only forces a new analysis. |
+| `#projeto/` | XMLs (selects, sync, edit versions) and `claudio_overlays/` (captions, overlays, narration) |
+| vault: `trabalho/clientes/` (no vault: `~/Documents/Claudio/clientes`) | client profiles (`<client>.md`, with the vault frontmatter) |
+| `~/.cache/claudio/` | indexes (transcript, metrics, audio). Deleting it only forces a new analysis. |
 
-Text you write in the `.md` files outside the `<!-- decupa:auto -->` markers is never overwritten.
+Text you write in the `.md` files outside the `<!-- claudio:auto -->` markers is never overwritten.
 
 ## Validation
 
 - **Multicam:** on a 1h53 concert (2 cameras at 29.97 and 23.976 fps, plus a board recorder), the 31 clips that share
   audio landed **within one frame** of the PluralEyes sync, with the same drift (`+0.079` vs `+0.078` s). PluralEyes
-  parks the clips that share no audio at the start or end of the timeline; decupa places them by the camera clock and
+  parks the clips that share no audio at the start or end of the timeline; Cláudio places them by the camera clock and
   marks them approximate.
 - **Takes:** on broker reels, it picked the same hook and CTA takes as the editor (CTA in-point within 20 ms).
 - **Beat:** 7 ms median error on a 128 BPM click track.
@@ -344,20 +347,23 @@ Text you write in the `.md` files outside the `<!-- decupa:auto -->` markers is 
 
 | Variable | Default | |
 | --- | --- | --- |
-| `DECUPA_CACHE` | `~/.cache/decupa` | indexes |
-| `DECUPA_CLIENTS` | `D:\Documentos\decupa\clientes` / `~/decupa/clientes` | client profiles |
-| `DECUPA_MOTION_SKILL` | `~/.claude/skills/motion-designer` | motion skill |
-| `DECUPA_WHISPER` / `DECUPA_MLX_MODEL` | `large-v3-turbo` | transcription model |
-| `DECUPA_FFMPEG_GPU` | `~/.local/opt/ffmpeg-*/bin/ffmpeg` | ffmpeg with CUDA |
-| `DECUPA_GPU` / `DECUPA_FAST` | `1` | `0` turns off NVDEC / keyframe mode |
+| `CLAUDIO_CACHE` | `~/.cache/claudio` | indexes |
+| `CLAUDIO_CLIENTS` | `<vault>/trabalho/clientes` | client profiles |
+| `CLAUDIO_VAULT` | `D:\bernardo\vault` / `~/vault` | Obsidian vault that holds the profiles |
+| `CLAUDIO_MOTION_SKILL` | `~/.claude/skills/motion-designer` | motion skill |
+| `CLAUDIO_WHISPER` / `CLAUDIO_MLX_MODEL` | `large-v3-turbo` | transcription model |
+| `CLAUDIO_FFMPEG_GPU` | `~/.local/opt/ffmpeg-*/bin/ffmpeg` | ffmpeg with CUDA |
+| `CLAUDIO_GPU` / `CLAUDIO_FAST` | `1` | `0` turns off NVDEC / keyframe mode |
+
+The old `DECUPA_*` variables still work.
 
 ## Limitations
 
 - Cameras without timecode (e.g. Canon `MVI_*`) start at `00:00:00:00`; frames stay exact.
-- NVDEC can't decode HEVC/H.264 4:2:2. decupa then analyses keyframes only, or you can use proxies.
+- NVDEC can't decode HEVC/H.264 4:2:2. Cláudio then analyses keyframes only, or you can use proxies.
 - One frame rate per exported timeline (with mixed fps, make one timeline per fps).
 - In Premiere, **import the XMLs by hand** (File › Import / Ctrl+I). Importing an XML through the Premiere MCP's
-  `import_media` crashes Premiere; manual import works. decupa hands you the XML path, and the panel shows an
+  `import_media` crashes Premiere; manual import works. Cláudio hands you the XML path, and the panel shows an
   **Importar no Premiere** button that saves the project and imports one XML at a time with Premiere's dialogs shown.
   Regular media (`.mov` overlays, `.wav`, `.srt`) can go through the MCP.
 - Take ranking is evidence, not a verdict. For performances, look at the winner and the runner-up.
@@ -365,3 +371,14 @@ Text you write in the `.md` files outside the `<!-- decupa:auto -->` markers is 
 ## License
 
 [MIT](LICENSE)
+
+### Coming from decupa (before v0.7)
+
+- `_decupa/` folders become `_claudio/` the next time a job is opened, with no reindexing. The `.md` links are updated
+  too, and `_DECUPA.md` is replaced by `_CLAUDIO.md`.
+- The `~/.cache/decupa` cache moves to `~/.cache/claudio` (a link stays in the old place).
+- Folders already handed to Premiere (`decupa_overlays/`, `decupa_drift_corrected/`) are left alone so project links
+  don't break.
+- To switch installs: `uv tool uninstall decupa`, install `claudio` as above and register it again in Claude Code
+  (`claude mcp remove decupa -s user`, then `claude mcp add ... claudio ...`). Run `claudio-panel`: it removes the old
+  panel.

@@ -1,4 +1,4 @@
-/* decupa panel — talk to Claude Code (with the decupa + Premiere MCPs) from inside Premiere.
+/* Cláudio, o Editor — panel: talk to Claude Code (with the claudio + Premiere MCPs) from inside Premiere.
    Each message runs `claude -p … --output-format stream-json --resume <session>` in the job folder, with the current
    Premiere context (project, active sequence, playhead, selected clips) attached. Tools are limited to the MCP servers
    and file reading: the panel never runs shell commands. The editor stays in control: Claude proposes, asks, and
@@ -17,10 +17,14 @@ function evalHost(script) {
 }
 
 async function readContext() {
-  try { ctx = JSON.parse(await evalHost('decupaContext()')); } catch (e) { ctx = {}; }
+  try { ctx = JSON.parse(await evalHost('claudioContext()')); } catch (e) { ctx = {}; }
   const proj = ctx.project ? path.basename(ctx.project) : 'sem projeto';
   $('#ctx').textContent = `${proj}${ctx.sequence ? ' · ' + ctx.sequence : ''}${ctx.selection && ctx.selection.length ? ' · ' + ctx.selection.length + ' selecionado(s)' : ''}`;
-  sessionKey = 'decupa-session:' + (ctx.project || 'none');
+  sessionKey = 'claudio-session:' + (ctx.project || 'none');
+  try {                                   // keep the chat from before the rename (decupa → Cláudio)
+    const old = localStorage.getItem('decupa-session:' + (ctx.project || 'none'));
+    if (old && !localStorage.getItem(sessionKey)) localStorage.setItem(sessionKey, old);
+  } catch (e) {}
   return ctx;
 }
 
@@ -33,7 +37,7 @@ function jobFolder() {
 }
 
 function claudeExe() {
-  const cands = [process.env.DECUPA_CLAUDE, path.join(os.homedir(), '.local', 'bin', 'claude.exe'),
+  const cands = [process.env.CLAUDIO_CLAUDE || process.env.DECUPA_CLAUDE, path.join(os.homedir(), '.local', 'bin', 'claude.exe'),
                  path.join(os.homedir(), '.local', 'bin', 'claude'), '/usr/local/bin/claude', '/opt/homebrew/bin/claude'];
   return cands.find((c) => c && fs.existsSync(c)) || 'claude';
 }
@@ -62,7 +66,7 @@ function importButtons(d, text) {
     b.onclick = async () => {
       b.disabled = true; b.textContent = 'salvando o projeto e importando ' + path.basename(p) + '…';
       let r = {};
-      try { r = JSON.parse(await evalHost('decupaImportXml(' + JSON.stringify(p) + ')')); } catch (e) { r = { ok: false, error: String(e) }; }
+      try { r = JSON.parse(await evalHost('claudioImportXml(' + JSON.stringify(p) + ')')); } catch (e) { r = { ok: false, error: String(e) }; }
       b.textContent = r.ok ? `importado: ${path.basename(p)}` : `não importou ${path.basename(p)}: ${r.error || 'cancelado'}`;
       if (!r.ok) b.disabled = false;
     };
@@ -84,18 +88,18 @@ function rawFolder() {
 
 const QUICK = {
   index: () => `Analise o material bruto deste trabalho: index_folder na pasta "${rawFolder()}" (mostre o progresso). Se houver perfil do cliente (client_profile), use o vocabulário dele. No fim, me diga em 4–6 linhas o que tem no material.`,
-  selects: () => `Faça as selects deste trabalho com make_selects (pasta "${rawFolder()}", XML em "${path.join(jobFolder(), '#projeto', 'decupa_selects.xml')}") e escreva o caminho completo do XML (o painel mostra o botão de importar) — não importe XML pelo MCP do Premiere. Depois me resuma as escolhas.`,
-  notes: () => `Exporte a sequência ativa ("${ctx.sequence || ''}") como FCP XML com o MCP do Premiere, rode compare_with_nle contra a última versão do projeto decupa deste trabalho, e me mostre o que eu mudei e as notas (marcadores) que deixei. Não aplique nada ainda: proponha e espere meu ok.`,
+  selects: () => `Faça as selects deste trabalho com make_selects (pasta "${rawFolder()}", XML em "${path.join(jobFolder(), '#projeto', 'claudio_selects.xml')}") e escreva o caminho completo do XML (o painel mostra o botão de importar) — não importe XML pelo MCP do Premiere. Depois me resuma as escolhas.`,
+  notes: () => `Exporte a sequência ativa ("${ctx.sequence || ''}") como FCP XML com o MCP do Premiere, rode compare_with_nle contra a última versão entregue pelo Cláudio deste trabalho, e me mostre o que eu mudei e as notas (marcadores) que deixei. Não aplique nada ainda: proponha e espere meu ok.`,
   qc: () => `Faça o QC da sequência ativa ("${ctx.sequence || ''}", ${ctx.frame_size || ''}) antes de eu exportar: exporte como FCP XML com o MCP do Premiere e rode qc_timeline. Liste os problemas e pergunte se quero que você marque cada um como marcador na timeline.`,
   status: () => `Rode index_status e me diga o progresso em uma linha.`,
   overview: () => `Faça a visão geral do projeto: project_digest na pasta "${rawFolder()}", entenda sobre o que é o trabalho, salve com save_project_overview em "${jobFolder()}" e me resuma em 4–6 linhas. Depois me pergunte a duração aproximada do vídeo final e a trilha (uma música específica ou um mood/gênero) e proponha 2–4 direcionamentos concretos a partir do material. Eu escolho um ou explico a minha ideia.`,
-  captions: () => `Legendas da sequência ativa ("${ctx.sequence || ''}", ${ctx.frame_size || ''}). Exporte a sequência como FCP XML com o MCP do Premiere e siga os 3 passos: 1) caption_sentences e corrija SÓ a gramática (concordância, regência, crase, pontuação), sem mudar as palavras do falante nem nomes de marca — me mostre a tabela fala → legenda; 2) caption_style_preview (aspect conforme o frame da sequência; se houver perfil do cliente, passe client) e me pergunte qual estilo; 3) com a minha escolha, gere o .srt (captions_srt) e o overlay (caption_overlay) em "${path.join(jobFolder(), '#projeto', 'decupa_overlays')}" e importe o overlay na trilha de vídeo mais alta em 0 s.`,
+  captions: () => `Legendas da sequência ativa ("${ctx.sequence || ''}", ${ctx.frame_size || ''}). Exporte a sequência como FCP XML com o MCP do Premiere e siga os 3 passos: 1) caption_sentences e corrija SÓ a gramática (concordância, regência, crase, pontuação), sem mudar as palavras do falante nem nomes de marca — me mostre a tabela fala → legenda; 2) caption_style_preview (aspect conforme o frame da sequência; se houver perfil do cliente, passe client) e me pergunte qual estilo; 3) com a minha escolha, gere o .srt (captions_srt) e o overlay (caption_overlay) em "${path.join(jobFolder(), '#projeto', 'claudio_overlays')}" e importe o overlay na trilha de vídeo mais alta em 0 s.`,
   vault: () => `Registre este trabalho no vault (conector Vault), seguindo as regras do CLAUDE.md do vault (leia-o com read_note antes): 1) nota do trabalho com cliente, data, pasta "${jobFolder()}", material (câmeras, horas, cor/log, áudio), decisões de montagem desta conversa, versões entregues e onde estão os arquivos (.md da decupagem, XMLs, perfil do cliente); 2) entrada no diário de hoje (append_diary) com um resumo de 2–4 linhas e link pra nota; 3) se o cliente tiver página, linke. Não grave senhas nem dados sensíveis. No fim me diga o que foi escrito.`,
 };
 
 function contextBlock() {
   const sel = (ctx.selection || []).map((s) => `  - ${s.name} (${s.track_type}) timeline ${(+s.start_s).toFixed(2)}–${(+s.end_s).toFixed(2)}s, fonte ${(+s.in_s).toFixed(2)}–${(+s.out_s).toFixed(2)}s${s.media ? ' · ' + s.media : ''}`).join('\n');
-  return `[Contexto do Premiere — painel decupa]\nPasta do trabalho: ${jobFolder()}\nProjeto: ${ctx.project || '-'}\nSequência ativa: ${ctx.sequence || '-'} (${ctx.frame_size || '-'})\nPlayhead: ${ctx.playhead_s != null ? (+ctx.playhead_s).toFixed(2) + 's' : '-'}\n${sel ? 'Clipes selecionados:\n' + sel : 'Nenhum clipe selecionado.'}\nRegras: o editor está no controle — proponha antes de mudar; nunca sobrescreva a sequência dele (crie uma nova); só renderize se ele pedir. XML (.xml) nunca vai pelo import_media do Premiere (derruba o Premiere): escreva o caminho completo do XML na resposta — o painel mostra um botão \"Importar no Premiere\" — ou ele importa com Ctrl+I; mídia comum (.mov/.wav/.srt) pode ir pelo import_media. Memória: este chat é separado das outras sessões; o que importar para depois vai para o vault (conector Vault) e para os arquivos do decupa no disco — ofereça registrar no vault quando houver decisões.\n\n`;
+  return `[Contexto do Premiere — painel Cláudio, o Editor]\nPasta do trabalho: ${jobFolder()}\nProjeto: ${ctx.project || '-'}\nSequência ativa: ${ctx.sequence || '-'} (${ctx.frame_size || '-'})\nPlayhead: ${ctx.playhead_s != null ? (+ctx.playhead_s).toFixed(2) + 's' : '-'}\n${sel ? 'Clipes selecionados:\n' + sel : 'Nenhum clipe selecionado.'}\nRegras: o editor está no controle — proponha antes de mudar; nunca sobrescreva a sequência dele (crie uma nova); só renderize se ele pedir. XML (.xml) nunca vai pelo import_media do Premiere (derruba o Premiere): escreva o caminho completo do XML na resposta — o painel mostra um botão \"Importar no Premiere\" — ou ele importa com Ctrl+I; mídia comum (.mov/.wav/.srt) pode ir pelo import_media. Memória: este chat é separado das outras sessões; o que importar para depois vai para o vault (conector Vault) e para os arquivos do claudio no disco — ofereça registrar no vault quando houver decisões.\n\n`;
 }
 
 async function send(text) {
@@ -104,7 +108,7 @@ async function send(text) {
   add('user', text);
   const sid = localStorage.getItem(sessionKey);
   const args = ['-p', contextBlock() + text, '--output-format', 'stream-json', '--verbose',
-                '--allowedTools', 'mcp__decupa,mcp__premiere-pro,mcp__davinci-resolve,mcp__claude_ai_Vault,Read,Glob,Grep',
+                '--allowedTools', 'mcp__claudio,mcp__premiere-pro,mcp__davinci-resolve,mcp__claude_ai_Vault,Read,Glob,Grep',
                 // allowedTools only pre-approves; this BLOCKS shell and file edits from the panel
                 '--disallowedTools', 'Bash,PowerShell,Edit,Write,NotebookEdit'];
   if (sid) args.push('--resume', sid);
@@ -156,7 +160,7 @@ $('#stop').onclick = () => { if (child) { child.kill(); add('meta', 'parado'); }
 $('#newchat').onclick = () => { localStorage.removeItem(sessionKey); log.innerHTML = ''; add('meta', 'nova conversa'); };
 document.querySelectorAll('#quick button').forEach((b) => (b.onclick = async () => { await readContext(); send(QUICK[b.dataset.q]()); }));
 
-// indexing progress: read <footage>/_decupa/progress.json (written by the background indexer) every 2 s
+// indexing progress: read <footage>/_claudio/progress.json (written by the background indexer) every 2 s
 function findProgressFiles() {
   const out = [];
   const root = jobFolder();
@@ -166,7 +170,7 @@ function findProgressFiles() {
     for (const e of ents) {
       if (!e.isDirectory()) continue;
       const p = path.join(d, e.name);
-      if (e.name === '_decupa') { const f = path.join(p, 'progress.json'); if (fs.existsSync(f)) out.push(f); }
+      if (e.name === '_claudio' || e.name === '_decupa') { const f = path.join(p, 'progress.json'); if (fs.existsSync(f)) out.push(f); }
       else if (depth < 2 && !e.name.startsWith('#') && !/^proxies?$/i.test(e.name)) visit(p, depth + 1);
     }
   };
@@ -188,7 +192,7 @@ function showProgress() {
   const name = path.basename(String(best.folder || '').replace(/\\/g, '/'));
   box.querySelector('.txt').textContent = `${best.state === 'running' ? 'Indexando' : best.state === 'done' ? 'Indexado' : 'Indexação parada'} ${name}: ${best.line || ''}`;
   box.querySelector('.fill').style.width = Math.round((best.fraction || 0) * 100) + '%';
-  const key = 'decupa-overview-offered:' + (best.folder || '');
+  const key = 'claudio-overview-offered:' + (best.folder || '');
   if (best.state === 'done' && !localStorage.getItem(key)) {
     localStorage.setItem(key, '1');
     const d = add('claude', `Material todo indexado (${best.files_total || ''} clipes). Quer que eu faça a visão geral do projeto e proponha direcionamentos?  `);

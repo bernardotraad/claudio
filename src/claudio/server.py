@@ -1,4 +1,4 @@
-"""decupa — MCP server that lets Claude actually SEE and HEAR footage before cutting in Premiere / Resolve.
+"""Cláudio, o Editor (MCP server "claudio") — lets Claude actually SEE and HEAR footage before cutting in Premiere / Resolve.
 
 Run:  python3 server.py            (stdio MCP)
 Workflow the tools are designed for:
@@ -15,14 +15,14 @@ Workflow the tools are designed for:
 import os, queue, sys, threading, traceback
 
 from mcp.server.fastmcp import FastMCP, Image
-from decupa import core, montage
+from claudio import core, montage
 
-mcp = FastMCP('decupa', instructions=__doc__)
+mcp = FastMCP('claudio', instructions=__doc__)
 
 # ── background indexing (GPU work is serialized) with progress the user can follow ──
 import time as _time
 from mcp.server.fastmcp import Context
-from decupa import sidecar
+from claudio import sidecar
 
 _jobs, _q = {}, queue.Queue()
 STAGE_W = {'probe': (0.0, 0.02), 'audio': (0.02, 0.08), 'picture': (0.10, 0.65), 'speech': (0.75, 0.25)}
@@ -213,7 +213,7 @@ def set_rotation(degrees: int, paths: list[str] = None, folder: str = None) -> d
         files += [os.path.join(dp, f) for dp, _, fn in os.walk(root) for f in sorted(fn) if os.path.splitext(f)[1].lower() in core.VIDEO_EXT]
     for f in files:
         core.set_rotation(f, degrees)
-        sp = os.path.join(os.path.dirname(f), '_decupa', os.path.splitext(os.path.basename(f))[0] + '.jpg')
+        sp = os.path.join(core.data_dir(os.path.dirname(f), create=False), os.path.splitext(os.path.basename(f))[0] + '.jpg')
         if os.path.exists(sp):
             os.remove(sp)                      # our own contact sheet: redraw it upright
         if _is_indexed(f):
@@ -228,13 +228,13 @@ def set_rotation(degrees: int, paths: list[str] = None, folder: str = None) -> d
 async def index_folder(folder: str, ctx: Context, language: str = 'pt', vocabulary: str = None, wait_minutes: float = 10) -> dict:
     """Index every video in a folder (card dump / VIDEOS / BRUTOS). Runs in its OWN background process — it keeps going
     if this chat ends or the Premiere panel closes — and skips clips already indexed. Writes <clip>.md + contact sheet
-    next to each video and keeps _DECUPA.md updated with the progress. Shows live progress here for up to wait_minutes,
+    next to each video and keeps _CLAUDIO.md updated with the progress. Shows live progress here for up to wait_minutes,
     then returns; index_status(folder) reports it any time later.
     vocabulary: names the transcript must get right — brand, people, places ("INC Empreendimentos, Juiz de Fora").
     4K long-GOP footage the GPU can't decode (e.g. Canon HEVC 4:2:2) is analysed from keyframes (~3× faster);
     proxies (Proxy/ or Proxies/) are used when present; links always point to the originals."""
     import asyncio, subprocess as sp
-    from decupa import indexer
+    from claudio import indexer
     root = core.local_path(folder)
     files = indexer.list_videos(root)
     pending = [f for f in files if not _is_indexed(f) or vocabulary]
@@ -267,14 +267,14 @@ async def index_folder(folder: str, ctx: Context, language: str = 'pt', vocabula
             'state': (j or {}).get('state', 'done' if not pending else 'starting'),
             'continues_in_background': bool(j and j.get('state') == 'running'),
             'errors': (j or {}).get('errors', []),
-            'folder_index': core.nle_path(os.path.join(root, '_DECUPA.md'))}
+            'folder_index': core.nle_path(os.path.join(root, '_CLAUDIO.md'))}
 
 
 @mcp.tool()
 def index_status(folder: str = None) -> dict:
     """Progress of indexing: percentage, clips done/total, current clip and step, speed, minutes left — for a folder or
     for every recent job. Background folder jobs survive the chat that started them. Tell the user the `progress` line."""
-    from decupa import indexer
+    from claudio import indexer
     jobs = [indexer.read_job(folder)] if folder else indexer.all_jobs()
     jobs = [j for j in jobs if j]
     out = {'jobs': [{'folder': j['folder'], 'progress': indexer.progress_line(j), 'state': j['state'], 'errors': j.get('errors', [])[:10]} for j in jobs]}
@@ -286,11 +286,11 @@ def index_status(folder: str = None) -> dict:
 
 @mcp.tool()
 def write_sidecars(folder: str) -> dict:
-    """(Re)write <clip>.md + contact sheets for every indexed video in a folder, and the folder's _DECUPA.md."""
+    """(Re)write <clip>.md + contact sheets for every indexed video in a folder, and the folder's _CLAUDIO.md."""
     root = core.local_path(folder)
     out = []
     for dp, dn, fn in os.walk(root):
-        dn[:] = [x for x in dn if x.lower() not in core.PROXY_DIRS and not x.startswith(('_decupa', '.'))]
+        dn[:] = [x for x in dn if x.lower() not in core.PROXY_DIRS and not x.startswith(('_claudio', '_decupa', '.'))]
         for f in sorted(fn):
             p = os.path.join(dp, f)
             if os.path.splitext(f)[1].lower() in core.VIDEO_EXT and _is_indexed(p):
@@ -556,11 +556,11 @@ async def sync_multicam(cameras: dict, ctx: Context, external_audio: list[str] =
     cameras: {"CAM A": "E:\\\\Show\\\\01 HRCS", "CAM B": "E:\\\\Show\\\\02 BÊ"} (folder or list of files per camera).
     external_audio: recorder files/folders (board mix, lav recorders) — used as the reference clock when given.
     Places every clip on one timeline (graph of audio matches + transcript fallback), measures the recorder's clock
-    drift on long clips and writes a corrected copy (<name>_drift_corrected±X.wav in decupa_drift_corrected/), then
+    drift on long clips and writes a corrected copy (<name>_drift_corrected±X.wav in claudio_drift_corrected/), then
     exports an FCP7 XML like PluralEyes' ("Synced Sequence": V1..Vn = cameras, stereo pairs per camera, recorder on the
     last pair; one bin per camera). Premiere: do NOT import the .xml through the Premiere MCP (importFiles on an FCP XML crashes Premiere) — give the editor the path and ask them to import it (File › Import / Ctrl+I); Resolve: import_timeline_from_file. Shows progress."""
     import asyncio, json as _j
-    from decupa import multicam
+    from claudio import multicam
     state = {'stage': 'audio', 'f': 0.0}
     def prog(stage, f):
         state.update(stage=stage, f=f)
@@ -577,7 +577,7 @@ async def sync_multicam(cameras: dict, ctx: Context, external_audio: list[str] =
     res = task.result()
     first = next(n for n in res['nodes'] if n.get('t0') is not None)
     base = os.path.dirname(os.path.commonpath([n['path'] for n in res['nodes']]))
-    out = core.local_path(out_xml) if out_xml else os.path.join(base, 'decupa_sync.xml')
+    out = core.local_path(out_xml) if out_xml else os.path.join(base, 'claudio_sync.xml')
     x = multicam.export_xml(res, out)
     summ = multicam.summary(res)
     _j.dump({'fps': res['fps'], 'drift': res['drift'], 'clips': [{**r, 'path': n['path']} for r, n in
@@ -604,7 +604,7 @@ def read_premiere_project(prproj: str, sequence: str = None) -> dict:
     With it: the timeline items (track, timeline in/out, source clip + in/out) and the editing patterns — spine shot
     length, b-roll over speech (count, length, % covered), caption block length, end card. Use these numbers as the
     house style when building a new edit for the same client/format."""
-    from decupa import nle_read
+    from claudio import nle_read
     if not sequence:
         return {'sequences': nle_read.premiere_sequences(prproj)}
     return {'patterns': nle_read.edit_patterns(prproj, sequence), 'timeline': nle_read.premiere_timeline(prproj, sequence)[:300]}
@@ -621,7 +621,7 @@ async def ingest_card(card: str, job_folder: str, ctx: Context, camera: str = No
     camera: folder name for this card ("CAM A", "01 HRCS"); default = camera model from the metadata.
     dry_run=True shows the plan without copying. Shows progress."""
     import asyncio
-    from decupa import ingest
+    from claudio import ingest
     st = {'f': 0.0}
     loop = asyncio.get_running_loop()
     task = loop.run_in_executor(None, lambda: ingest.ingest(card, job_folder, camera, lambda s, f: st.update(f=f), dry_run))
@@ -648,12 +648,12 @@ def make_selects(out_xml: str, folder: str = None, paths: list[str] = None, incl
     no-speech clips), and a bin of every source clip with markers (✅ best / ✗ criticised / alternates / 👁 notes /
     b-roll). Premiere: do NOT import the .xml through the Premiere MCP (importFiles on an FCP XML crashes Premiere) — give the editor the path and ask them to import it (File › Import / Ctrl+I); Resolve: import_timeline_from_file for each of resolve_xmls.
     Links point to the ORIGINAL media (the NLE handles proxies)."""
-    from decupa import selects
+    from claudio import selects
     files = [core.local_path(p) for p in (paths or [])]
     if folder:
         root = core.local_path(folder)
         for dp, dn, fn in os.walk(root):
-            dn[:] = [x for x in dn if x.lower() not in core.PROXY_DIRS and not x.startswith(('_decupa', '.'))]
+            dn[:] = [x for x in dn if x.lower() not in core.PROXY_DIRS and not x.startswith(('_claudio', '_decupa', '.'))]
             files += [os.path.join(dp, f) for f in sorted(fn) if os.path.splitext(f)[1].lower() in core.VIDEO_EXT
                       and not f.startswith('._') and not core.is_proxy(os.path.join(dp, f))]
     files = [f for f in sorted(set(files)) if _is_indexed(f)]
@@ -667,10 +667,10 @@ def make_selects(out_xml: str, folder: str = None, paths: list[str] = None, incl
 @mcp.tool()
 def compare_with_nle(project: str, nle_xml: str, version: int = None) -> dict:
     """Before changing anything: read the timeline AS IT IS NOW in the NLE (export it first — Premiere:
-    export_as_fcp_xml; Resolve: export_timeline(file, 'FCP_7_XML')) and compare with the version decupa delivered:
+    export_as_fcp_xml; Resolve: export_timeline(file, 'FCP_7_XML')) and compare with the version Cláudio delivered:
     per shot same / trimmed / moved / removed, clips the editor added, and the editor's markers (notes) with the shot
     each falls on. The editor's manual changes win — build the next version on top of them (adopt_nle_timeline)."""
-    from decupa import nle_read
+    from claudio import nle_read
     p = montage.project_dir(project)
     v, fit = montage.load_fit(p, version)
     return {'compared_with_version': v, **nle_read.diff_with_edit(nle_read.read_fcp7(nle_xml), fit)}
@@ -679,9 +679,9 @@ def compare_with_nle(project: str, nle_xml: str, version: int = None) -> dict:
 @mcp.tool()
 def adopt_nle_timeline(project: str, nle_xml: str, version: int = None) -> dict:
     """Make the editor's current NLE timeline the new base version, exactly as it is (positions, trims, removals, added
-    clips; no beat re-fitting), keeping decupa's settings (format, music, captions). Apply the editor's notes on top
+    clips; no beat re-fitting), keeping Cláudio's settings (format, music, captions). Apply the editor's notes on top
     of THIS version, then export_edit → import as a NEW sequence (never overwrite the editor's)."""
-    from decupa import nle_read
+    from claudio import nle_read
     import json as _j
     p = montage.project_dir(project)
     v, fit = montage.load_fit(p, version)
@@ -702,7 +702,7 @@ def client_profile(name: str) -> dict:
     """Read a client's profile (vocabulary, formats, end card, music, captions, structure, house style measured from
     finished edits, notes, past jobs). READ IT FIRST on a new job for a known client: it replaces most intake
     questions — ask only what is different this time. Returns null profile if the client is new."""
-    from decupa import clients
+    from claudio import clients
     p = clients.load(name)
     return {'profile': p, 'folder': core.nle_path(clients.clients_dir()),
             'known_clients': sorted(os.path.splitext(f)[0] for f in os.listdir(clients.clients_dir()) if f.endswith('.md'))}
@@ -714,7 +714,7 @@ def save_client_profile(name: str, updates: dict, learn_from_prproj: str = None)
     vocabulary (str), formats (list), end_card {path,in,out}, music {tracks,style}, captions, structure, notes,
     jobs [{date,name,folder}] (appended). learn_from_prproj: a finished Premiere project of this client — measures
     the house style (shot lengths, b-roll coverage, captions, end card) from its finished sequences."""
-    from decupa import clients
+    from claudio import clients
     p = clients.save(name, updates)
     if learn_from_prproj:
         p = clients.learn_style(name, learn_from_prproj)
@@ -728,7 +728,7 @@ def qc_timeline(nle_xml: str, platform: str = None, sequence_width: int = None, 
     clips, clips past their media, same take twice, jump cuts, speech level jumps, clipped source audio, and
     size/duration vs platform (reels · tiktok · shorts · feed · youtube · youtube4k). Offer to drop each issue as a
     marker in the NLE; the editor decides what to fix."""
-    from decupa import qc
+    from claudio import qc
     size = (sequence_width, sequence_height) if sequence_width and sequence_height else None
     return qc.qc_timeline(nle_xml, platform, size)
 
@@ -741,7 +741,7 @@ def project_digest(folder: str) -> dict:
     with save_project_overview, then ask the user the basics (approximate final duration; soundtrack — a specific
     track or a mood/genre) and propose 2–4 concrete directions grounded in the material. They pick one or explain their
     own idea, and the edit starts from there."""
-    from decupa import sidecar as _s
+    from claudio import sidecar as _s
     return _s.project_digest(folder)
 
 
@@ -750,7 +750,7 @@ def save_project_overview(job_folder: str, markdown: str) -> dict:
     """Write <job>/_VISAO_GERAL.md — what the project is about, the material (cameras, hours, colour, sound, people,
     places, moments), what is strong / missing, the open questions (duration, soundtrack) and the proposed directions.
     Any agent reads it next time. Text outside the auto markers is kept."""
-    from decupa import sidecar as _s
+    from claudio import sidecar as _s
     return {'written': core.nle_path(_s.write_overview(job_folder, markdown))}
 
 
@@ -758,7 +758,7 @@ def save_project_overview(job_folder: str, markdown: str) -> dict:
 def motion_reference(topic: str = None) -> str:
     """The motion-designer skill's craft rules (readability, safe zones, captions, narration, composition, fit…).
     Read the relevant section BEFORE designing an overlay or writing narration."""
-    from decupa import motion
+    from claudio import motion
     return motion.reference(topic)
 
 
@@ -770,7 +770,7 @@ async def render_overlay(code: str, name: str, out_folder: str, ctx: Context, as
     sequence rate. This is an asset for the timeline, not a render of the video.
     """
     import asyncio
-    from decupa import motion
+    from claudio import motion
     st = {'f': 0.0}
     loop = asyncio.get_running_loop()
     task = loop.run_in_executor(None, lambda: motion.render_overlay(code, name, out_folder, aspect, fps, progress=lambda f: st.update(f=f)))
@@ -790,7 +790,7 @@ def caption_sentences(nle_xml: str) -> dict:
     and brand names (e.g. "Você sabe quantos já gastou" → "Você sabe quanto já gastou"). Show the user the diff
     (spoken → caption) and pass the approved {id: text} as `corrected` to the caption tools. Approved corrections are
     remembered per source clip and come back by themselves next time."""
-    from decupa import motion
+    from claudio import motion
     return motion.caption_sentences(nle_xml)
 
 
@@ -800,7 +800,7 @@ def caption_style_preview(nle_xml: str, aspect: str = '9x16', accent: str = '#4e
     """STEP 2 of captions: the same moment of the edit (real footage) with each caption style on it — social, bold,
     clean, karaoke, box, minimal — and the recommended one starred (from the client profile's caption preference, else
     the format: vertical → social, horizontal → minimal). Show it and let the user choose (or tweak accent/position)."""
-    from decupa import motion, clients
+    from claudio import motion, clients
     pref = None
     if client:
         p = clients.load(client)
@@ -818,7 +818,7 @@ async def caption_overlay(nle_xml: str, out_folder: str, ctx: Context, style: st
     one transparent ProRes 4444 .mov the length of the edit, to lay on the top video track at 0.
     style: social · bold · clean · karaoke · box · minimal. position: bottom · center · top. fix: spelling {"Enki": "INC"}."""
     import asyncio
-    from decupa import motion
+    from claudio import motion
     st = {'f': 0.0}
     loop = asyncio.get_running_loop()
     task = loop.run_in_executor(None, lambda: motion.caption_overlay(nle_xml, out_folder, aspect, accent, uppercase, max_words, fix,
@@ -837,7 +837,7 @@ async def caption_overlay(nle_xml: str, out_folder: str, ctx: Context, style: st
 def captions_srt(nle_xml: str, out_srt: str, corrected: dict = None, max_words: int = 4, max_chars: int = 24, fix: dict = None) -> dict:
     """Editable captions (.srt) of the edit with the approved grammar corrections: Premiere — import as a caption track;
     Resolve — import subtitle. Same chunking as the styled overlay."""
-    from decupa import motion
+    from claudio import motion
     return motion.captions_srt(nle_xml, out_srt, max_words, max_chars, fix, corrected)
 
 
@@ -847,7 +847,7 @@ def narration(text: str, out_folder: str, engine: str = 'elevenlabs', voice: str
     cached; voice = ElevenLabs voice_id; hard credit budget, default = text length + 10 % — tell the user the cost
     BEFORE running) or engine='edge' (free edge-tts pt-BR/en voices). Returns narration.wav (+ words.json) to import
     on an audio track. Follow motion_reference('Narration') for how to write the script."""
-    from decupa import motion
+    from claudio import motion
     return motion.narration(text, out_folder, engine, voice, budget)
 
 
@@ -964,7 +964,7 @@ def montar(pasta: str = '', pedido: str = '') -> str:
     return MONTAR.format(pasta=pasta or '(ask the user for the footage folder)', pedido=pedido or '(none yet)')
 
 
-MONTAR = """You are assembling a real edit with the decupa MCP, TOGETHER with the Premiere Pro / DaVinci Resolve MCP.
+MONTAR = """You are assembling a real edit with the claudio MCP (Cláudio, o Editor), TOGETHER with the Premiere Pro / DaVinci Resolve MCP.
 Footage: {pasta}. User request: {pedido}.
 
 Your deliverable is a TIMELINE inside Premiere/Resolve that the user reviews and adjusts with you; they finish it
@@ -974,7 +974,7 @@ Ask in the user's language, ONE step at a time, with AskUserQuestion (max 4 ques
 marked "(Recomendado)" with a one-line reason). Skip what the request already answers.
 
 0. Start right away: index_folder(<footage>, vocabulary=<brand/people/places if known>) — it shows progress and writes a
-   <clip>.md next to every video. If the folder already has _DECUPA.md / <clip>.md files, READ them first: the footage
+   <clip>.md next to every video. If the folder already has _CLAUDIO.md / <clip>.md files, READ them first: the footage
    is already logged. Several cameras of one event (+ recorder audio)? → sync_multicam first.
 1. Client: client_profile(<client>) — if it exists, it answers most of the questions below (vocabulary, format, end
    card, music, captions, structure, house style): confirm it in ONE question ("igual da última vez?") and ask only
@@ -1010,7 +1010,7 @@ marked "(Recomendado)" with a one-line reason). Skip what the request already an
     captions ALWAYS in 3 steps: caption_sentences → fix grammar only (concordância, regência, crase, pontuação; keep
     the speaker's words) and show the diff → caption_style_preview (user picks the style; recommended starred) →
     captions_srt (editable) and/or caption_overlay(style, corrected); render_overlay for lower thirds / titles / end cards;
-    narration (ElevenLabs — say the cost first — or edge). Save into <job>/#projeto/decupa_overlays and import them on
+    narration (ElevenLabs — say the cost first — or edge). Save into <job>/#projeto/claudio_overlays and import them on
     the top video track / an audio track at the right time. These are ASSETS for the timeline, not a final render.
 11. Before they finalise: qc_timeline(current XML, platform) → offer the issues as markers; they decide.
 12. Render (render_edit with authorized_by_user=True) ONLY if the user asks for a rendered file. At the end,

@@ -1,4 +1,4 @@
-"""decupa.selects — what an assistant editor hands over before anyone cuts: selects + markers, inside the NLE.
+"""claudio.selects — what an assistant editor hands over before anyone cuts: selects + markers, inside the NLE.
 
   build_selects(paths)   from indexed clips:
       • SELECTS — falas         best take of every repeated line (slate order when there is a slate, else recording
@@ -15,7 +15,7 @@ import os, uuid
 from collections import Counter
 from fractions import Fraction
 
-from decupa import core
+from claudio import core
 
 
 def _snap(idx, s, e):
@@ -106,7 +106,7 @@ def build_selects(paths, min_broll=2.0, single_min_words=8, include_single='auto
 MARKER_COLORS = {'green': 'Green', 'red': 'Red', 'yellow': 'Yellow', 'blue': 'Blue', 'cyan': 'Cyan'}
 
 
-def export_selects_xml(sel, out_path, gap_frames=12, name='decupa selects'):
+def export_selects_xml(sel, out_path, gap_frames=12, name='Cláudio — selects'):
     paths = sorted({x['path'] for k in ('falas', 'falas_unicas', 'broll') for x in sel[k]} | set(sel['markers']))
     infos = {p: core.light_index(p)['info'] for p in paths}
     fps = Fraction(Counter(i['fps'] for i in infos.values() if i.get('fps')).most_common(1)[0][0])
@@ -193,7 +193,7 @@ def export_selects_xml(sel, out_path, gap_frames=12, name='decupa selects'):
                       f'{mks}</clip>')
         bins += f'<bin><name>{E(dname)}</name><children>{clips}</children></bin>'
     xml = ('<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE xmeml>\n<xmeml version="4"><project>'
-           f'<name>{E(name)}</name><children>{"".join(seq_xml)}<bin><name>decupa — clipes com marcadores</name><children>{bins}</children></bin>'
+           f'<name>{E(name)}</name><children>{"".join(seq_xml)}<bin><name>Cláudio — clipes com marcadores</name><children>{bins}</children></bin>'
            f'</children></project></xmeml>\n')
     open(out_path, 'w', encoding='utf-8').write(xml)
     # Resolve imports one timeline per file

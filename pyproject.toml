@@ -3,9 +3,9 @@ requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "decupa"
-version = "0.6.0"
-description = "MCP that sees and hears footage (takes, b-roll, contact sheets) and hands frame-accurate cuts to Premiere / Resolve"
+name = "claudio"
+version = "0.7.0"
+description = "Cláudio, o Editor — an MCP that sees and hears footage (takes, b-roll, contact sheets) and hands frame-accurate cuts to Premiere / Resolve"
 readme = "README.md"
 license = "MIT"
 authors = [{ name = "Bernardo Traad" }]
@@ -21,20 +21,20 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/bernardotraad/decupa"
+Homepage = "https://github.com/bernardotraad/claudio"
 
 [project.optional-dependencies]
 cuda = ["nvidia-cublas-cu12", "nvidia-cudnn-cu12>=9,<10"]
 motion = ["playwright", "edge-tts"]
 
 [project.scripts]
-decupa = "decupa.server:main"
-decupa-panel = "decupa.panel:main"
-decupa-doctor = "decupa.doctor:main"
-decupa-index = "decupa.indexer:cli"
+claudio = "claudio.server:main"
+claudio-panel = "claudio.panel:main"
+claudio-doctor = "claudio.doctor:main"
+claudio-index = "claudio.indexer:cli"
 
 [tool.setuptools.packages.find]
 where = ["src"]
 
 [tool.setuptools.package-data]
-decupa = ["panel_premiere/*", "panel_premiere/CSXS/*"]
+claudio = ["panel_premiere/*", "panel_premiere/CSXS/*"]

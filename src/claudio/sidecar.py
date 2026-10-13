@@ -1,19 +1,24 @@
-"""decupa.sidecar — the index saved next to the footage, readable by any person or agent.
+"""claudio.sidecar — the index saved next to the footage, readable by any person or agent.
 
   <clip>.md          next to every video: file, camera, colour space, audio, what is SEEN (scene descriptions written by
                      Claude after looking — annotate), shots and usable windows (measured), takes, slate, transcript with
                      timecode, multicam sync. Another agent can plan an edit from these files without re-analysing.
-  _decupa/<clip>.jpg contact sheet (12 frames with timecode) linked from the .md
-  _DECUPA.md         one per folder: every clip in one table + indexing progress while it runs
+  _claudio/<clip>.jpg contact sheet (12 frames with timecode) linked from the .md
+  _CLAUDIO.md         one per folder: every clip in one table + indexing progress while it runs
 
-Sections between <!-- decupa:auto --> markers are regenerated; anything written outside them by a person is kept.
+Sections between <!-- claudio:auto --> markers are regenerated; anything written outside them by a person is kept.
 """
 import datetime, json, os, re
 
-from decupa import core
+from claudio import core
 
-AUTO_BEGIN, AUTO_END = '<!-- decupa:auto:begin -->', '<!-- decupa:auto:end -->'
-VERSION = '0.4'
+AUTO_BEGIN, AUTO_END = '<!-- claudio:auto:begin -->', '<!-- claudio:auto:end -->'
+
+
+def _old_markers(txt):
+    """Logs written before the rename (v0.7) used decupa markers."""
+    return txt.replace('<!-- decupa:auto:', '<!-- claudio:auto:')
+VERSION = '0.7'
 
 
 def md_path(video):
@@ -46,7 +51,7 @@ def render_md(idx, sheet_rel=None, sync=None):
     L = []
     kind = 'fala' if idx.get('speech') and idx['speech']['n_words'] > max(8, info['duration'] / 6) else 'sem fala / ambiente'
     L.append(f"# {info['name']}\n")
-    L.append(f"> Índice gerado pelo **decupa {VERSION}** em {datetime.date.today().isoformat()}. Tempos em segundos do arquivo e "
+    L.append(f"> Índice gerado pelo **Cláudio, o Editor {VERSION}** em {datetime.date.today().isoformat()}. Tempos em segundos do arquivo e "
              f"timecode de origem. Seções marcadas como 👁 foram escritas depois de OLHAR as imagens; o resto é medido.\n")
     # file
     col = {}
@@ -126,20 +131,19 @@ def write_clip_md(idx, sheet=True, sync=None):
     sheet_rel = None
     try:
         if sheet and info.get('has_video'):
-            sd = os.path.join(folder, '_decupa')
-            os.makedirs(sd, exist_ok=True)
+            sd = core.data_dir(folder)
             sp = os.path.join(sd, os.path.splitext(info['name'])[0] + '.jpg')
             if not os.path.exists(sp):
                 img, _ = core.contact_sheet(idx, None, None, 12)
                 open(sp, 'wb').write(core.to_jpeg(img, q=78, max_side=1800))
-            sheet_rel = '_decupa/' + os.path.basename(sp)
+            sheet_rel = os.path.basename(sd) + '/' + os.path.basename(sp)
         p = md_path(video)
         body = render_md(idx, sheet_rel, sync)
-        old = open(p, encoding='utf-8').read() if os.path.exists(p) else ''
+        old = _old_markers(open(p, encoding='utf-8').read()) if os.path.exists(p) else ''
         if AUTO_BEGIN in old and AUTO_END in old:
             new = old[:old.index(AUTO_BEGIN)] + AUTO_BEGIN + '\n' + body + '\n' + old[old.index(AUTO_END):]
         else:
-            new = AUTO_BEGIN + '\n' + body + '\n' + AUTO_END + '\n\n## Notas\n_(espaço livre — o decupa não apaga o que estiver fora dos marcadores)_\n' + (('\n' + old) if old else '')
+            new = AUTO_BEGIN + '\n' + body + '\n' + AUTO_END + '\n\n## Notas\n_(espaço livre — o Cláudio não apaga o que estiver fora dos marcadores)_\n' + (('\n' + old) if old else '')
         open(p, 'w', encoding='utf-8').write(new)
         return p
     except OSError as e:              # read-only card / no permission: keep it in the cache instead
@@ -149,7 +153,7 @@ def write_clip_md(idx, sheet=True, sync=None):
 
 
 def write_folder_md(folder, progress=None):
-    """_DECUPA.md: every video in the folder (indexed or not) in one table, with indexing progress on top."""
+    """_CLAUDIO.md: every video in the folder (indexed or not) in one table, with indexing progress on top."""
     folder = core.local_path(folder)
     vids = sorted(f for f in os.listdir(folder) if os.path.splitext(f)[1].lower() in core.VIDEO_EXT and not f.startswith('._'))
     rows, done, total_s = [], 0, 0.0
@@ -180,12 +184,14 @@ def write_folder_md(folder, progress=None):
     head = f"# Decupagem — {os.path.basename(folder)}\n\n"
     if progress:
         head += f"> ⏳ **Indexando**: {progress}\n\n"
-    head += f"{done}/{len(vids)} clipes indexados · {_fmt_dur(total_s)} de material · decupa {VERSION} · {datetime.datetime.now():%Y-%m-%d %H:%M}\n\n"
-    head += "Cada clipe tem um `.md` ao lado (técnico, cor, cenas, takes, transcrição) e um contact sheet em `_decupa/`.\n\n"
+    head += f"{done}/{len(vids)} clipes indexados · {_fmt_dur(total_s)} de material · Cláudio {VERSION} · {datetime.datetime.now():%Y-%m-%d %H:%M}\n\n"
+    head += "Cada clipe tem um `.md` ao lado (técnico, cor, cenas, takes, transcrição) e um contact sheet em `_claudio/`.\n\n"
     out = head + _table(['clipe', 'dur', 'TC', 'cor', 'fala', 'o que se vê', 'primeira fala'], rows)
     try:
-        p = os.path.join(folder, '_DECUPA.md')
+        p = os.path.join(folder, '_CLAUDIO.md')
         open(p, 'w', encoding='utf-8').write(out)
+        if os.path.exists(os.path.join(folder, '_DECUPA.md')):
+            os.remove(os.path.join(folder, '_DECUPA.md'))      # pre-rename name of this same file
         return p
     except OSError:
         return None
@@ -203,7 +209,7 @@ def project_digest(folder, max_chars=18000):
     root = core.local_path(folder)
     vids = []
     for dp, dn, fn in os.walk(root):
-        dn[:] = [x for x in dn if x.lower() not in core.PROXY_DIRS and not x.startswith(('_decupa', '.', '#'))]
+        dn[:] = [x for x in dn if x.lower() not in core.PROXY_DIRS and not x.startswith(('_claudio', '_decupa', '.', '#'))]
         vids += [os.path.join(dp, f) for f in sorted(fn) if os.path.splitext(f)[1].lower() in core.VIDEO_EXT and not core.is_proxy(os.path.join(dp, f))]
     clips, words, cams, colors, total, speech_s, not_indexed = [], collections.Counter(), collections.Counter(), collections.Counter(), 0.0, 0.0, []
     for p in vids:
@@ -250,11 +256,11 @@ def write_overview(job_folder, markdown):
     """_VISAO_GERAL.md at the job root: what the project is, the material, the open questions and the directions."""
     root = core.local_path(job_folder)
     p = os.path.join(root, '_VISAO_GERAL.md')
-    old = open(p, encoding='utf-8').read() if os.path.exists(p) else ''
+    old = _old_markers(open(p, encoding='utf-8').read()) if os.path.exists(p) else ''
     body = markdown.strip() + '\n'
     if AUTO_BEGIN in old and AUTO_END in old:
         new = old[:old.index(AUTO_BEGIN)] + AUTO_BEGIN + '\n' + body + old[old.index(AUTO_END):]
     else:
-        new = AUTO_BEGIN + '\n' + body + AUTO_END + '\n\n## Notas\n_(livre — o decupa não apaga o que estiver fora dos marcadores)_\n'
+        new = AUTO_BEGIN + '\n' + body + AUTO_END + '\n\n## Notas\n_(livre — o Cláudio não apaga o que estiver fora dos marcadores)_\n'
     open(p, 'w', encoding='utf-8').write(new)
     return p

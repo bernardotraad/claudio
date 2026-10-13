@@ -1,14 +1,14 @@
-"""decupa.indexer — index a folder in its OWN process, independent of any chat/MCP session.
+"""claudio.indexer — index a folder in its OWN process, independent of any chat/MCP session.
 
-  python -m decupa.indexer <folder> [--vocabulary "INC Empreendimentos, ..."] [--language pt]
+  python -m claudio.indexer <folder> [--vocabulary "INC Empreendimentos, ..."] [--language pt]
 
 Started detached by the MCP tool index_folder (so closing the Premiere panel or ending a message does not stop it).
-Progress lives in ~/.cache/decupa/jobs/<key>.json and on top of the folder's _DECUPA.md; index_status reads it.
+Progress lives in ~/.cache/claudio/jobs/<key>.json and on top of the folder's _CLAUDIO.md; index_status reads it.
 One indexer per folder at a time (the status file holds the pid). Clips already indexed are skipped.
 """
 import argparse, hashlib, json, os, sys, time, traceback
 
-from decupa import core, sidecar
+from claudio import core, sidecar
 
 JOBS = os.path.join(core.CACHE, 'jobs')
 STAGE_W = {'probe': (0.0, 0.02), 'audio': (0.02, 0.08), 'picture': (0.10, 0.65), 'speech': (0.75, 0.25)}
@@ -76,7 +76,7 @@ def launch_detached(folder, vocabulary=None, lang='pt'):
     import shlex, subprocess as sp
     folder = core.local_path(folder)
     os.makedirs(JOBS, exist_ok=True)
-    args = [sys.executable, '-m', 'decupa.indexer', folder, '--language', lang] + (['--vocabulary', vocabulary] if vocabulary else [])
+    args = [sys.executable, '-m', 'claudio.indexer', folder, '--language', lang] + (['--vocabulary', vocabulary] if vocabulary else [])
     log = os.path.join(JOBS, 'indexer.log')
     if core.IS_WSL:
         sh = os.path.join(JOBS, hashlib.sha1(folder.encode()).hexdigest()[:12] + '.sh')
@@ -96,7 +96,7 @@ def list_videos(folder):
     root = core.local_path(folder)
     out = []
     for dp, dn, fn in os.walk(root):
-        dn[:] = [x for x in dn if x.lower() not in core.PROXY_DIRS and not x.startswith(('_decupa', '.', '#'))]
+        dn[:] = [x for x in dn if x.lower() not in core.PROXY_DIRS and not x.startswith(('_claudio', '_decupa', '.', '#'))]
         out += [os.path.join(dp, f) for f in sorted(fn) if os.path.splitext(f)[1].lower() in core.VIDEO_EXT
                 and not f.startswith('._') and not core.is_proxy(os.path.join(dp, f))]
     return out
@@ -133,8 +133,7 @@ def run(folder, vocabulary=None, lang='pt'):
         json.dump(pub, open(tmp, 'w'), ensure_ascii=False)
         os.replace(tmp, jp)
         try:                      # next to the footage too: the Premiere panel (Windows/macOS) reads it directly
-            pd = os.path.join(folder, '_decupa')
-            os.makedirs(pd, exist_ok=True)
+            pd = core.data_dir(folder)
             json.dump(pub, open(os.path.join(pd, 'progress.json.tmp'), 'w'), ensure_ascii=False)
             os.replace(os.path.join(pd, 'progress.json.tmp'), os.path.join(pd, 'progress.json'))
         except OSError:

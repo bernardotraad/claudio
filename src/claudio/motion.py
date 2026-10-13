@@ -1,4 +1,4 @@
-"""decupa.motion — the motion-designer skill, used ON TOP of an edit that lives in Premiere/Resolve.
+"""claudio.motion — the motion-designer skill, used ON TOP of an edit that lives in Premiere/Resolve.
 
 Everything here produces ASSETS for the editor's timeline (never the final video):
   render_overlay(code, ...)     HTML timeline written with the skill's core (layout, safe zones, Captions, EndCard,
@@ -12,21 +12,21 @@ Everything here produces ASSETS for the editor's timeline (never the final video
                                 → narration.wav + words.json to place on an audio track
   reference(topic)              the skill's craft rules (readability, safe zones, captions, narration…) to follow
 
-The skill is looked up in $DECUPA_MOTION_SKILL or ~/.claude/skills/motion-designer.
+The skill is looked up in $CLAUDIO_MOTION_SKILL or ~/.claude/skills/motion-designer.
 """
 import json, math, os, re, shutil, subprocess, sys, tempfile
 from concurrent.futures import ThreadPoolExecutor
 from fractions import Fraction
 
-from decupa import core
+from claudio import core
 
 SIZES = {'16x9': (1920, 1080), '1x1': (1080, 1080), '4x5': (1080, 1350), '9x16': (1080, 1920)}
 
 
 def skill_dir():
-    d = os.environ.get('DECUPA_MOTION_SKILL') or os.path.expanduser('~/.claude/skills/motion-designer')
+    d = core.env('MOTION_SKILL') or os.path.expanduser('~/.claude/skills/motion-designer')
     if not os.path.isfile(os.path.join(d, 'templates', 'timeline.html')):
-        raise FileNotFoundError(f'motion-designer skill not found at {d} (set DECUPA_MOTION_SKILL)')
+        raise FileNotFoundError(f'motion-designer skill not found at {d} (set CLAUDIO_MOTION_SKILL)')
     return d
 
 
@@ -157,7 +157,7 @@ def render_overlay(code, name, out_dir, ar='9x16', fps='30000/1001', start=0.0, 
 def timeline_words(nle_xml, tracks=('A1',)):
     """Words spoken in the edit, on the edit's clock: every audio clip on the given tracks contributes the words of its
     source range, shifted to where the clip sits on the timeline."""
-    from decupa import nle_read
+    from claudio import nle_read
     tl = nle_read.read_fcp7(nle_xml)
     words = []
     for it in sorted([i for i in tl['items'] if i['track'] in tracks and i['path'] and i['enabled']], key=lambda i: i['tl_in']):
@@ -269,7 +269,7 @@ def _load_fixes(path):
 def caption_sentences(nle_xml):
     """The edit's speech as sentences (ids s1, s2…), each with the source clip it comes from and any correction already
     approved for that sentence before (remembered per clip)."""
-    from decupa import nle_read
+    from claudio import nle_read
     tl = nle_read.read_fcp7(nle_xml)
     out, k = [], 0
     for it in sorted([i for i in tl['items'] if i['track'] == 'A1' and i['path'] and i['enabled']], key=lambda i: i['tl_in']):
@@ -329,7 +329,7 @@ def corrected_timeline_words(nle_xml, corrected=None, fix=None, remember=True):
         new = corrected.get(s['id'])
         out += _retime(span, new) if new and new.strip() != s['text'] else span
         if new and remember and new.strip() != s['text']:
-            from decupa import nle_read
+            from claudio import nle_read
             tl = nle_read.read_fcp7(nle_xml)
             for it in tl['items']:
                 if it['track'] == 'A1' and it['path'] and it['tl_in'] - 0.01 <= s['tl_s'] <= it['tl_out']:
@@ -410,7 +410,7 @@ function seek(t){const k=WIN.findIndex(([a,b])=>t>=a&&t<b);
 def caption_style_preview(nle_xml, aspect='9x16', accent='#4ea1ff', corrected=None, fix=None, profile_captions=None):
     """One frame of the edit with each caption style on it (same moment, real footage), recommended one starred."""
     from PIL import Image, ImageDraw
-    from decupa import nle_read, montage
+    from claudio import nle_read, montage
     tw = corrected_timeline_words(nle_xml, corrected, fix, remember=False)
     W = tw['words']
     if not W:

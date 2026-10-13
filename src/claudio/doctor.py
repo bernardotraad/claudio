@@ -1,8 +1,8 @@
-"""decupa-doctor — checks everything decupa needs on this machine (Windows+WSL, Windows, macOS, Linux) and says what to fix.
-Read-only: it installs nothing, except `decupa-doctor --fix-browser`, which downloads the Chromium used for overlays."""
+"""claudio-doctor — checks everything claudio needs on this machine (Windows+WSL, Windows, macOS, Linux) and says what to fix.
+Read-only: it installs nothing, except `claudio-doctor --fix-browser`, which downloads the Chromium used for overlays."""
 import glob, json, os, platform, shutil, subprocess, sys
 
-from decupa import core
+from claudio import core
 
 OK, WARN, BAD = '✅', '⚠️ ', '❌'
 
@@ -31,7 +31,7 @@ def check():
             import ctranslate2
             n = ctranslate2.get_cuda_device_count()
             add(OK if n else WARN, f'transcrição: faster-whisper {"na GPU (CUDA)" if n else "na CPU"}',
-                '' if n else ('sem CUDA: mais lento. NVIDIA → pip install "decupa[cuda]"' if not core.IS_MAC else 'instale mlx-whisper (Apple Silicon)'))
+                '' if n else ('sem CUDA: mais lento. NVIDIA → pip install "claudio[cuda]"' if not core.IS_MAC else 'instale mlx-whisper (Apple Silicon)'))
         except Exception as e:
             add(BAD, 'faster-whisper', str(e)[:120])
     g = core.gpu_ffmpeg()
@@ -45,14 +45,14 @@ def check():
             b = p.chromium.launch(); b.close()
         add(OK, 'overlays/legendas: Chromium do Playwright')
     except ImportError:
-        add(WARN, 'overlays/legendas: playwright não instalado', 'pip install "decupa[motion]" (ou uv tool install "decupa[motion] @ git+...")')
+        add(WARN, 'overlays/legendas: playwright não instalado', 'pip install "claudio[motion]" (ou uv tool install "claudio[motion] @ git+...")')
     except Exception:
-        add(WARN, 'overlays/legendas: Chromium não baixado', 'decupa-doctor --fix-browser')
+        add(WARN, 'overlays/legendas: Chromium não baixado', 'claudio-doctor --fix-browser')
     try:
-        from decupa import motion
+        from claudio import motion
         add(OK, 'skill motion-designer', motion.skill_dir())
     except Exception:
-        add(WARN, 'skill motion-designer não encontrada', 'opcional: copie para ~/.claude/skills/motion-designer (ou DECUPA_MOTION_SKILL)')
+        add(WARN, 'skill motion-designer não encontrada', 'opcional: copie para ~/.claude/skills/motion-designer (ou CLAUDIO_MOTION_SKILL)')
     has_key = bool(os.environ.get('ELEVENLABS_API_KEY')) or os.path.exists(os.path.expanduser('~/.config/elevenlabs/api_key'))
     add(OK if has_key else WARN, 'ElevenLabs', 'chave encontrada' if has_key else 'opcional: ~/.config/elevenlabs/api_key (sem ela, narração pelo edge-tts grátis)')
     claude = shutil.which('claude') or next((p for p in [os.path.expanduser('~/.local/bin/claude'), '/opt/homebrew/bin/claude', '/usr/local/bin/claude'] if os.path.exists(p)), None)
@@ -67,14 +67,14 @@ def check():
         except Exception:
             continue
         wsl_side = core.IS_WSL and cfg == os.path.expanduser('~/.claude.json')
-        for name in ('decupa', 'premiere-pro', 'davinci-resolve'):
-            if wsl_side and name != 'decupa':
+        for name in ('claudio', 'premiere-pro', 'davinci-resolve'):
+            if wsl_side and name != 'claudio':
                 continue                      # Premiere/Resolve MCPs live on the Windows side, next to the NLEs
             add(OK if name in servers else WARN, f'MCP "{name}" em {core.nle_path(cfg)}', '' if name in servers else 'veja o README: claude mcp add -s user ...')
     try:
-        from decupa import panel
+        from claudio import panel
         d = os.path.join(panel._ext_dir(), panel.ID)
-        add(OK if os.path.isdir(d) else WARN, 'painel no Premiere', core.nle_path(d) if os.path.isdir(d) else 'decupa-panel install')
+        add(OK if os.path.isdir(d) else WARN, 'painel no Premiere', core.nle_path(d) if os.path.isdir(d) else 'claudio-panel install')
     except Exception as e:
         add(WARN, 'painel no Premiere', str(e)[:100])
     return rows

@@ -1,4 +1,4 @@
-"""decupa.montage — from logged footage to a real, reviewable cut.
+"""claudio.montage — from logged footage to a real, reviewable cut.
 
   music_map       tempo, beat grid, bar downbeats, energy sections, drop, quiet bars (music first: the song sets the cuts)
   music_windows   which stretch of the song fits the requested duration (starts on a downbeat, lands the drop)
@@ -15,7 +15,7 @@ from fractions import Fraction
 import numpy as np
 from PIL import Image, ImageDraw
 
-from decupa import core
+from claudio import core
 
 MSR = 22050
 MHOP = 512
@@ -602,7 +602,7 @@ def render_edit(fit, out_path, quality='preview', workers=3, lang='pt'):
     aspect = fit.get('aspect', '16:9')
     W, H = (fit.get('resolution') or RES[quality][aspect]) if quality == 'final' else RES['preview'][aspect]
     fps = Fraction(fit['fps']); F = float(fps)
-    work = tempfile.mkdtemp(prefix='decupa_render_', dir=os.path.dirname(out_path))
+    work = tempfile.mkdtemp(prefix='claudio_render_', dir=os.path.dirname(out_path))
     enc = ['-c:v', 'libx264', '-preset', 'ultrafast' if quality == 'preview' else 'medium',
            '-crf', '23' if quality == 'preview' else '16', '-pix_fmt', 'yuv420p']
     amb_db = float(fit.get('ambient_db', -16))
@@ -871,7 +871,7 @@ def export_edit_fcp7(fit, out_path, lang='pt'):
     tracks = ''.join(f'<track>{"".join(v)}</track>' for v in (aitems[1], aitems[2], mitems[1], mitems[2]) if v)
     total_f = fit['shots'][-1]['tl_out_f']
     xml = ('<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE xmeml>\n<xmeml version="4"><sequence id="seq-1">'
-           f'<name>{E(fit.get("name", "decupa edit"))}</name><duration>{total_f}</duration>{rate}'
+           f'<name>{E(fit.get("name", "Cláudio — montagem"))}</name><duration>{total_f}</duration>{rate}'
            f'<timecode>{rate}<string>01:00:00:00</string><frame>{round(F) * 3600}</frame><displayformat>NDF</displayformat></timecode>'
            f'<media><video><format><samplecharacteristics>{rate}<width>{W}</width><height>{H}</height>'
            f'<pixelaspectratio>square</pixelaspectratio></samplecharacteristics></format><track>{"".join(vitems)}</track>'

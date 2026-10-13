@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<ExtensionManifest Version="7.0" ExtensionBundleId="com.decupa.panel" ExtensionBundleVersion="0.5.0" ExtensionBundleName="decupa">
+<ExtensionManifest Version="7.0" ExtensionBundleId="com.claudio.panel" ExtensionBundleVersion="0.7.0" ExtensionBundleName="Cláudio, o Editor">
   <ExtensionList>
-    <Extension Id="com.decupa.panel.main" Version="0.5.0"/>
+    <Extension Id="com.claudio.panel.main" Version="0.7.0"/>
   </ExtensionList>
   <ExecutionEnvironment>
     <HostList>
@@ -15,7 +15,7 @@
     </RequiredRuntimeList>
   </ExecutionEnvironment>
   <DispatchInfoList>
-    <Extension Id="com.decupa.panel.main">
+    <Extension Id="com.claudio.panel.main">
       <DispatchInfo>
         <Resources>
           <MainPath>./index.html</MainPath>
@@ -31,7 +31,7 @@
         </Lifecycle>
         <UI>
           <Type>Panel</Type>
-          <Menu>decupa</Menu>
+          <Menu>Cláudio, o Editor</Menu>
           <Geometry>
             <Size><Height>620</Height><Width>420</Width></Size>
             <MinSize><Height>300</Height><Width>300</Width></MinSize>

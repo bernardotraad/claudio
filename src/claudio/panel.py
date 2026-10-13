@@ -1,15 +1,15 @@
-"""Install the decupa panel into Premiere Pro (CEP):  python -m decupa.panel install
+"""Install the claudio panel into Premiere Pro (CEP):  python -m claudio.panel install
 
-Copies panel_premiere/ to the user's CEP extensions folder (Windows: %APPDATA%\\Adobe\\CEP\\extensions\\com.decupa.panel,
-macOS: ~/Library/Application Support/Adobe/CEP/extensions/com.decupa.panel) and enables unsigned panels
-(PlayerDebugMode=1 for CSXS 9–14) if needed. Restart Premiere, then Window › Extensions › decupa.
+Copies panel_premiere/ to the user's CEP extensions folder (Windows: %APPDATA%\\Adobe\\CEP\\extensions\\com.claudio.panel,
+macOS: ~/Library/Application Support/Adobe/CEP/extensions/com.claudio.panel) and enables unsigned panels
+(PlayerDebugMode=1 for CSXS 9–14) if needed. Restart Premiere, then Window › Extensions › Cláudio, o Editor.
 """
 import os, shutil, subprocess, sys
 
-from decupa import core
+from claudio import core
 
 SRC = os.path.join(os.path.dirname(__file__), 'panel_premiere')
-ID = 'com.decupa.panel'
+ID = 'com.claudio.panel'
 
 
 def _ext_dir():
@@ -35,6 +35,9 @@ def _debug_mode():
 
 
 def install():
+    old = os.path.join(_ext_dir(), 'com.decupa.panel')      # the same panel before the rename (v0.7)
+    if os.path.exists(old):
+        shutil.rmtree(old)
     dst = os.path.join(_ext_dir(), ID)
     if os.path.exists(dst):
         shutil.rmtree(dst)
@@ -45,7 +48,7 @@ def install():
 
 def main():
     if sys.argv[1:] in ([], ['install']):
-        print('painel instalado em', core.nle_path(install()), '— reinicie o Premiere: Janela › Extensões › decupa')
+        print('painel instalado em', core.nle_path(install()), '— reinicie o Premiere: Janela › Extensões › Cláudio, o Editor')
     else:
         print(__doc__)
 

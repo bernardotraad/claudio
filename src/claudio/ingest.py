@@ -1,4 +1,4 @@
-"""decupa.ingest — offload a card into the job folder, verified, then start the logging.
+"""claudio.ingest — offload a card into the job folder, verified, then start the logging.
 
   ingest(card, job, camera=None)
       • finds the media on the card (Sony PRIVATE/M4ROOT, Canon DCIM, Blackmagic, DJI, GoPro, recorders, photos)
@@ -20,8 +20,8 @@ except ImportError:                       # pragma: no cover
     _hasher = lambda: hashlib.blake2b(digest_size=8)
     HASH = 'blake2b64'
 
-from decupa import core
-from decupa.multicam import AUDIO_EXT
+from claudio import core
+from claudio.multicam import AUDIO_EXT
 
 PHOTO_EXT = {'.arw', '.cr2', '.cr3', '.nef', '.raf', '.dng', '.rw2', '.orf', '.jpg', '.jpeg', '.heic', '.tif', '.tiff'}
 SIDECAR_EXT = {'.xml', '.xmp', '.thm', '.lrf', '.srt'}

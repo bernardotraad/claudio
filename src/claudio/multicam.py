@@ -1,4 +1,4 @@
-"""decupa.multicam — PluralEyes-style multicam sync from the clips' own audio.
+"""claudio.multicam — PluralEyes-style multicam sync from the clips' own audio.
 
   sync_cameras(cameras, external)   folders/files per camera (+ optional external recorder files) → every clip placed on
                                     one timeline by its audio, external recorder clock drift measured and corrected,
@@ -20,7 +20,7 @@ from fractions import Fraction
 
 import numpy as np
 
-from decupa import core
+from claudio import core
 
 SR = 8000
 ENV = 100                      # envelope rate (10 ms)
@@ -331,7 +331,7 @@ def drift_correct(ext, ppm, out_dir=None):
     ppm > 0: the recording runs long against the cameras → it gets shortened, and vice versa."""
     src = core.local_path(ext['path'])
     k = ppm * 1e-6
-    out_dir = out_dir or os.path.join(os.path.dirname(src), 'decupa_drift_corrected')
+    out_dir = out_dir or os.path.join(os.path.dirname(src), 'claudio_drift_corrected')
     os.makedirs(out_dir, exist_ok=True)
     delta = ext['duration'] * (1 / (1 + k) - 1)
     stem = os.path.splitext(os.path.basename(src))[0]

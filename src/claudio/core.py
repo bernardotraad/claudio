@@ -1,4 +1,4 @@
-"""decupa.core — the "eyes and ears" for footage logging.
+"""claudio.core — the "eyes and ears" for footage logging.
 
 Everything is computed from the real media (no guessing):
   probe      ffprobe: fps, duration, size, rotation, source timecode, audio channels
@@ -11,7 +11,7 @@ Everything is computed from the real media (no guessing):
   images     contact sheets / timeline strips (thumbs + waveform + words) / full frames, timecode burned in
   export     frame-accurate cut plan → FCP7 XML (Premiere + Resolve), CMX3600 EDL, JSON
 
-Indexes are cached in ~/.cache/decupa/<key>/ (key = path + size + mtime).
+Indexes are cached in ~/.cache/claudio/<key>/ (key = path + size + mtime).
 """
 import difflib, hashlib, io, json, math, os, re, subprocess, threading, time, unicodedata, urllib.parse
 from fractions import Fraction
@@ -19,13 +19,62 @@ from fractions import Fraction
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
-CACHE = os.path.expanduser(os.environ.get('DECUPA_CACHE', '~/.cache/decupa'))
-WHISPER_MODEL = os.environ.get('DECUPA_WHISPER', 'large-v3-turbo')
+def env(name, default=None):
+    """CLAUDIO_<name>, falling back to the pre-rename DECUPA_<name>."""
+    return os.environ.get('CLAUDIO_' + name, os.environ.get('DECUPA_' + name, default))
+
+
+def _migrate_cache():
+    # the project was called decupa until v0.7: move its cache once, and leave a link so old absolute paths still resolve
+    old, new = os.path.expanduser('~/.cache/decupa'), os.path.expanduser('~/.cache/claudio')
+    if os.path.isdir(old) and not os.path.islink(old) and not os.path.exists(new):
+        try:
+            os.rename(old, new)
+            os.symlink(new, old)
+        except OSError:
+            pass
+
+
+if not env('CACHE'):
+    _migrate_cache()
+CACHE = os.path.expanduser(env('CACHE', '~/.cache/claudio'))
+WHISPER_MODEL = env('WHISPER', 'large-v3-turbo')
 INDEX_VERSION = 6
 SR = 16000          # audio analysis rate
 HOP = 0.02          # RMS hop (s)
 QFPS = 4            # quality-analysis frame rate
-PROXY_DIRS = {'proxies', 'proxy', 'proxys', 'cache', '_decupa', 'decupa_drift_corrected', 'pluraleyes_drift_corrected'}
+PROXY_DIRS = {'proxies', 'proxy', 'proxys', 'cache', '_claudio', '_decupa', 'claudio_drift_corrected', 'decupa_drift_corrected',
+              'pluraleyes_drift_corrected'}
+DATA_DIR, OLD_DATA_DIR = '_claudio', '_decupa'      # per-folder data (contact sheets, progress); _decupa before v0.7
+
+
+def data_dir(folder, create=True):
+    """<folder>/_claudio. A pre-rename _decupa/ is renamed in place (no reindex) and the clip logs' links follow."""
+    new, old = os.path.join(folder, DATA_DIR), os.path.join(folder, OLD_DATA_DIR)
+    if os.path.isdir(old) and not os.path.exists(new):
+        try:
+            os.rename(old, new)
+        except OSError:
+            return old
+        for f in os.listdir(folder):
+            if f.lower().endswith('.md'):
+                p = os.path.join(folder, f)
+                try:
+                    s = open(p, encoding='utf-8').read()
+                    if '_decupa/' in s or 'decupa:' in s:
+                        open(p, 'w', encoding='utf-8').write(
+                            s.replace('(_decupa/', '(_claudio/').replace('<!-- decupa:', '<!-- claudio:'))
+                except OSError:
+                    pass
+        old_md = os.path.join(folder, '_DECUPA.md')
+        if os.path.exists(old_md):
+            try:
+                os.remove(old_md)               # fully regenerated as _CLAUDIO.md
+            except OSError:
+                pass
+    if create:
+        os.makedirs(new, exist_ok=True)
+    return new
 
 
 def is_proxy(path):
@@ -279,11 +328,11 @@ _GPU_BAD = set()
 
 
 def gpu_ffmpeg():
-    """An ffmpeg with CUDA/NVDEC: $DECUPA_FFMPEG_GPU, else ~/.local/opt/ffmpeg-*/bin/ffmpeg. None if absent/disabled."""
+    """An ffmpeg with CUDA/NVDEC: $CLAUDIO_FFMPEG_GPU, else ~/.local/opt/ffmpeg-*/bin/ffmpeg. None if absent/disabled."""
     import glob
-    if os.environ.get('DECUPA_GPU', '1') == '0':
+    if env('GPU', '1') == '0':
         return None
-    cand = [os.environ.get('DECUPA_FFMPEG_GPU')] + sorted(glob.glob(os.path.expanduser('~/.local/opt/ffmpeg-*/bin/ffmpeg')))
+    cand = [env('FFMPEG_GPU')] + sorted(glob.glob(os.path.expanduser('~/.local/opt/ffmpeg-*/bin/ffmpeg')))
     return next((c for c in cand if c and os.path.exists(c)), None)
 
 
@@ -341,7 +390,7 @@ def analyze_picture(path, d, info, progress=lambda *_: None):
     tw, th = 64, max(2, int(round(64 * H / W / 2)) * 2)
     qraw = os.path.join(d, 'q.gray')
     gpu = gpu_ffmpeg() if nvdec_ok(path) else None
-    fast = not gpu and heavy_codec(path) and os.environ.get('DECUPA_FAST', '1') != '0'
+    fast = not gpu and heavy_codec(path) and env('FAST', '1') != '0'
     if fast:     # keyframes only (~2/s): ~3× faster on 4K HEVC 4:2:2; in-file cuts are not detected (camera originals have none)
         return _analyze_keyframes(path, d, info, qw, qh, progress)
     if gpu:      # NVDEC decode + downscale on the GPU, only 320-px frames come back to the CPU (~2× faster on 4K)
@@ -469,8 +518,8 @@ def _preload_cuda_libs():
 
 def whisper_backend():
     """'mlx' on Apple Silicon when mlx-whisper is installed, else faster-whisper (CUDA if usable, CPU otherwise)."""
-    if os.environ.get('DECUPA_BACKEND'):
-        return os.environ['DECUPA_BACKEND']
+    if env('BACKEND'):
+        return env('BACKEND')
     if IS_MAC and platform.machine() == 'arm64':
         try:
             import mlx_whisper  # noqa: F401
@@ -591,7 +640,7 @@ def transcribe(d, lang, progress=lambda *_: None, duration=1, vocabulary=None):
     words, out = [], []
     if whisper_backend() == 'mlx':
         import mlx_whisper
-        r = mlx_whisper.transcribe(audio, path_or_hf_repo=os.environ.get('DECUPA_MLX_MODEL', 'mlx-community/whisper-large-v3-turbo'),
+        r = mlx_whisper.transcribe(audio, path_or_hf_repo=env('MLX_MODEL', 'mlx-community/whisper-large-v3-turbo'),
                                    language=lang or None, word_timestamps=True, condition_on_previous_text=False,
                                    initial_prompt=prompt, verbose=None)
         for s in r['segments']:
@@ -750,6 +799,7 @@ def build_index(path, lang='pt', progress=lambda *_: None, force=False, vocabula
     ip = os.path.join(d, 'index.json')
     if os.path.exists(ip) and not force:
         idx = json.load(open(ip))
+        idx['cache'] = d
         if idx.get('version', 0) < INDEX_VERSION and idx.get('version', 0) >= 3:
             idx = migrate(idx, d)
         if idx.get('version') == INDEX_VERSION:
@@ -798,6 +848,7 @@ def light_index(path, lang='pt'):
     ip = os.path.join(d, 'index.json')
     if os.path.exists(ip):
         idx = json.load(open(ip))
+        idx['cache'] = d
         if idx.get('version') == INDEX_VERSION:
             return idx
     lp = os.path.join(d, 'probe.json')
@@ -1512,7 +1563,7 @@ def export_fcp7(plan, out_path, lang='pt'):
             a_items[ch].append(f'<clipitem id="clip-{n}-a{ch}">{common}<file id="{fid[key]}"/>'
                                f'<sourcetrack><mediatype>audio</mediatype><trackindex>{ch}</trackindex></sourcetrack>{links}</clipitem>')
         rec += dur
-    name = _esc(plan.get('name', 'decupa'))
+    name = _esc(plan.get('name', 'Cláudio'))
     audio_tracks = ''.join(f'<track>{"".join(a_items[ch])}</track>' for ch in (1, 2) if a_items[ch])
     xml = ('<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE xmeml>\n<xmeml version="4"><sequence id="seq-1">'
            f'<name>{name}</name><duration>{rec}</duration>{rate}'
@@ -1530,7 +1581,7 @@ def export_edl(plan, out_path, lang='pt'):
     clips = resolve_plan(plan, lang)
     seq_fps = Fraction(plan.get('fps') or clips[0]['info']['fps'])
     sclk = Clock(seq_fps, '01:00:00:00')
-    lines = [f'TITLE: {plan.get("name", "decupa")}', 'FCM: ' + ('DROP FRAME' if sclk.drop else 'NON-DROP FRAME'), '']
+    lines = [f'TITLE: {plan.get("name", "Claudio")}', 'FCM: ' + ('DROP FRAME' if sclk.drop else 'NON-DROP FRAME'), '']
     rec = 0
     for n, c in enumerate(clips, 1):
         dur = c['out_frame'] - c['in_frame']

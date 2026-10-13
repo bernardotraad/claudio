@@ -1,4 +1,4 @@
-"""decupa.qc — check a timeline before the editor exports it. Reports only; never changes the timeline.
+"""claudio.qc — check a timeline before the editor exports it. Reports only; never changes the timeline.
 
   qc_timeline(nle_xml, platform)  reads the timeline as it is NOW (FCP7 XML exported by Premiere/Resolve) and lists
   issues with timeline timecode and severity, ready to be dropped as markers by the NLE MCP:
@@ -11,7 +11,7 @@ from fractions import Fraction
 
 import numpy as np
 
-from decupa import core
+from claudio import core
 
 PLATFORMS = {
     'reels':   {'size': (1080, 1920), 'max_s': 90, 'label': 'Instagram Reels'},
@@ -47,7 +47,7 @@ def _speech_db(path, s, e):
 
 
 def qc_timeline(nle_xml, platform=None, seq_size=None):
-    from decupa import nle_read
+    from claudio import nle_read
     tl = nle_read.read_fcp7(nle_xml)
     fps = Fraction(tl['fps']); F = float(fps)
     issues = []

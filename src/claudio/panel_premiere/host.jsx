@@ -1,7 +1,7 @@
-// decupa panel — ExtendScript side: what is open in Premiere right now (read-only), plus the one-click XML import.
+// Cláudio, o Editor — panel, ExtendScript side: what is open in Premiere right now (read-only), plus the one-click XML import.
 function q(s) { return '"' + String(s).replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\r|\n/g, ' ') + '"'; }
 
-function decupaContext() {
+function claudioContext() {
     var out = [];
     try {
         var p = app.project;
@@ -33,7 +33,7 @@ function decupaContext() {
 
 // Import ONE FCP XML into the open project. The project is saved first, and importFiles runs with the UI on
 // (suppressUI=false): the Premiere MCP's import_media (several XMLs at once, UI suppressed) crashed Premiere.
-function decupaImportXml(xmlPath) {
+function claudioImportXml(xmlPath) {
     try {
         var f = new File(xmlPath);
         if (!f.exists) return '{"ok":false,"error":' + q('arquivo não encontrado: ' + xmlPath) + '}';

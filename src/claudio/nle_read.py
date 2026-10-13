@@ -1,4 +1,4 @@
-"""decupa.nle_read — read the editor's own finished timelines to learn how they cut (read-only).
+"""claudio.nle_read — read the editor's own finished timelines to learn how they cut (read-only).
 
   premiere_sequences(prproj)          every sequence: duration, items per track
   premiere_timeline(prproj, name)     clip items of one sequence: track, timeline in/out, source clip and in/out
@@ -10,7 +10,7 @@ TrackItem → SubClip → Clip (source in/out) and MasterClip (name). Nested seq
 import gzip, os, statistics
 import xml.etree.ElementTree as ET
 
-from decupa import core
+from claudio import core
 
 TICKS = 254016000000
 
@@ -181,7 +181,7 @@ def read_fcp7(xml_path):
 
 
 def diff_with_edit(tl, fit):
-    """What the editor changed in the NLE vs the version decupa delivered: per shot kept / trimmed / moved / removed,
+    """What the editor changed in the NLE vs the version Cláudio delivered: per shot kept / trimmed / moved / removed,
     clips the editor added, and the notes (markers) with the shot each one falls on."""
     mine = [{**s, 'layer': 'V1'} for s in fit['shots']] + [{**o, 'layer': 'V2'} for o in fit.get('overlays', [])]
     vids = [i for i in tl['items'] if i['track'].startswith('V') and i['path']]
@@ -217,7 +217,7 @@ def diff_with_edit(tl, fit):
 
 def edit_from_timeline(tl, base_fit):
     """Turn the NLE timeline back into an edit spec that reproduces it exactly (V1 spine + V2 runs, no beat re-fitting),
-    keeping decupa's settings (aspect, music, captions) — so the editor's manual changes become the new base."""
+    keeping Cláudio's settings (aspect, music, captions) — so the editor's manual changes become the new base."""
     vids = sorted([i for i in tl['items'] if i['path'] and i['enabled']], key=lambda i: i['tl_in_f'])
     v1 = [i for i in vids if i['track'] == 'V1']
     up = [i for i in vids if i['track'] != 'V1' and i['track'].startswith('V')]
