@@ -784,21 +784,49 @@ async def render_overlay(code: str, name: str, out_folder: str, ctx: Context, as
 
 
 @mcp.tool()
-async def caption_overlay(nle_xml: str, out_folder: str, ctx: Context, aspect: str = '9x16', accent: str = '#4ea1ff',
-                          uppercase: bool = False, max_words: int = 4, fix: dict = None) -> dict:
-    """Styled social captions for the edit as it is NOW (export the sequence as FCP7 XML first): the words of the clips
-    on A1, on the edit's clock, drawn with the skill's Captions() (chunked per sentence, each word pops when spoken,
-    plate behind) → one transparent ProRes 4444 .mov the length of the edit, to lay on the top track at 0.
-    fix: spelling fixes {"Enki": "INC"}. For editable captions use captions_srt instead (or both)."""
+def caption_sentences(nle_xml: str) -> dict:
+    """STEP 1 of captions (always): the edit's speech as sentences {id, text, clip, remembered_correction}. Correct ONLY
+    grammar — agreement (concordância), regência, crase, punctuation — keeping the speaker's words, meaning, register
+    and brand names (e.g. "Você sabe quantos já gastou" → "Você sabe quanto já gastou"). Show the user the diff
+    (spoken → caption) and pass the approved {id: text} as `corrected` to the caption tools. Approved corrections are
+    remembered per source clip and come back by themselves next time."""
+    from decupa import motion
+    return motion.caption_sentences(nle_xml)
+
+
+@mcp.tool()
+def caption_style_preview(nle_xml: str, aspect: str = '9x16', accent: str = '#4ea1ff', corrected: dict = None,
+                          fix: dict = None, client: str = None) -> list:
+    """STEP 2 of captions: the same moment of the edit (real footage) with each caption style on it — social, bold,
+    clean, karaoke, box, minimal — and the recommended one starred (from the client profile's caption preference, else
+    the format: vertical → social, horizontal → minimal). Show it and let the user choose (or tweak accent/position)."""
+    from decupa import motion, clients
+    pref = None
+    if client:
+        p = clients.load(client)
+        pref = (p or {}).get('captions')
+    img, meta = motion.caption_style_preview(nle_xml, aspect, accent, corrected, fix, pref)
+    return [Image(data=core.to_jpeg(img), format='jpeg'), __import__('json').dumps(meta, ensure_ascii=False)]
+
+
+@mcp.tool()
+async def caption_overlay(nle_xml: str, out_folder: str, ctx: Context, style: str = 'social', aspect: str = '9x16',
+                          accent: str = '#4ea1ff', corrected: dict = None, uppercase: bool = None, max_words: int = None,
+                          position: str = 'bottom', fix: dict = None) -> dict:
+    """STEP 3 of captions: render the chosen style over the whole edit as it is NOW (export the sequence as FCP7 XML
+    first), with the approved grammar corrections (`corrected` from caption_sentences, timings kept word by word) →
+    one transparent ProRes 4444 .mov the length of the edit, to lay on the top video track at 0.
+    style: social · bold · clean · karaoke · box · minimal. position: bottom · center · top. fix: spelling {"Enki": "INC"}."""
     import asyncio
     from decupa import motion
     st = {'f': 0.0}
     loop = asyncio.get_running_loop()
     task = loop.run_in_executor(None, lambda: motion.caption_overlay(nle_xml, out_folder, aspect, accent, uppercase, max_words, fix,
-                                                                     progress=lambda f: st.update(f=f)))
+                                                                     progress=lambda f: st.update(f=f), style=style,
+                                                                     corrected=corrected, position=position))
     while not task.done():
         try:
-            await ctx.report_progress(st['f'] * 100, 100, f'renderizando legendas {int(st["f"] * 100)}%')
+            await ctx.report_progress(st['f'] * 100, 100, f'renderizando legendas ({style}) {int(st["f"] * 100)}%')
         except Exception:
             pass
         await asyncio.sleep(2)
@@ -806,11 +834,11 @@ async def caption_overlay(nle_xml: str, out_folder: str, ctx: Context, aspect: s
 
 
 @mcp.tool()
-def captions_srt(nle_xml: str, out_srt: str, max_words: int = 4, max_chars: int = 24, fix: dict = None) -> dict:
-    """Captions of the edit as an .srt (editable): Premiere — import as a caption track; Resolve — import subtitle.
-    Same chunking rules as the styled overlay (≤ max_words / max_chars, never across a sentence end)."""
+def captions_srt(nle_xml: str, out_srt: str, corrected: dict = None, max_words: int = 4, max_chars: int = 24, fix: dict = None) -> dict:
+    """Editable captions (.srt) of the edit with the approved grammar corrections: Premiere — import as a caption track;
+    Resolve — import subtitle. Same chunking as the styled overlay."""
     from decupa import motion
-    return motion.captions_srt(nle_xml, out_srt, max_words, max_chars, fix)
+    return motion.captions_srt(nle_xml, out_srt, max_words, max_chars, fix, corrected)
 
 
 @mcp.tool()
@@ -979,7 +1007,9 @@ marked "(Recomendado)" with a one-line reason). Skip what the request already an
     marker notes) → adopt_nle_timeline (their changes become the base) → apply the notes → export_edit → import as a
     NEW sequence. Never overwrite the editor's sequence; never undo their manual changes.
 10b. Overlays / captions / narration when the piece needs them (motion-designer skill): motion_reference first;
-    captions_srt (editable) and/or caption_overlay (styled, alpha); render_overlay for lower thirds / titles / end cards;
+    captions ALWAYS in 3 steps: caption_sentences → fix grammar only (concordância, regência, crase, pontuação; keep
+    the speaker's words) and show the diff → caption_style_preview (user picks the style; recommended starred) →
+    captions_srt (editable) and/or caption_overlay(style, corrected); render_overlay for lower thirds / titles / end cards;
     narration (ElevenLabs — say the cost first — or edge). Save into <job>/#projeto/decupa_overlays and import them on
     the top video track / an audio track at the right time. These are ASSETS for the timeline, not a final render.
 11. Before they finalise: qc_timeline(current XML, platform) → offer the issues as markers; they decide.

@@ -337,8 +337,10 @@ alpha are encoded as **ProRes 4444** (Premiere and Resolve keep the alpha).
 
 | Tool | |
 | --- | --- |
-| `captions_srt` | Captions of the edit as it is now (words of A1 on the edit's clock), editable in Premiere/Resolve. |
-| `caption_overlay` | The same captions in the skill's social style: chunked per sentence, each word pops when spoken, plate behind. |
+| `caption_sentences` | Step 1: the edit's speech as sentences. Claude fixes **grammar only** (agreement, regência, crase, punctuation) and keeps the speaker's words. Corrected words are laid onto the spoken words' timings, and approved corrections are remembered per clip. |
+| `caption_style_preview` | Step 2: one real frame of the edit with each style (social · bold · clean · karaoke · box · minimal). The recommended style is starred: from the client profile, else the format. |
+| `captions_srt` | Editable captions (.srt) with the corrections. |
+| `caption_overlay` | Step 3: the chosen style over the whole edit, corrected, as ProRes 4444 with alpha. |
 | `render_overlay` | Lower thirds, titles, callouts, end cards written against the skill's core. |
 | `narration` | ElevenLabs (one take, word timings, credit budget) or edge-tts → `narration.wav`. |
 | `motion_reference` | The skill's craft rules (readability, safe zones, captions, narration). |
