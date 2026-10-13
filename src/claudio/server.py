@@ -1014,7 +1014,7 @@ marked "(Recomendado)" with a one-line reason). Skip what the request already an
     the speaker's words) and show the diff → caption_style_preview (user picks the style; recommended starred) →
     captions_srt (editable) and/or caption_overlay(style, corrected); render_overlay for lower thirds / titles / end cards;
     narration (ElevenLabs — say the cost first — or edge). Save into <job>/#projeto/claudio_overlays and import them on
-    the top video track / an audio track at the right time. These are ASSETS for the timeline, not a final render.
+    a NEW empty video track above every track that has clips (create it); never overwrite or insert onto a track that already has anything (adjustment layers, titles, B-roll) — list the tracks with the Premiere MCP first (audio: a new audio track), at the right time. These are ASSETS for the timeline, not a final render.
 11. Before they finalise: qc_timeline(current XML, platform) → offer the issues as markers; they decide.
 12. Render (render_edit with authorized_by_user=True) ONLY if the user asks for a rendered file. At the end,
     save_client_profile(jobs=[...], plus anything learned) so the next job starts from here.

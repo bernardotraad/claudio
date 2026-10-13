@@ -14,7 +14,7 @@ Everything here produces ASSETS for the editor's timeline (never the final video
 
 The skill is looked up in $CLAUDIO_MOTION_SKILL or ~/.claude/skills/motion-designer.
 """
-import json, math, os, re, shutil, subprocess, sys, tempfile, time
+import json, math, os, pathlib, re, shutil, subprocess, sys, tempfile, time
 from concurrent.futures import ThreadPoolExecutor
 from fractions import Fraction
 
@@ -106,7 +106,9 @@ def render_frames(html, ar, fps, start, end, frames_dir, workers=3, progress=lam
             errs = []
             pg.on('pageerror', lambda e: errs.append(str(e)))
             pg.on('console', lambda m: errs.append(m.text) if m.type == 'error' else None)
-            pg.goto('file://' + os.path.abspath(html) + f'?ar={ar}')
+            # as_uri() percent-encodes the path: a raw '#' (the editor's #projeto folder) would start a URL fragment,
+            # the page would never load and the render waited until the timeout
+            pg.goto(pathlib.Path(os.path.abspath(html)).as_uri() + f'?ar={ar}')
             try:
                 pg.wait_for_function('window.ready===true', timeout=45000)
             except Exception:
@@ -190,7 +192,7 @@ def render_overlay(code, name, out_dir, ar='9x16', fps='30000/1001', start=0.0, 
     W, H = _size(ar)
     return {'overlay': core.nle_path(out), 'html': core.nle_path(html), 'frames': n, 'duration_s': round(dur - start, 3),
             'size': f'{W}x{H}', 'fps': str(fps), 'alpha': label,
-            'place_at': 'top video track, at the timeline time this overlay starts'}
+            'place_at': 'a NEW empty video track above every track that has clips (create it); never overwrite or insert onto a track that already has anything (adjustment layers, titles, B-roll) — list the tracks with the Premiere MCP first, at the timeline time this overlay starts'}
 
 
 # ───────────────────────────── captions synced to the EDIT ─────────────────────────────
@@ -244,7 +246,7 @@ def captions_srt(nle_xml, out_path, max_words=4, max_chars=24, fix=None, correct
 def caption_overlay(nle_xml, out_dir, ar='9x16', accent='#4ea1ff', uppercase=None, max_words=None, fix=None, progress=lambda *_: None,
                     style='social', corrected=None, position='bottom', codec='png'):
     """Captions over the whole edit in one of STYLES, with the approved grammar corrections, transparent background →
-    alpha .mov to lay on the top track at 0."""
+    alpha .mov to lay at 0 on a NEW empty video track above every track that has clips (create it); never overwrite or insert onto a track that already has anything (adjustment layers, titles, B-roll) — list the tracks with the Premiere MCP first."""
     tw = corrected_timeline_words(nle_xml, corrected, fix)
     W = tw['words']
     code = caption_code(W, style, accent, uppercase, max_words, position, max(tw['duration'], (W[-1]['e'] + 1) if W else 1))
