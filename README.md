@@ -331,7 +331,7 @@ Premiere panel offers this by itself when the progress bar completes.
 
 ## Motion-designer on top of the edit
 
-The [motion-designer](https://github.com/bernardotraad) skill's core (layout, platform safe zones, `Captions()`,
+The motion-designer Claude Code skill's core (layout, platform safe zones, `Captions()`,
 `EndCard()`, easing) renders **overlay assets** for the timeline. The background is transparent; PNG frames with
 alpha are encoded as **ProRes 4444** (Premiere and Resolve keep the alpha).
 
