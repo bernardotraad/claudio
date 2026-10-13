@@ -63,6 +63,25 @@ MCP** (which operate the editor). Full step-by-step below.
 
 > Steps marked **optional** can be skipped. Everything else is required.
 
+### Claude Desktop chat or the Premiere panel?
+
+decupa works in both. The only difference is **where you talk**:
+
+| | Claude Desktop chat | decupa panel in Premiere |
+| --- | --- | --- |
+| What runs underneath | Claude Desktop itself | **Claude Code** (`claude -p`) |
+| Where to register decupa, Premiere and Resolve | `claude_desktop_config.json` (or a `.mcpb` bundle) | `claude mcp add -s user ...` |
+| claude.ai connectors | yes | yes |
+| Advantage | nicer conversation, paste images | next to the timeline, quick buttons, progress bar |
+
+The panel needs Claude Code because a Premiere extension cannot open a conversation in Claude Desktop: Desktop does
+not accept messages from other programs. Claude Code has a mode for that (`claude -p`), so the panel is effectively
+Claude Code inside Premiere. That is why it sees the MCPs registered **in Claude Code**, not the Desktop ones. If you
+only use the Desktop chat, register the MCPs there and skip the panel.
+
+The two conversations are separate. What connects them is what lives on disk: the `.md` next to each clip,
+`_DECUPA.md`, `_VISAO_GERAL.md` and the index in `_decupa/`.
+
 ### Windows
 
 #### 1. Windows programs
