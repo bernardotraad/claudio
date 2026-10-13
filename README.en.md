@@ -356,7 +356,9 @@ Text you write in the `.md` files outside the `<!-- decupa:auto -->` markers is 
 - Cameras without timecode (e.g. Canon `MVI_*`) start at `00:00:00:00`; frames stay exact.
 - NVDEC can't decode HEVC/H.264 4:2:2. decupa then analyses keyframes only, or you can use proxies.
 - One frame rate per exported timeline (with mixed fps, make one timeline per fps).
-- XML import was validated structurally; behaviour may vary between Premiere/Resolve versions.
+- In Premiere, **import the XMLs by hand** (File › Import / Ctrl+I). Importing an XML through the Premiere MCP's
+  `import_media` crashes Premiere; manual import works. decupa hands you the XML path and asks you to import it.
+  Regular media (`.mov` overlays, `.wav`, `.srt`) can go through the MCP.
 - Take ranking is evidence, not a verdict. For performances, look at the winner and the runner-up.
 
 ## License

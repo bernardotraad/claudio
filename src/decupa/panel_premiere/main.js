@@ -60,7 +60,7 @@ function rawFolder() {
 
 const QUICK = {
   index: () => `Analise o material bruto deste trabalho: index_folder na pasta "${rawFolder()}" (mostre o progresso). Se houver perfil do cliente (client_profile), use o vocabulário dele. No fim, me diga em 4–6 linhas o que tem no material.`,
-  selects: () => `Faça as selects deste trabalho com make_selects (pasta "${rawFolder()}", XML em "${path.join(jobFolder(), '#projeto', 'decupa_selects.xml')}") e importe no Premiere com import_media. Depois me resuma as escolhas.`,
+  selects: () => `Faça as selects deste trabalho com make_selects (pasta "${rawFolder()}", XML em "${path.join(jobFolder(), '#projeto', 'decupa_selects.xml')}") e me passe o caminho do XML para eu importar (Ctrl+I) — não importe XML pelo MCP do Premiere. Depois me resuma as escolhas.`,
   notes: () => `Exporte a sequência ativa ("${ctx.sequence || ''}") como FCP XML com o MCP do Premiere, rode compare_with_nle contra a última versão do projeto decupa deste trabalho, e me mostre o que eu mudei e as notas (marcadores) que deixei. Não aplique nada ainda: proponha e espere meu ok.`,
   qc: () => `Faça o QC da sequência ativa ("${ctx.sequence || ''}", ${ctx.frame_size || ''}) antes de eu exportar: exporte como FCP XML com o MCP do Premiere e rode qc_timeline. Liste os problemas e pergunte se quero que você marque cada um como marcador na timeline.`,
   status: () => `Rode index_status e me diga o progresso em uma linha.`,
@@ -71,7 +71,7 @@ const QUICK = {
 
 function contextBlock() {
   const sel = (ctx.selection || []).map((s) => `  - ${s.name} (${s.track_type}) timeline ${(+s.start_s).toFixed(2)}–${(+s.end_s).toFixed(2)}s, fonte ${(+s.in_s).toFixed(2)}–${(+s.out_s).toFixed(2)}s${s.media ? ' · ' + s.media : ''}`).join('\n');
-  return `[Contexto do Premiere — painel decupa]\nPasta do trabalho: ${jobFolder()}\nProjeto: ${ctx.project || '-'}\nSequência ativa: ${ctx.sequence || '-'} (${ctx.frame_size || '-'})\nPlayhead: ${ctx.playhead_s != null ? (+ctx.playhead_s).toFixed(2) + 's' : '-'}\n${sel ? 'Clipes selecionados:\n' + sel : 'Nenhum clipe selecionado.'}\nRegras: o editor está no controle — proponha antes de mudar; nunca sobrescreva a sequência dele (crie uma nova); só renderize se ele pedir. Memória: este chat é separado das outras sessões; o que importar para depois vai para o vault (conector Vault) e para os arquivos do decupa no disco — ofereça registrar no vault quando houver decisões.\n\n`;
+  return `[Contexto do Premiere — painel decupa]\nPasta do trabalho: ${jobFolder()}\nProjeto: ${ctx.project || '-'}\nSequência ativa: ${ctx.sequence || '-'} (${ctx.frame_size || '-'})\nPlayhead: ${ctx.playhead_s != null ? (+ctx.playhead_s).toFixed(2) + 's' : '-'}\n${sel ? 'Clipes selecionados:\n' + sel : 'Nenhum clipe selecionado.'}\nRegras: o editor está no controle — proponha antes de mudar; nunca sobrescreva a sequência dele (crie uma nova); só renderize se ele pedir. XML (.xml) nunca vai pelo import_media do Premiere (derruba o Premiere): entregue o caminho e peça para ele importar com Ctrl+I; mídia comum (.mov/.wav/.srt) pode ir pelo import_media. Memória: este chat é separado das outras sessões; o que importar para depois vai para o vault (conector Vault) e para os arquivos do decupa no disco — ofereça registrar no vault quando houver decisões.\n\n`;
 }
 
 async function send(text) {

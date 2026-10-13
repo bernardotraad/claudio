@@ -477,7 +477,7 @@ def nle_cut_list(plan: dict) -> list:
 
 
 def export_timeline(plan: dict, out_path: str, format: str = 'fcp7xml') -> dict:
-    """Write the cut as a timeline file. format='fcp7xml' (Premiere: import the .xml; Resolve: import_timeline_from_file)
+    """Write the cut as a timeline file. format='fcp7xml' (Premiere: do NOT import the .xml through the Premiere MCP (importFiles on an FCP XML crashes Premiere) — give the editor the path and ask them to import it (File › Import / Ctrl+I); Resolve: import_timeline_from_file)
     or 'edl' (CMX3600). Clip markers from annotate() are included in XML. Returns the path to import (as the NLE sees it). """
     out = core.local_path(out_path)
     os.makedirs(os.path.dirname(out), exist_ok=True)
@@ -558,7 +558,7 @@ async def sync_multicam(cameras: dict, ctx: Context, external_audio: list[str] =
     Places every clip on one timeline (graph of audio matches + transcript fallback), measures the recorder's clock
     drift on long clips and writes a corrected copy (<name>_drift_corrected±X.wav in decupa_drift_corrected/), then
     exports an FCP7 XML like PluralEyes' ("Synced Sequence": V1..Vn = cameras, stereo pairs per camera, recorder on the
-    last pair; one bin per camera). Premiere: import the XML; Resolve: import_timeline_from_file. Shows progress."""
+    last pair; one bin per camera). Premiere: do NOT import the .xml through the Premiere MCP (importFiles on an FCP XML crashes Premiere) — give the editor the path and ask them to import it (File › Import / Ctrl+I); Resolve: import_timeline_from_file. Shows progress."""
     import asyncio, json as _j
     from decupa import multicam
     state = {'stage': 'audio', 'f': 0.0}
@@ -646,7 +646,7 @@ def make_selects(out_xml: str, folder: str = None, paths: list[str] = None, incl
     take of every repeated line, slate/recording order, alternates in the marker), SELECTS — falas únicas (lines said
     once by whoever is on the mic; automatic only for interview-like material), SELECTS — b-roll (usable stretches of
     no-speech clips), and a bin of every source clip with markers (✅ best / ✗ criticised / alternates / 👁 notes /
-    b-roll). Premiere: import_media([premiere_xml]); Resolve: import_timeline_from_file for each of resolve_xmls.
+    b-roll). Premiere: do NOT import the .xml through the Premiere MCP (importFiles on an FCP XML crashes Premiere) — give the editor the path and ask them to import it (File › Import / Ctrl+I); Resolve: import_timeline_from_file for each of resolve_xmls.
     Links point to the ORIGINAL media (the NLE handles proxies)."""
     from decupa import selects
     files = [core.local_path(p) for p in (paths or [])]
@@ -943,7 +943,7 @@ def edit_storyboard(project: str, version: int = None) -> list:
 
 def export_edit(project: str, out_path: str = None, version: int = None) -> dict:
     """Export an edit version as FCP7 XML for finishing: V1 spine, V2 b-roll (with Basic Motion scale/centre for the
-    reframe), A1/A2 production audio with per-shot levels, A3/A4 music. Premiere: import_media([xml]);
+    reframe), A1/A2 production audio with per-shot levels, A3/A4 music. Premiere: do NOT import the .xml through the Premiere MCP (importFiles on an FCP XML crashes Premiere) — give the editor the path and ask them to import it (File › Import / Ctrl+I);
     Resolve: import_timeline_from_file(xml). Captions/titles are not in the XML (re-create them in the NLE or burn
     from the render)."""
     p = montage.project_dir(project)
@@ -1001,7 +1001,7 @@ marked "(Recomendado)" with a one-line reason). Skip what the request already an
    "fix" it; the user applies LUT/grade in the NLE. Judge focus, framing, action, expression instead.
 8. build_edit(project, edit) → fix every warning → edit_storyboard → LOOK: back-to-back same angle, soft shots, crops
    cutting heads, b-roll that does not match the words, dead air. Fix and rebuild.
-9. Put it in the NLE: export_edit → Premiere: import_media([xml]) · Resolve: import_timeline_from_file(xml) (or
+9. Put it in the NLE: export_edit → Premiere: hand the editor the .xml path to import (Ctrl+I) — never import_media on an .xml, it crashes Premiere · Resolve: import_timeline_from_file(xml) (or
    nle_cut_list + insert tools). Tell the user in 3–5 lines what you built and why, and ask for notes.
 10. Each round of notes: export the CURRENT timeline from the NLE → compare_with_nle (what the editor changed + their
     marker notes) → adopt_nle_timeline (their changes become the base) → apply the notes → export_edit → import as a
