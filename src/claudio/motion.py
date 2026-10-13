@@ -43,9 +43,10 @@ def _core_html():
 
 BOOT = """
 window.seek=seek;
-Promise.all([document.fonts.ready,
+// fonts/images get 10 s at most: a font that never loads must not block the render
+Promise.race([new Promise(r=>setTimeout(r,10000)), Promise.all([document.fonts.ready,
   ...['400','500','600','700','800'].map(w=>document.fonts.load(`${w} 48px Inter`)),
-  ...[...document.images].map(i=>i.complete?1:new Promise(r=>i.onload=i.onerror=r))]).then(()=>{
+  ...[...document.images].map(i=>i.complete?1:new Promise(r=>i.onload=i.onerror=r))])]).then(()=>{
   seek(+Q.get('t')||0); window.ready=true;
   if(Q.get('play')){const t0=performance.now();const loop=()=>{seek(((performance.now()-t0)/1000)%DUR);requestAnimationFrame(loop)};loop();}
 });
@@ -100,8 +101,16 @@ def render_frames(html, ar, fps, start, end, frames_dir, workers=3, progress=lam
         with sync_playwright() as p:
             b = p.chromium.launch(args=['--allow-file-access-from-files'])
             pg = b.new_page(viewport={'width': W, 'height': H}, device_scale_factor=1)
+            errs = []
+            pg.on('pageerror', lambda e: errs.append(str(e)))
+            pg.on('console', lambda m: errs.append(m.text) if m.type == 'error' else None)
             pg.goto('file://' + os.path.abspath(html) + f'?ar={ar}')
-            pg.wait_for_function('window.ready===true', timeout=120000)
+            try:
+                pg.wait_for_function('window.ready===true', timeout=45000)
+            except Exception:
+                b.close()
+                raise RuntimeError('overlay page never became ready' + (': ' + ' | '.join(errs[:5]) if errs else
+                                   ' (no JS error; check fonts/network)') + f' — {html}')
             stage = pg.locator('#stage')
             for i in idxs:
                 t = start + i / fps
