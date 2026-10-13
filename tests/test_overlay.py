@@ -1,6 +1,8 @@
 """Overlays render with alpha inside the editor's #projeto folder, fast."""
 import json, subprocess
 
+import pytest
+
 from conftest import needs_browser, needs_ffmpeg
 from claudio import motion
 
@@ -9,9 +11,32 @@ const t1=div(stage,'title','Teste #projeto');
 function seek(t){ t1.style.opacity = t<1 ? 0 : (t<2 ? 1 : 0); }"""
 
 
+STUB_CORE = """<!doctype html><html><head><meta charset="utf-8"><style>:root{--bg:#F7F7F5;}
+html,body{margin:0;padding:0;background:var(--bg);overflow:hidden}
+#stage{position:relative;width:100vw;height:100vh}.title{position:absolute;left:10%;top:40%;font:700 64px sans-serif;color:#fff}</style>
+</head><body><div id="stage"></div><script>
+const Q=new URLSearchParams(location.search);const stage=document.getElementById('stage');
+function div(p,cls,txt){const e=document.createElement('div');e.className=cls;e.textContent=txt||'';p.appendChild(e);return e;}
+// ================================================================= TIMELINE
+"""
+
+
+@pytest.fixture
+def skill(tmp_path, monkeypatch):
+    """The real motion-designer skill when installed, else a minimal core with the same contract (CI)."""
+    try:
+        motion.skill_dir()
+        return
+    except FileNotFoundError:
+        d = tmp_path / 'motion-designer' / 'templates'
+        d.mkdir(parents=True)
+        (d / 'timeline.html').write_text(STUB_CORE, encoding='utf-8')
+        monkeypatch.setenv('CLAUDIO_MOTION_SKILL', str(d.parent))
+
+
 @needs_ffmpeg
 @needs_browser
-def test_render_in_hash_folder(tmp_path):
+def test_render_in_hash_folder(tmp_path, skill):
     out = tmp_path / "ANR N' ROLL" / '#projeto' / 'claudio_overlays'
     r = motion.render_overlay(CODE, 'teste', str(out), ar='16x9', fps='24')
     assert r['frames'] == 96 and 'PNG' in r['alpha']
