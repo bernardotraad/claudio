@@ -5,7 +5,7 @@ Workflow the tools are designed for:
   1. index_media / index_folder   → probe, transcript (word timestamps), cuts, focus/exposure/motion
   2. overview                     → what is in the clip (speech? b-roll? shots, takes, usable windows)
   3. contact_sheet / timeline_strip / frames  → LOOK at the picture (and words + waveform) at exact times
-  4. takes (dialogue) · broll (no speech) · find_phrase · find_shot (describe a shot)  → evidence-ranked candidates
+  4. takes (dialogue) · broll (no speech) · find_phrase · find_shot (describe a shot) · people / find_person → evidence-ranked candidates
   5. annotate                     → write the decupagem log (what you saw) so it persists
   6. snap_cut → export_timeline / nle_cut_list   → frame-accurate handoff to the Premiere / Resolve MCPs
   7. build_edit → edit_storyboard → export_edit    → a reviewable timeline in Premiere / Resolve (no render)
@@ -662,6 +662,65 @@ def make_selects(out_xml: str, folder: str = None, paths: list[str] = None, incl
     out = core.local_path(out_xml)
     os.makedirs(os.path.dirname(out), exist_ok=True)
     return selects.export_selects_xml(sel, out)
+
+
+async def _people(folder, ctx):
+    import asyncio
+    from claudio import people as P
+    st = {'f': 0.0, 'clip': ''}
+    loop = asyncio.get_running_loop()
+    task = loop.run_in_executor(None, lambda: P.people(folder, progress=lambda f, c: st.update(f=f, clip=c)))
+    while not task.done():
+        try:
+            await ctx.report_progress(st['f'] * 100, 100, f"rostos e vozes: {st['clip']}")
+        except Exception:
+            pass
+        await asyncio.sleep(2)
+    return task.result()
+
+
+@mcp.tool()
+async def people(folder: str, ctx: Context) -> list:
+    """WHO is in the footage: every face and every voice of the folder's clips, clustered so the same person gets one id
+    in all clips — P1, P2… (faces, by screen time) and V1, V2… (voices, by talk time) — with clips, times and sample
+    quotes. Returns a board of the face clusters to LOOK at. Show it to the editor and ask who is who (use the names the
+    overview found as hints), then save with name_people. Likeness, not identity: never assert a name the editor
+    didn't confirm. The first run on a folder takes a few seconds per clip (cached afterwards)."""
+    from claudio import people as P
+    res = await _people(folder, ctx)
+    img = P.board(res)
+    out = [__import__('json').dumps(P.summary(res), ensure_ascii=False)]
+    return ([Image(data=core.to_jpeg(img), format='jpeg')] if img else []) + out
+
+
+@mcp.tool()
+async def name_people(folder: str, names: dict, ctx: Context) -> dict:
+    """Save who is who: {"P1": "Caio", "V2": "Caio", "P3": "Tata"} (ids from people). Names stick to the person (face or
+    voice print), so they survive new clips and later runs, and show up in find_person and people."""
+    from claudio import people as P
+    res = await _people(folder, ctx)
+    return {'named': P.name(folder, names, res)}
+
+
+@mcp.tool()
+async def find_person(folder: str, who: str, ctx: Context) -> dict:
+    """Where a person appears (face: clips and times) and what they say (voice: utterances with times), by name saved
+    with name_people or by id (P2 / V1). Use it for "only Caio's lines", "shots with Tata", a person's best take."""
+    from claudio import people as P
+    res = await _people(folder, ctx)
+    w = who.strip().lower()
+    out = {'who': who, 'faces': [], 'voices': []}
+    for kind in ('faces', 'voices'):
+        for r in res[kind]:
+            if r['id'].lower() == w or (r['name'] or '').lower() == w:
+                item = {'id': r['id'], 'name': r['name'], 'clips': r['clips']}
+                if kind == 'voices':
+                    item['lines'] = [{'clip': os.path.basename(f), 'nle_path': core.nle_path(f), 's': x['s'], 'e': x['e'], 'text': x['text']}
+                                     for f, x in sorted(r['members'], key=lambda m: (m[0], m[1]['s']))]
+                out[kind].append(item)
+    if not out['faces'] and not out['voices']:
+        out['hint'] = 'not found: run people and name_people first, or pass an id like P1 / V2'
+    return out
 
 
 @mcp.tool()

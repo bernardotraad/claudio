@@ -21,6 +21,8 @@ dependencies = [
   "onnxruntime",          # CLIP visual search (find_shot), CPU
   "huggingface_hub",
   "tokenizers",
+  "opencv-python-headless",  # faces (YuNet + SFace)
+  "sherpa-onnx",            # voices (WeSpeaker)
 ]
 
 [project.urls]

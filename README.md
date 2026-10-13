@@ -40,6 +40,7 @@ cartão ─► ingest ─► decupagem (.md ao lado de cada clipe) ─► visão
 | Olhar | `contact_sheet`, `timeline_strip`, `frames`, `reframe_preview`, `multicam_monitor` | Imagens reais do material, com TC e a fala do instante. |
 | Escolher | `scenes`, `takes`, `broll`, `find_phrase`, `annotate` | Melhor take de cada fala (geralmente o último completo; o take que o falante criticou fica de fora) e trechos de b-roll aproveitáveis. As anotações vão pro `.md`. |
 | Busca visual | `find_shot` | Acha planos pela descrição ("mãos no braço da guitarra", "estrada ao pôr do sol"), com CLIP rodando na CPU. As miniaturas saem da própria indexação. |
+| Pessoas | `people`, `name_people`, `find_person` | Quem aparece (rostos) e quem fala (vozes), a mesma pessoa com o mesmo nome em todos os clipes. Você confirma os nomes e eles ficam guardados. Ex.: "só as falas do Caio". |
 | Desaninhar | `flatten_timeline` | Troca as sequências aninhadas pelos próprios clipes, direto nas trilhas, para corrigir a cor take a take. |
 | Multicâmera | `sync_multicam` | Sincroniza câmeras e gravadores pelo áudio, no lugar do PluralEyes: corrige o drift do gravador e gera o XML no mesmo layout, com uma **cor de label por câmera** (vídeo, áudio e bin) e outra para o áudio externo. |
 | Selects | `make_selects` | Sequências de melhores takes e de b-roll + marcadores em todos os clipes (✅ melhor / ✗ criticado / 👁 notas). |

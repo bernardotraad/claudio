@@ -86,7 +86,7 @@ def _frames(path, step=STEP, width=256):
         ts = [k * step for k in range(int(dur // step) + 1)]
 
         def one(t):
-            r = subprocess.run(['ffmpeg', '-v', 'error', '-skip_frame', 'nokey', '-ss', f'{t:.3f}', '-i', src, '-an',
+            r = subprocess.run(['ffmpeg', '-v', 'error', *core._probe_opts(src), '-skip_frame', 'nokey', '-ss', f'{t:.3f}', '-i', src, '-an',
                                 '-frames:v', '1', '-vf', vf, '-pix_fmt', 'rgb24', '-f', 'image2pipe', '-vcodec', 'ppm', '-'],
                                capture_output=True).stdout
             return _ppm(r)[:1]

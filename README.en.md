@@ -40,6 +40,7 @@ card ─► ingest ─► logging (.md next to every clip) ─► overview + que
 | Look | `contact_sheet`, `timeline_strip`, `frames`, `reframe_preview`, `multicam_monitor` | Real images of the footage, with TC and the words spoken at that instant. |
 | Choose | `scenes`, `takes`, `broll`, `find_phrase`, `annotate` | Best take of every line (usually the last complete one; a take the speaker criticised is out) and usable b-roll stretches. Notes go into the `.md`. |
 | Visual search | `find_shot` | Finds shots by description ("hands on the guitar neck", "road at sunset") with CLIP on the CPU; thumbnails come from indexing itself. |
+| People | `people`, `name_people`, `find_person` | Who appears (faces) and who speaks (voices), the same person under one name across clips; you confirm the names and they stick ("only Caio's lines"). |
 | Flatten | `flatten_timeline` | Replaces nested sequences with their own clips, straight on the tracks, to grade take by take. |
 | Multicam | `sync_multicam` | Syncs cameras and recorders by audio, replacing PluralEyes: corrects recorder drift and exports an XML in the same layout, with **one label colour per camera** (video, audio and bin) and another for external audio. |
 | Selects | `make_selects` | Best-take and b-roll sequences + markers on every clip (✅ best / ✗ criticised / 👁 notes). |

@@ -1254,9 +1254,21 @@ def _fast(path, width):
     return path
 
 
-def grab(path, t, width):
-    """One frame as PIL image (accurate seek, metadata + user rotation applied; proxy used when it is big enough)."""
-    raw = run(['ffmpeg', '-loglevel', 'error', '-ss', f'{max(t, 0):.3f}', '-i', _fast(path, width), '-frames:v', '1',
+# containers that carry their stream layout in the header: ffmpeg needs no probing (by default it decodes several
+# frames to "learn" the stream — 3–9 s per call on 4K HEVC 4:2:2 over /mnt; with this, ~1.4 s)
+NO_PROBE = ['-probesize', '256000', '-analyzeduration', '0']
+
+
+def _probe_opts(src):
+    return NO_PROBE if os.path.splitext(src)[1].lower() in ('.mp4', '.mov', '.m4v', '.mxf') else []
+
+
+def grab(path, t, width, keyframe=False):
+    """One frame as PIL image (accurate seek, metadata + user rotation applied; proxy used when it is big enough).
+    keyframe=True takes the keyframe at/after t instead (much cheaper on long-GOP 4K; ±0.5 s on camera originals)."""
+    src = _fast(path, width)
+    raw = run(['ffmpeg', '-loglevel', 'error', *_probe_opts(src), *(['-skip_frame', 'nokey'] if keyframe else []),
+               '-ss', f'{max(t, 0):.3f}', '-i', src, '-frames:v', '1',
                '-vf', f'{rot_vf(path)}scale={width}:-2', '-f', 'image2pipe', '-vcodec', 'png', '-']).stdout
     return Image.open(io.BytesIO(raw)).convert('RGB')
 
@@ -1271,7 +1283,8 @@ def grab_many(path, s, e, n, width):
         with ThreadPoolExecutor(4) as ex:
             ims = list(ex.map(lambda t: grab(path, t, width), ts))
         return list(zip(ts, ims))
-    raw = run(['ffmpeg', '-loglevel', 'error', '-ss', f'{s:.3f}', '-t', f'{dur:.3f}', '-i', _fast(path, width),
+    src = _fast(path, width)
+    raw = run(['ffmpeg', '-loglevel', 'error', *_probe_opts(src), '-ss', f'{s:.3f}', '-t', f'{dur:.3f}', '-i', src,
                '-vf', f'{rot_vf(path)}fps={n / dur:.6f}:round=down,scale={width}:-2', '-frames:v', str(n),
                '-pix_fmt', 'rgb24', '-f', 'image2pipe', '-vcodec', 'ppm', '-']).stdout
     ims, i = [], 0

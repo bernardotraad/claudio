@@ -12,7 +12,7 @@ from claudio import core, sidecar
 
 JOBS = os.path.join(core.CACHE, 'jobs')
 STAGE_W = {'probe': (0.0, 0.02), 'audio': (0.02, 0.08), 'picture': (0.10, 0.65), 'speech': (0.75, 0.25)}
-STAGE_PT = {'probe': 'lendo metadados', 'audio': 'áudio', 'picture': 'imagem', 'speech': 'transcrição', 'visual': 'busca visual'}
+STAGE_PT = {'probe': 'lendo metadados', 'audio': 'áudio', 'picture': 'imagem', 'speech': 'transcrição', 'visual': 'busca visual', 'people': 'rostos e vozes'}
 
 
 def job_path(folder):
@@ -185,6 +185,19 @@ def run(folder, vocabulary=None, lang='pt'):
         j.update(current=None, stage=None)
     except Exception as e:
         j['errors'].append(f'busca visual indisponível: {e}')
+    try:                                     # faces + voices per clip (cached), so `people` answers at once later
+        from claudio import people as P
+        for k, f in enumerate(files):
+            j.update(current=os.path.basename(f), stage='people', stage_progress=round(k / max(len(files), 1), 3))
+            save()
+            for fn in (P.faces_clip, P.voices_clip):
+                try:
+                    fn(f)
+                except Exception as e:
+                    j['errors'].append(f'{os.path.basename(f)} ({fn.__name__}): {e}')
+        j.update(current=None, stage=None)
+    except Exception as e:
+        j['errors'].append(f'rostos e vozes indisponíveis: {e}')
     j['state'] = 'done'
     save(True)
     try:
