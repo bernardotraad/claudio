@@ -551,14 +551,14 @@ def read_project(project: str) -> dict:
 
 @mcp.tool()
 async def sync_multicam(cameras: dict, ctx: Context, external_audio: list[str] = None, out_xml: str = None,
-                        fps: str = None, correct_drift: bool = True) -> dict:
+                        fps: str = None, correct_drift: bool = True, labels: dict = None) -> dict:
     """PluralEyes-style multicam sync from the clips' own audio — no timecode needed.
     cameras: {"CAM A": "E:\\\\Show\\\\01 HRCS", "CAM B": "E:\\\\Show\\\\02 BÊ"} (folder or list of files per camera).
     external_audio: recorder files/folders (board mix, lav recorders) — used as the reference clock when given.
     Places every clip on one timeline (graph of audio matches + transcript fallback), measures the recorder's clock
     drift on long clips and writes a corrected copy (<name>_drift_corrected±X.wav in claudio_drift_corrected/), then
     exports an FCP7 XML like PluralEyes' ("Synced Sequence": V1..Vn = cameras, stereo pairs per camera, recorder on the
-    last pair; one bin per camera). Premiere: do NOT import the .xml through the Premiere MCP (importFiles on an FCP XML crashes Premiere) — give the editor the path and ask them to import it (File › Import / Ctrl+I); Resolve: import_timeline_from_file. Shows progress."""
+    last pair; one bin per camera). Every camera gets its own Premiere label colour on its video, its audio and its bin clips (external audio too); labels={'CAM A': 'Mango', 'AUDIO': 'Caribbean'} overrides the default palette (Cerulean, Mango, Forest, Magenta, Yellow, Violet, Teal, Rose...; external audio Caribbean). Premiere: do NOT import the .xml through the Premiere MCP (importFiles on an FCP XML crashes Premiere) — give the editor the path and ask them to import it (File › Import / Ctrl+I); Resolve: import_timeline_from_file. Shows progress."""
     import asyncio, json as _j
     from claudio import multicam
     state = {'stage': 'audio', 'f': 0.0}
@@ -578,7 +578,7 @@ async def sync_multicam(cameras: dict, ctx: Context, external_audio: list[str] =
     first = next(n for n in res['nodes'] if n.get('t0') is not None)
     base = os.path.dirname(os.path.commonpath([n['path'] for n in res['nodes']]))
     out = core.local_path(out_xml) if out_xml else os.path.join(base, 'claudio_sync.xml')
-    x = multicam.export_xml(res, out)
+    x = multicam.export_xml(res, out, labels=labels)
     summ = multicam.summary(res)
     _j.dump({'fps': res['fps'], 'drift': res['drift'], 'clips': [{**r, 'path': n['path']} for r, n in
              zip(summ['clips'], sorted(res['nodes'], key=lambda n: (n['cam'], n.get('t0') if n.get('t0') is not None else 1e12)))]},

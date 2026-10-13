@@ -10,7 +10,7 @@ const os = require('os');
 
 const $ = (s) => document.querySelector(s);
 const log = $('#log');
-let child = null, ctx = {}, sessionKey = null;
+let child = null, ctx = {}, sessionKey = null, curProject, hist = [];
 
 function evalHost(script) {
   return new Promise((res) => window.__adobe_cep__.evalScript(script, (r) => res(r)));
@@ -25,7 +25,39 @@ async function readContext() {
     const old = localStorage.getItem('decupa-session:' + (ctx.project || 'none'));
     if (old && !localStorage.getItem(sessionKey)) localStorage.setItem(sessionKey, old);
   } catch (e) {}
+  if (ctx.project !== curProject) { curProject = ctx.project; loadHist(); }
   return ctx;
+}
+
+// The conversation is saved next to the project (<name>.claudio-chat.json) and reloaded when the panel opens on it
+// again, so it never starts from zero: the visible messages and the Claude Code session that --resume continues.
+function histPath() {
+  if (!ctx.project) return null;
+  return path.join(path.dirname(ctx.project), path.basename(ctx.project, path.extname(ctx.project)) + '.claudio-chat.json');
+}
+
+function saveHist() {
+  const p = histPath();
+  if (!p) return;
+  try {
+    fs.writeFileSync(p + '.tmp', JSON.stringify({ session_id: localStorage.getItem(sessionKey), messages: hist.slice(-400) }, null, 1));
+    fs.renameSync(p + '.tmp', p);
+  } catch (e) {}
+}
+
+function loadHist() {
+  log.innerHTML = ''; hist = [];
+  const p = histPath();
+  let h = null;
+  try { if (p && fs.existsSync(p)) h = JSON.parse(fs.readFileSync(p, 'utf8')); } catch (e) {}
+  if (!h || !h.messages || !h.messages.length) return;
+  if (h.session_id && !localStorage.getItem(sessionKey)) localStorage.setItem(sessionKey, h.session_id);
+  for (const m of h.messages) {
+    const d = add(m.cls, m.text, false);
+    if (m.cls === 'claude') importButtons(d, m.text);
+    hist.push(m);
+  }
+  add('meta', `conversa anterior recarregada (${h.messages.length} mensagens) — o Claude continua de onde parou`, false);
 }
 
 function jobFolder() {
@@ -42,7 +74,8 @@ function claudeExe() {
   return cands.find((c) => c && fs.existsSync(c)) || 'claude';
 }
 
-function add(cls, text) {
+function add(cls, text, keep = true) {
+  if (keep) { hist.push({ cls, text }); saveHist(); }
   const d = document.createElement('div');
   d.className = 'msg ' + cls;
   d.textContent = text;
@@ -94,6 +127,7 @@ const QUICK = {
   status: () => `Rode index_status e me diga o progresso em uma linha.`,
   overview: () => `Faça a visão geral do projeto: project_digest na pasta "${rawFolder()}", entenda sobre o que é o trabalho, salve com save_project_overview em "${jobFolder()}" e me resuma em 4–6 linhas. Depois me pergunte a duração aproximada do vídeo final e a trilha (uma música específica ou um mood/gênero) e proponha 2–4 direcionamentos concretos a partir do material. Eu escolho um ou explico a minha ideia.`,
   captions: () => `Legendas da sequência ativa ("${ctx.sequence || ''}", ${ctx.frame_size || ''}). Exporte a sequência como FCP XML com o MCP do Premiere e siga os 3 passos: 1) caption_sentences e corrija SÓ a gramática (concordância, regência, crase, pontuação), sem mudar as palavras do falante nem nomes de marca — me mostre a tabela fala → legenda; 2) caption_style_preview (aspect conforme o frame da sequência; se houver perfil do cliente, passe client) e me pergunte qual estilo; 3) com a minha escolha, gere o .srt (captions_srt) e o overlay (caption_overlay) em "${path.join(jobFolder(), '#projeto', 'claudio_overlays')}" e importe o overlay na trilha de vídeo mais alta em 0 s.`,
+  multicam: () => `Multicâmera deste trabalho, no lugar do PluralEyes. 1) Liste as pastas de "${jobFolder()}" (material de câmera e áudio; ignore #projeto e proxies) e proponha o mapeamento: cada pasta de câmera vira uma câmera com nome curto (ex.: "CAM A — A7III"), e gravadores externos (Zoom, mesa, lapela) vão em external_audio. Proponha uma cor de label do Premiere por câmera e uma para o áudio externo (Cerulean, Mango, Forest, Magenta, Yellow, Violet, Teal, Rose, Caribbean…) numa tabela câmera → pasta → nº de clipes → cor, e ME PERGUNTE antes de rodar. 2) Com o meu ok, rode sync_multicam (correct_drift true, labels com as cores, out_xml "${path.join(jobFolder(), '#projeto', 'claudio_sync.xml')}"). 3) Resuma: clipes posicionados, os aproximados (sem áudio em comum, posicionados pelo relógio da câmera) e o drift do gravador. 4) Confira com multicam_monitor em 2 ou 3 momentos em que todas as câmeras estão rodando e me diga se algo parece fora de sincronia. 5) Escreva o caminho completo do XML (o painel mostra o botão de importar; não importe pelo MCP do Premiere) e explique o próximo passo: a "Synced Sequence" chega com V1..Vn por câmera e cada câmera (vídeo, áudio e bin) na sua cor; dali eu corto direto ou crio uma Multi-Camera Source Sequence.`,
   vault: () => `Registre este trabalho no vault (conector Vault), seguindo as regras do CLAUDE.md do vault (leia-o com read_note antes): 1) nota do trabalho com cliente, data, pasta "${jobFolder()}", material (câmeras, horas, cor/log, áudio), decisões de montagem desta conversa, versões entregues e onde estão os arquivos (.md da decupagem, XMLs, perfil do cliente); 2) entrada no diário de hoje (append_diary) com um resumo de 2–4 linhas e link pra nota; 3) se o cliente tiver página, linke. Não grave senhas nem dados sensíveis. No fim me diga o que foi escrito.`,
 };
 
@@ -127,7 +161,7 @@ async function send(text) {
       const line = buf.slice(0, i).trim(); buf = buf.slice(i + 1);
       if (!line) continue;
       let ev; try { ev = JSON.parse(line); } catch (e) { continue; }
-      if (ev.type === 'system' && ev.session_id) localStorage.setItem(sessionKey, ev.session_id);
+      if (ev.type === 'system' && ev.session_id) { localStorage.setItem(sessionKey, ev.session_id); saveHist(); }
       if (ev.type === 'assistant' && ev.message && ev.message.content) {
         for (const b of ev.message.content) {
           if (b.type === 'text' && b.text.trim()) { cur = add('claude', b.text); importButtons(cur, b.text); $('#status').textContent = ''; }
@@ -139,7 +173,7 @@ async function send(text) {
         }
       }
       if (ev.type === 'result') {
-        if (ev.session_id) localStorage.setItem(sessionKey, ev.session_id);
+        if (ev.session_id) { localStorage.setItem(sessionKey, ev.session_id); saveHist(); }
         const s = ev.total_cost_usd != null ? ` · US$ ${ev.total_cost_usd.toFixed(2)}` : '';
         add('meta', `${ev.is_error ? 'erro' : 'pronto'} · ${(ev.duration_ms / 1000).toFixed(0)} s${s}`);
       }
@@ -157,7 +191,7 @@ async function send(text) {
 $('#send').onclick = () => { const t = $('#input').value; $('#input').value = ''; send(t); };
 $('#input').addEventListener('keydown', (e) => { if (e.key === 'Enter' && e.ctrlKey) { e.preventDefault(); $('#send').click(); } });
 $('#stop').onclick = () => { if (child) { child.kill(); add('meta', 'parado'); } };
-$('#newchat').onclick = () => { localStorage.removeItem(sessionKey); log.innerHTML = ''; add('meta', 'nova conversa'); };
+$('#newchat').onclick = () => { localStorage.removeItem(sessionKey); log.innerHTML = ''; hist = []; saveHist(); add('meta', 'nova conversa', false); };
 document.querySelectorAll('#quick button').forEach((b) => (b.onclick = async () => { await readContext(); send(QUICK[b.dataset.q]()); }));
 
 // indexing progress: read <footage>/_claudio/progress.json (written by the background indexer) every 2 s
@@ -202,5 +236,5 @@ function showProgress() {
 }
 setInterval(showProgress, 2000);
 
-readContext().then(() => { add('meta', `pasta do trabalho: ${jobFolder()}`); showProgress(); });
+readContext().then(() => { add('meta', `pasta do trabalho: ${jobFolder()}`, false); showProgress(); });
 setInterval(() => { if (!child) readContext(); }, 4000);

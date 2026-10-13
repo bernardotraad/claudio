@@ -39,7 +39,7 @@ cartão ─► ingest ─► decupagem (.md ao lado de cada clipe) ─► visão
 | Entender | `project_digest`, `save_project_overview` | Lê todos os `.md` e escreve **`_VISAO_GERAL.md`**. Pergunta a duração do vídeo e a trilha (música específica ou mood/gênero) e propõe 2–4 direcionamentos. |
 | Olhar | `contact_sheet`, `timeline_strip`, `frames`, `reframe_preview`, `multicam_monitor` | Imagens reais do material, com TC e a fala do instante. |
 | Escolher | `scenes`, `takes`, `broll`, `find_phrase`, `annotate` | Melhor take de cada fala (geralmente o último completo; o take que o falante criticou fica de fora) e trechos de b-roll aproveitáveis. As anotações vão pro `.md`. |
-| Multicâmera | `sync_multicam` | Sincroniza câmeras e gravadores pelo áudio, no lugar do PluralEyes: corrige o drift do gravador e gera o XML no mesmo layout. |
+| Multicâmera | `sync_multicam` | Sincroniza câmeras e gravadores pelo áudio, no lugar do PluralEyes: corrige o drift do gravador e gera o XML no mesmo layout, com uma **cor de label por câmera** (vídeo, áudio e bin) e outra para o áudio externo. |
 | Selects | `make_selects` | Sequências de melhores takes e de b-roll + marcadores em todos os clipes (✅ melhor / ✗ criticado / 👁 notas). |
 | Montar | `music_map`, `music_windows`, `build_edit`, `edit_storyboard`, `export_edit` | Trilha primeiro (BPM, compassos, seções), corte no beat, b-roll sobre a fala, storyboard **sem render**, FCP7 XML pro NLE. |
 | Revisar | `compare_with_nle`, `adopt_nle_timeline` | Lê a timeline como está no NLE: o que você mudou e seus marcadores como notas. As suas mudanças viram a nova base. |
@@ -308,12 +308,18 @@ Reinicie o Premiere → **Janela › Extensões › Cláudio, o Editor**.
 3. Quando terminar, o painel oferece a **Visão geral**: o que é o projeto, as perguntas (duração, trilha) e os
    direcionamentos possíveis. Escolha um ou explique a sua ideia.
 4. **Selects** → confira no NLE as escolhas de take e b-roll.
+   **Multicam** (se houver mais de uma câmera ou gravador externo) → o Cláudio propõe o mapeamento pasta → câmera e as
+   cores, pergunta, sincroniza pelo áudio, confere as câmeras lado a lado e entrega a "Synced Sequence" com cada câmera
+   na sua cor.
 5. Peça a montagem. Ela entra como sequência nova. Revise, mexa à vontade e deixe **marcadores** com notas.
 6. **Ler minhas notas** → o Cláudio compara com o que entregou, adota as suas mudanças e aplica as notas numa nova
    versão.
 7. **Legendas** → frases corrigidas (tabela fala → legenda), preview dos 6 estilos com o recomendado marcado, SRT
    editável e/ou overlay com alpha.
 8. **QC antes de exportar** → lista de problemas com timecode. Você finaliza (cor, efeitos) e exporta.
+
+A conversa do painel fica salva ao lado do projeto (`<projeto>.claudio-chat.json`) e volta quando você reabre o
+Premiere: as mensagens aparecem de novo e o Claude continua de onde parou. O **＋** começa uma conversa nova.
 
 Também dá pra fazer tudo pelo terminal do Claude Code, com o prompt guiado `/mcp__claudio__montar`.
 
@@ -328,7 +334,7 @@ BMD Film) parece lavado de propósito: a correção de cor é sua, no NLE.
 | ao lado de cada vídeo | `<clipe>.md` (técnico, cor, cenas, takes, transcrição) e `_claudio/<clipe>.jpg` |
 | em cada pasta de material | `_CLAUDIO.md` (tabela da pasta + progresso) e `_claudio/progress.json` |
 | na raiz do trabalho | `_VISAO_GERAL.md`, `_ingest.md` / `_ingest.json` |
-| `#projeto/` | XMLs (selects, sync, versões da montagem) e `claudio_overlays/` (legendas, overlays, narração) |
+| `#projeto/` | XMLs (selects, sync, versões da montagem), `claudio_overlays/` (legendas, overlays, narração) e `<projeto>.claudio-chat.json` (conversa do painel) |
 | vault: `trabalho/clientes/` (sem vault: `~/Documents/Claudio/clientes`) | perfis de cliente (`<cliente>.md`, com frontmatter do vault) |
 | `~/.cache/claudio/` | índices (transcrição, métricas, áudio). Apagar só força uma nova análise. |
 

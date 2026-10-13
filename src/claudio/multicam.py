@@ -406,7 +406,32 @@ def summary(res):
 
 
 # ───────────────────────────── export (PluralEyes-compatible layout) ─────────────────────────────
-def export_xml(res, out_path, name='Synced Sequence'):
+# Premiere label colours (FCP7 XML <labels><label2>): one per camera, so every angle and its audio read at a glance.
+LABELS = ['Cerulean', 'Mango', 'Forest', 'Magenta', 'Yellow', 'Violet', 'Teal', 'Rose', 'Tan', 'Lavender', 'Brown', 'Purple']
+AUDIO_LABEL = 'Caribbean'
+PREMIERE_LABELS = set(LABELS) | {AUDIO_LABEL, 'Iris', 'Blue', 'Green'}
+
+
+def camera_labels(cams, labels=None):
+    """{camera: Premiere label}. External audio gets its own colour; cameras take the palette in order.
+    labels overrides per camera (names from PREMIERE_LABELS, case-insensitive)."""
+    want = {k.upper(): v for k, v in (labels or {}).items()}
+    fix = {x.lower(): x for x in PREMIERE_LABELS}
+    out = {}
+    for c in cams:
+        v = want.get(c.upper())
+        if v and v.lower() in fix:
+            out[c] = fix[v.lower()]
+        elif c == 'AUDIO':
+            out[c] = AUDIO_LABEL
+    pal = [c for c in LABELS if c not in out.values()]
+    for c in cams:
+        if c not in out:
+            out[c] = pal.pop(0) if pal else 'Iris'
+    return out
+
+
+def export_xml(res, out_path, name='Synced Sequence', labels=None):
     """FCP7 XML like PluralEyes writes: a project with one bin per camera (+ audio) and a "Synced Sequence" with
     V1..Vn = cameras, stereo audio pairs per camera, external audio on the last pair. Premiere: import the file;
     Resolve: File › Import Timeline (or the Resolve MCP import_timeline_from_file)."""
@@ -420,6 +445,8 @@ def export_xml(res, out_path, name='Synced Sequence'):
             cams.append(n['cam'])
     vcams = [c for c in cams if any(n['cam'] == c and n['kind'] == 'video' for n in placed)]
     acams = vcams + [c for c in cams if c not in vcams]
+    col = camera_labels(acams, labels)
+    lab = lambda n: f'<labels><label2>{col[n["cam"]]}</label2></labels>'
     ids = {}
 
     def fid(n):
@@ -456,7 +483,7 @@ def export_xml(res, out_path, name='Synced Sequence'):
             links = ''.join(f'<link><linkclipref>{x}</linkclipref><mediatype>{"video" if x.startswith("v-") else "audio"}</mediatype></link>'
                             for x in [cid] + [f'a{ch_}-{fid(n)}' for ch_ in range(1, ach + 1)])
             items.append(f'<clipitem id="{cid}"><name>{E(n["name"])}</name><duration>{d}</duration>{rate}<start>{n["start_frame"]}</start>'
-                         f'<end>{n["start_frame"] + d}</end><in>0</in><out>{d}</out>{file_el(n, full)}{links}</clipitem>')
+                         f'<end>{n["start_frame"] + d}</end><in>0</in><out>{d}</out>{file_el(n, full)}{links}{lab(n)}</clipitem>')
         vtracks.append(f'<track>{"".join(items)}</track>')
     for c in acams:
         for ch_ in (1, 2):
@@ -469,7 +496,7 @@ def export_xml(res, out_path, name='Synced Sequence'):
                 items.append(f'<clipitem id="a{ch_}-{fid(n)}"><name>{E(os.path.basename(n.get("corrected_path") or n["path"]))}</name>'
                              f'<duration>{d}</duration>{rate}<start>{n["start_frame"]}</start><end>{n["start_frame"] + d}</end>'
                              f'<in>0</in><out>{d}</out>{file_el(n, full)}<sourcetrack><mediatype>audio</mediatype>'
-                             f'<trackindex>{ch_}</trackindex></sourcetrack></clipitem>')
+                             f'<trackindex>{ch_}</trackindex></sourcetrack>{lab(n)}</clipitem>')
             if items:
                 atracks.append(f'<track>{"".join(items)}</track>')
     total = max(n['start_frame'] + int(round((n.get('duration_corrected') or n['duration']) * F)) for n in placed)
@@ -483,10 +510,10 @@ def export_xml(res, out_path, name='Synced Sequence'):
     bins = ''.join(f'<bin><name>{E(c)}</name><children>' + ''.join(
         f'<clip id="m-{fid(n)}"><name>{E(n["name"])}</name><duration>{int(round(n["duration"] * F))}</duration>{rate}'
         f'<media>{"<video><track><clipitem id=" + chr(34) + "mv-" + fid(n) + chr(34) + "><name>" + E(n["name"]) + "</name>" + file_el(n, False) + "</clipitem></track></video>" if n["kind"] == "video" else ""}'
-        f'<audio><track><clipitem id="ma-{fid(n)}"><name>{E(n["name"])}</name>{file_el(n, False)}</clipitem></track></audio></media></clip>'
+        f'<audio><track><clipitem id="ma-{fid(n)}"><name>{E(n["name"])}</name>{file_el(n, False)}</clipitem></track></audio></media>{lab(n)}</clip>'
         for n in placed if n['cam'] == c) + '</children></bin>' for c in acams)
     xml = ('<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE xmeml>\n<xmeml version="4"><project>'
            f'<name>{E(os.path.splitext(os.path.basename(out_path))[0])}</name><children>{seq}{bins}</children></project></xmeml>\n')
     open(out_path, 'w', encoding='utf-8').write(xml)
     return {'path': out_path, 'nle_path': core.nle_path(out_path), 'tracks_video': len(vtracks), 'tracks_audio': len(atracks),
-            'duration_s': round(total / F, 2), 'fps': res['fps']}
+            'duration_s': round(total / F, 2), 'fps': res['fps'], 'labels': col}
