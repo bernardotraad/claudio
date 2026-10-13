@@ -47,3 +47,52 @@ function claudioImportXml(xmlPath) {
         return '{"ok":false,"error":' + q(e.toString()) + '}';
     }
 }
+
+// ── safety net: what is on the tracks before / after Claude acts ──────────────────────────────────────────────────
+function claudioSeqById(id) {
+    var p = app.project;
+    if (!p) return null;
+    if (!id) return p.activeSequence;
+    for (var i = 0; i < p.sequences.numSequences; i++) {
+        if (p.sequences[i].sequenceID == id) return p.sequences[i];
+    }
+    return null;
+}
+
+// Every clip on every track of a sequence (the active one when id is empty), as JSON.
+function claudioSnapshot(id) {
+    try {
+        var s = claudioSeqById(id);
+        if (!s) return '{"ok":false}';
+        var tr = [];
+        var kinds = [['V', s.videoTracks], ['A', s.audioTracks]];
+        for (var k = 0; k < 2; k++) {
+            var ts = kinds[k][1];
+            for (var t = 0; t < ts.numTracks; t++) {
+                var cl = [], c = ts[t].clips;
+                for (var j = 0; j < c.numItems; j++) {
+                    var it = c[j], m = '';
+                    try { m = it.projectItem ? it.projectItem.getMediaPath() : ''; } catch (e1) {}
+                    cl.push('{"name":' + q(it.name) + ',"start":' + it.start.seconds + ',"end":' + it.end.seconds +
+                            ',"in":' + it.inPoint.seconds + ',"out":' + it.outPoint.seconds + ',"media":' + q(m) + '}');
+                }
+                tr.push('{"track":"' + kinds[k][0] + (t + 1) + '","clips":[' + cl.join(',') + ']}');
+            }
+        }
+        return '{"ok":true,"id":' + q(s.sequenceID) + ',"name":' + q(s.name) + ',"tracks":[' + tr.join(',') + ']}';
+    } catch (e) {
+        return '{"ok":false,"error":' + q(e.toString()) + '}';
+    }
+}
+
+// FCP XML backup of a sequence, so a version from before Claude acted can always be imported back.
+function claudioBackup(id, path) {
+    try {
+        var s = claudioSeqById(id);
+        if (!s) return '{"ok":false}';
+        var ok = s.exportAsFinalCutProXML(path, 1);
+        return '{"ok":' + (ok ? 'true' : 'false') + '}';
+    } catch (e) {
+        return '{"ok":false,"error":' + q(e.toString()) + '}';
+    }
+}
