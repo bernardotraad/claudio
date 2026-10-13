@@ -2,11 +2,11 @@
 
 Everything here produces ASSETS for the editor's timeline (never the final video):
   render_overlay(code, ...)     HTML timeline written with the skill's core (layout, safe zones, Captions, EndCard,
-                                easing) on a TRANSPARENT background → PNG frames with alpha → ProRes 4444 .mov
+                                easing) on a TRANSPARENT background → PNG frames with alpha → .mov with alpha (PNG codec, or ProRes 4444)
                                 (Premiere and Resolve keep the alpha). Lower thirds, titles, animated callouts, end cards.
   timeline_words(nle_xml)       the words spoken in the edit, on the EDIT's clock (from the clips on the timeline)
   caption_overlay(nle_xml)      styled social captions (the skill's Captions(): chunked per sentence, word pops on the
-                                spoken word, plate behind) synced to the edit → ProRes 4444 over the whole timeline
+                                spoken word, plate behind) synced to the edit → one alpha .mov over the whole timeline
   captions_srt(nle_xml)         the same captions as an .srt — editable in Premiere's caption track / Resolve subtitles
   narration(text, ...)          ElevenLabs (skill's el_tts.py: one take, word timings, credit budget) or edge-tts
                                 → narration.wav + words.json to place on an audio track
@@ -14,7 +14,7 @@ Everything here produces ASSETS for the editor's timeline (never the final video
 
 The skill is looked up in $CLAUDIO_MOTION_SKILL or ~/.claude/skills/motion-designer.
 """
-import json, math, os, re, shutil, subprocess, sys, tempfile
+import json, math, os, re, shutil, subprocess, sys, tempfile, time
 from concurrent.futures import ThreadPoolExecutor
 from fractions import Fraction
 
@@ -94,7 +94,9 @@ def render_frames(html, ar, fps, start, end, frames_dir, workers=3, progress=lam
     fps = float(Fraction(str(fps)))
     n = int(round((end - start) * fps))
     os.makedirs(frames_dir, exist_ok=True)
-    parts = [list(range(k, n, workers)) for k in range(workers)]
+    # contiguous chunks per worker, so each one can tell when a frame is identical to its previous one
+    step = -(-n // workers) if n else 1
+    parts = [list(range(k, min(n, k + step))) for k in range(0, n, step)]
     done = [0]
 
     def work(idxs):
@@ -112,10 +114,21 @@ def render_frames(html, ar, fps, start, end, frames_dir, workers=3, progress=lam
                 raise RuntimeError('overlay page never became ready' + (': ' + ' | '.join(errs[:5]) if errs else
                                    ' (no JS error; check fonts/network)') + f' — {html}')
             stage = pg.locator('#stage')
+            prev_sig = prev_png = None
             for i in idxs:
                 t = start + i / fps
-                pg.evaluate(f'window.seek({t:.6f})')
-                stage.screenshot(path=os.path.join(frames_dir, f'{i:06d}.png'), omit_background=True, animations='disabled')
+                # seek() only sets inline styles/text, so the stage markup is the frame: an unchanged markup (a caption
+                # holding still, an empty stretch) is the same picture — link the previous PNG instead of shooting again
+                sig = pg.evaluate(f'(window.seek({t:.6f}), document.getElementById("stage").innerHTML)')
+                png = os.path.join(frames_dir, f'{i:06d}.png')
+                if sig == prev_sig and prev_png:
+                    try:
+                        os.link(prev_png, png)
+                    except OSError:
+                        shutil.copyfile(prev_png, png)
+                else:
+                    stage.screenshot(path=png, omit_background=True, animations='disabled')
+                    prev_sig, prev_png = sig, png
                 done[0] += 1
                 if done[0] % 15 == 0:
                     progress(done[0] / max(n, 1))
@@ -132,14 +145,30 @@ def encode_prores4444(frames_dir, fps, out):
     return out
 
 
+def encode_png_mov(frames_dir, fps, out):
+    """The PNG frames muxed as-is into a QuickTime .mov (PNG codec, RGBA): no re-encode, so seconds instead of the
+    many minutes ProRes 4444 takes at 4K, and a far smaller file (overlays are mostly transparent). Premiere and Resolve
+    read PNG-in-MOV with its alpha."""
+    f = Fraction(str(fps)).limit_denominator(1001)
+    tmp = os.path.join(frames_dir, '_overlay.mov')               # mux on the Linux disk, then one sequential copy
+    core.run(['ffmpeg', '-v', 'error', '-y', '-framerate', f'{f.numerator}/{f.denominator}', '-i', os.path.join(frames_dir, '%06d.png'),
+              '-c:v', 'copy', '-f', 'mov', tmp])
+    shutil.move(tmp, out)
+    return out
+
+
+CODECS = {'png': (encode_png_mov, 'PNG in MOV (RGBA, alpha)'), 'prores': (encode_prores4444, 'ProRes 4444 (yuva444p10le)')}
+
+
 def _work_dir(name):
     d = os.path.join(core.CACHE, 'overlays', re.sub(r'[^A-Za-z0-9_.-]', '_', name))
     os.makedirs(d, exist_ok=True)
     return d
 
 
-def render_overlay(code, name, out_dir, ar='9x16', fps='30000/1001', start=0.0, end=None, progress=lambda *_: None):
-    """Build the HTML from the skill core + `code`, render it with alpha, encode ProRes 4444 into out_dir."""
+def render_overlay(code, name, out_dir, ar='9x16', fps='30000/1001', start=0.0, end=None, progress=lambda *_: None, codec='png'):
+    """Build the HTML from the skill core + `code`, render it with alpha, write a .mov with alpha into out_dir.
+    codec='png' (default: fast, small) or 'prores' (ProRes 4444, slow at 4K; for pipelines that require ProRes)."""
     out_dir = core.local_path(out_dir)
     os.makedirs(out_dir, exist_ok=True)
     src = os.path.join(out_dir, '_src', name)
@@ -150,15 +179,17 @@ def render_overlay(code, name, out_dir, ar='9x16', fps='30000/1001', start=0.0, 
         if not m:
             raise ValueError('code must set const DUR=<seconds>')
         dur = float(m.group(1))
-    frames = os.path.join(_work_dir(name), 'frames')          # on the Linux disk, not /tmp (tmpfs)
-    shutil.rmtree(frames, ignore_errors=True)
+    # on the Linux disk, not /tmp (tmpfs); one folder per run, so two renders of the same overlay never clobber each other
+    frames = os.path.join(_work_dir(name), f'frames-{os.getpid()}-{int(time.time() * 1000)}')
     n = render_frames(html, ar, fps, start, dur, frames, progress=progress)
     out = os.path.join(out_dir, f'{name}.mov')
-    encode_prores4444(frames, fps, out)
+    enc, label = CODECS.get(codec, CODECS['png'])
+    progress(0.99)
+    enc(frames, fps, out)
     shutil.rmtree(frames, ignore_errors=True)
     W, H = _size(ar)
     return {'overlay': core.nle_path(out), 'html': core.nle_path(html), 'frames': n, 'duration_s': round(dur - start, 3),
-            'size': f'{W}x{H}', 'fps': str(fps), 'alpha': 'ProRes 4444 (yuva444p10le)',
+            'size': f'{W}x{H}', 'fps': str(fps), 'alpha': label,
             'place_at': 'top video track, at the timeline time this overlay starts'}
 
 
@@ -211,15 +242,15 @@ def captions_srt(nle_xml, out_path, max_words=4, max_chars=24, fix=None, correct
 
 
 def caption_overlay(nle_xml, out_dir, ar='9x16', accent='#4ea1ff', uppercase=None, max_words=None, fix=None, progress=lambda *_: None,
-                    style='social', corrected=None, position='bottom'):
+                    style='social', corrected=None, position='bottom', codec='png'):
     """Captions over the whole edit in one of STYLES, with the approved grammar corrections, transparent background →
-    ProRes 4444 to lay on the top track at 0."""
+    alpha .mov to lay on the top track at 0."""
     tw = corrected_timeline_words(nle_xml, corrected, fix)
     W = tw['words']
     code = caption_code(W, style, accent, uppercase, max_words, position, max(tw['duration'], (W[-1]['e'] + 1) if W else 1))
     name = f'legendas_{style}_' + re.sub(r'[^A-Za-z0-9]+', '_', tw['timeline'] or 'timeline')[:40]
     fps = tw['fps']
-    r = render_overlay(code, name, out_dir, ar, fps, 0.0, None, progress)
+    r = render_overlay(code, name, out_dir, ar, fps, 0.0, None, progress, codec)
     r.update(words=len(W), timeline=tw['timeline'], style=style, corrections_applied=tw.get('corrections_applied', 0))
     return r
 

@@ -763,9 +763,11 @@ def motion_reference(topic: str = None) -> str:
 
 
 @mcp.tool()
-async def render_overlay(code: str, name: str, out_folder: str, ctx: Context, aspect: str = '9x16', fps: str = '30000/1001') -> dict:
+async def render_overlay(code: str, name: str, out_folder: str, ctx: Context, aspect: str = '9x16', fps: str = '30000/1001',
+                         codec: str = 'png') -> dict:
     """An overlay ASSET for the edit (lower third, title, animated callout, end card…) made with the motion-designer
-    skill's core on a TRANSPARENT background → ProRes 4444 .mov with alpha, ready to import and lay on the top video
+    skill's core on a TRANSPARENT background → .mov with alpha (codec='png': PNG in MOV, seconds and small — the
+    default; codec='prores': ProRes 4444, many minutes at 4K, only if the editor asks for ProRes), ready to import and lay on the top video
     track at the time it should appear. aspect: 9x16 · 16x9 · 1x1 · 4x5 or WxH (match the sequence). fps: the
     sequence rate. This is an asset for the timeline, not a render of the video.
     """
@@ -773,7 +775,7 @@ async def render_overlay(code: str, name: str, out_folder: str, ctx: Context, as
     from claudio import motion
     st = {'f': 0.0}
     loop = asyncio.get_running_loop()
-    task = loop.run_in_executor(None, lambda: motion.render_overlay(code, name, out_folder, aspect, fps, progress=lambda f: st.update(f=f)))
+    task = loop.run_in_executor(None, lambda: motion.render_overlay(code, name, out_folder, aspect, fps, progress=lambda f: st.update(f=f), codec=codec))
     while not task.done():
         try:
             await ctx.report_progress(st['f'] * 100, 100, f'renderizando overlay {name} {int(st["f"] * 100)}%')
@@ -812,10 +814,11 @@ def caption_style_preview(nle_xml: str, aspect: str = '9x16', accent: str = '#4e
 @mcp.tool()
 async def caption_overlay(nle_xml: str, out_folder: str, ctx: Context, style: str = 'social', aspect: str = '9x16',
                           accent: str = '#4ea1ff', corrected: dict = None, uppercase: bool = None, max_words: int = None,
-                          position: str = 'bottom', fix: dict = None) -> dict:
+                          position: str = 'bottom', fix: dict = None, codec: str = 'png') -> dict:
     """STEP 3 of captions: render the chosen style over the whole edit as it is NOW (export the sequence as FCP7 XML
     first), with the approved grammar corrections (`corrected` from caption_sentences, timings kept word by word) →
-    one transparent ProRes 4444 .mov the length of the edit, to lay on the top video track at 0.
+    one transparent .mov the length of the edit (PNG in MOV; codec='prores' for ProRes 4444), to lay on the top video
+    track at 0.
     style: social · bold · clean · karaoke · box · minimal. position: bottom · center · top. fix: spelling {"Enki": "INC"}."""
     import asyncio
     from claudio import motion
@@ -823,7 +826,7 @@ async def caption_overlay(nle_xml: str, out_folder: str, ctx: Context, style: st
     loop = asyncio.get_running_loop()
     task = loop.run_in_executor(None, lambda: motion.caption_overlay(nle_xml, out_folder, aspect, accent, uppercase, max_words, fix,
                                                                      progress=lambda f: st.update(f=f), style=style,
-                                                                     corrected=corrected, position=position))
+                                                                     corrected=corrected, position=position, codec=codec))
     while not task.done():
         try:
             await ctx.report_progress(st['f'] * 100, 100, f'renderizando legendas ({style}) {int(st["f"] * 100)}%')
