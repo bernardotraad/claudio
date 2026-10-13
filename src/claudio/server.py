@@ -231,12 +231,21 @@ async def index_folder(folder: str, ctx: Context, language: str = 'pt', vocabula
     next to each video and keeps _CLAUDIO.md updated with the progress. Shows live progress here for up to wait_minutes,
     then returns; index_status(folder) reports it any time later.
     vocabulary: names the transcript must get right — brand, people, places ("INC Empreendimentos, Juiz de Fora").
+    Spellings the editor fixed in captions are learned per folder and added here automatically; caption tools return
+    them as learned_vocabulary — offer to save them in the client profile (save_client_profile).
     4K long-GOP footage the GPU can't decode (e.g. Canon HEVC 4:2:2) is analysed from keyframes (~3× faster);
     proxies (Proxy/ or Proxies/) are used when present; links always point to the originals."""
     import asyncio, subprocess as sp
     from claudio import indexer
     root = core.local_path(folder)
     files = indexer.list_videos(root)
+    from claudio import motion
+    new_terms = motion.unapplied_vocabulary(root)  # spellings the editor fixed in captions, not yet applied here
+    if new_terms:
+        have = {x.strip().lower() for x in (vocabulary or '').split(',') if x.strip()}
+        extra = [t for t in motion.folder_vocabulary(root) if t.lower() not in have]
+        vocabulary = ', '.join(([vocabulary] if vocabulary else []) + extra)   # re-applied to stored words: no re-transcription
+        motion.mark_vocabulary_applied(root)
     pending = [f for f in files if not _is_indexed(f) or vocabulary]
     j = indexer.read_job(root)
     if pending and not (j and j.get('state') == 'running'):

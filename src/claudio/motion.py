@@ -253,7 +253,8 @@ def caption_overlay(nle_xml, out_dir, ar='9x16', accent='#4ea1ff', uppercase=Non
     name = f'legendas_{style}_' + re.sub(r'[^A-Za-z0-9]+', '_', tw['timeline'] or 'timeline')[:40]
     fps = tw['fps']
     r = render_overlay(code, name, out_dir, ar, fps, 0.0, None, progress, codec)
-    r.update(words=len(W), timeline=tw['timeline'], style=style, corrections_applied=tw.get('corrections_applied', 0))
+    r.update(words=len(W), timeline=tw['timeline'], style=style, corrections_applied=tw.get('corrections_applied', 0),
+             learned_vocabulary=tw.get('learned_vocabulary', []))
     return r
 
 
@@ -356,6 +357,78 @@ def _retime(orig, new_text):
     return out
 
 
+_TOK = re.compile(r"[\w'’-]+", re.U)
+
+
+def learned_terms(old, new):
+    """Spellings the editor fixed in a caption that the transcript should get right from now on: names, brands and
+    misheard words ("Frusciante", "Red Hot Chili Peppers", "blog" → "vlog"). Grammar fixes are not vocabulary:
+    an inflection of the same word (quantos → quanto, fiz → fizemos) or a case/punctuation change is skipped."""
+    import difflib
+    a, b = _TOK.findall(old), _TOK.findall(new)
+    out = []
+    for op, i1, i2, j1, j2 in difflib.SequenceMatcher(None, [x.lower() for x in a], [x.lower() for x in b]).get_opcodes():
+        if op not in ('replace', 'insert') or j2 - j1 > 4:
+            continue
+        old_s, new_s = ' '.join(a[i1:i2]), ' '.join(b[j1:j2])
+        if core.norm(old_s) == core.norm(new_s) or len(new_s) < 3:
+            continue
+        o, n = old_s.lower(), new_s.lower()
+        if ' ' not in o and ' ' not in n:
+            k = len(os.path.commonprefix([o, n]))
+            if k >= 2 and k >= min(len(o), len(n)) - 3:
+                continue                                    # same stem, another ending: an inflection, i.e. grammar
+        proper = any(w[:1].isupper() for w in b[j1:j2]) and j1 > 0
+        misheard = op == 'replace' and difflib.SequenceMatcher(None, o, n).ratio() >= 0.5
+        if not (proper or misheard):
+            continue
+        if proper:                                          # the whole name: the run of capitalised words around it
+            while j1 > 1 and b[j1 - 1][:1].isupper():
+                j1 -= 1
+            while j2 < len(b) and b[j2][:1].isupper():
+                j2 += 1
+            new_s = ' '.join(b[j1:j2])
+        out.append(new_s)
+    return list(dict.fromkeys(out))
+
+
+def _learn(clip_path, terms):
+    """Add terms to the folder's learned vocabulary (_claudio/vocabulary.json): index_folder applies it to every clip."""
+    if not terms:
+        return
+    p = os.path.join(core.data_dir(os.path.dirname(clip_path)), 'vocabulary.json')
+    v = json.load(open(p, encoding='utf-8')) if os.path.exists(p) else {'terms': []}
+    for t in terms:
+        if t.lower() not in {x.lower() for x in v['terms']}:
+            v['terms'].append(t)
+    json.dump(v, open(p, 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
+
+
+def _vocab_file(folder):
+    return os.path.join(core.data_dir(core.local_path(folder), create=False), 'vocabulary.json')
+
+
+def unapplied_vocabulary(folder):
+    p = _vocab_file(folder)
+    if not os.path.exists(p):
+        return []
+    v = json.load(open(p, encoding='utf-8'))
+    done = {x.lower() for x in v.get('applied', [])}
+    return [t for t in v.get('terms', []) if t.lower() not in done]
+
+
+def mark_vocabulary_applied(folder):
+    p = _vocab_file(folder)
+    v = json.load(open(p, encoding='utf-8'))
+    v['applied'] = list(v.get('terms', []))
+    json.dump(v, open(p, 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
+
+
+def folder_vocabulary(folder):
+    p = os.path.join(core.data_dir(core.local_path(folder), create=False), 'vocabulary.json')
+    return json.load(open(p, encoding='utf-8')).get('terms', []) if os.path.exists(p) else []
+
+
 def corrected_timeline_words(nle_xml, corrected=None, fix=None, remember=True):
     """Timeline words with the approved sentence corrections applied (and remembered per source clip)."""
     sent = caption_sentences(nle_xml)['sentences']
@@ -365,7 +438,7 @@ def corrected_timeline_words(nle_xml, corrected=None, fix=None, remember=True):
     for s in sent:                                  # corrections approved earlier for the same take come back by themselves
         if s['id'] not in corrected and s.get('remembered_correction'):
             corrected[s['id']] = s['remembered_correction']
-    out = []
+    out, learned = [], []
     for s in sent:
         span = [w for w in words if s['tl_s'] - 0.005 <= w['s'] <= s['tl_e'] + 0.005]
         new = corrected.get(s['id'])
@@ -377,12 +450,19 @@ def corrected_timeline_words(nle_xml, corrected=None, fix=None, remember=True):
                 if it['track'] == 'A1' and it['path'] and it['tl_in'] - 0.01 <= s['tl_s'] <= it['tl_out']:
                     st = _load_fixes(it['path']); st[core.norm(s['text'].replace(' ', ''))] = new.strip()
                     json.dump(st, open(_fix_store(it['path']), 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
+                    terms = learned_terms(s['text'], new)
+                    try:
+                        _learn(it['path'], terms)
+                    except OSError:
+                        pass
+                    learned += terms
                     break
     for w in out:
         for a, b in (fix or {}).items():
             w['w'] = re.sub(re.escape(a), b, w['w'], flags=re.I)
     out.sort(key=lambda w: w['s'])
-    return {**tw, 'words': out, 'corrections_applied': sum(1 for s in sent if corrected.get(s['id']) and corrected[s['id']].strip() != s['text'])}
+    return {**tw, 'words': out, 'corrections_applied': sum(1 for s in sent if corrected.get(s['id']) and corrected[s['id']].strip() != s['text']),
+            'learned_vocabulary': sorted(set(learned))}
 
 
 # ───────────────────────────── caption styles ─────────────────────────────
