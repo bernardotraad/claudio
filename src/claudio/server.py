@@ -665,6 +665,21 @@ def make_selects(out_xml: str, folder: str = None, paths: list[str] = None, incl
 
 
 @mcp.tool()
+def flatten_timeline(nle_xml: str, out_xml: str = None, name: str = None) -> dict:
+    """Clips straight on the timeline instead of nested sequences. Reads an FCP7 XML of the editor's sequence (Premiere
+    MCP export_as_fcp_xml) and writes a NEW sequence where every nested sequence is replaced by its own clips — each
+    trimmed to the part that is used and placed where it plays, keeping speed, effects, audio levels, labels and
+    links. The editor grades take by take under the adjustment layer without opening nests. Items with no media file
+    (adjustment layers, generated slugs) can't round-trip through XML: they are listed in `dropped` — tell the editor
+    to copy them from the old sequence onto the top track. Hand the editor the XML path (the panel shows the import
+    button); never import XML through the Premiere MCP."""
+    from claudio import nle_read
+    src = core.local_path(nle_xml)
+    out = core.local_path(out_xml) if out_xml else os.path.splitext(src)[0] + '_sem_aninhadas.xml'
+    return nle_read.flatten_fcp7(src, out, name)
+
+
+@mcp.tool()
 def compare_with_nle(project: str, nle_xml: str, version: int = None) -> dict:
     """Before changing anything: read the timeline AS IT IS NOW in the NLE (export it first — Premiere:
     export_as_fcp_xml; Resolve: export_timeline(file, 'FCP_7_XML')) and compare with the version Cláudio delivered:
@@ -1004,7 +1019,8 @@ marked "(Recomendado)" with a one-line reason). Skip what the request already an
    "fix" it; the user applies LUT/grade in the NLE. Judge focus, framing, action, expression instead.
 8. build_edit(project, edit) → fix every warning → edit_storyboard → LOOK: back-to-back same angle, soft shots, crops
    cutting heads, b-roll that does not match the words, dead air. Fix and rebuild.
-9. Put it in the NLE: export_edit → Premiere: hand the editor the .xml path to import (Ctrl+I) — never import_media on an .xml, it crashes Premiere · Resolve: import_timeline_from_file(xml) (or
+9. Put it in the NLE as ONE sequence with the clips straight on its tracks — never nest sequences (the editor grades
+   take by take; to join parts, build one edit or run flatten_timeline on the joined sequence): export_edit → Premiere: hand the editor the .xml path to import (Ctrl+I) — never import_media on an .xml, it crashes Premiere · Resolve: import_timeline_from_file(xml) (or
    nle_cut_list + insert tools). Tell the user in 3–5 lines what you built and why, and ask for notes.
 10. Each round of notes: export the CURRENT timeline from the NLE → compare_with_nle (what the editor changed + their
     marker notes) → adopt_nle_timeline (their changes become the base) → apply the notes → export_edit → import as a

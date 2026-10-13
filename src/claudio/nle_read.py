@@ -7,7 +7,7 @@
 A .prproj is gzip-compressed XML; objects reference each other by ObjectID / ObjectUID. We resolve
 TrackItem → SubClip → Clip (source in/out) and MasterClip (name). Nested sequences show up by their sequence name.
 """
-import gzip, os, statistics
+import copy, gzip, os, statistics
 import xml.etree.ElementTree as ET
 
 from claudio import core
@@ -144,40 +144,41 @@ def _path_from_url(u):
 
 def read_fcp7(xml_path):
     """Parse an FCP7 XML timeline (Premiere export_as_fcp_xml / Resolve export_timeline FCP_7_XML): clip items per
-    track with timeline/source frames and the media path, plus every marker (sequence and clip markers = notes)."""
-    root = ET.parse(core.local_path(xml_path)).getroot()
-    seq = root.find('.//sequence')
-    tb = int(seq.findtext('rate/timebase') or 30)
-    ntsc = (seq.findtext('rate/ntsc') or 'FALSE').upper() == 'TRUE'
-    fps = _Fr(tb * 1000, 1001) if ntsc else _Fr(tb)
+    track with timeline/source frames and the media path, plus every marker (sequence and clip markers = notes).
+    Nested sequences are read through (their clips, where they play), so captions and notes work on nested edits.
+    Source in/out use each clip's own rate (a 59.94 clip in a 23.976 sequence)."""
+    root, top, layers, ctx = flat_timeline(xml_path)
+    F0 = _rate(top)
+    fps = _Fr(round(F0 * 1001 / 1000) * 1000, 1001) if abs(F0 - round(F0)) > 1e-6 else _Fr(int(round(F0)))
     F = float(fps)
-    files = {}
-    for f in root.iter('file'):
-        if f.get('id') and f.findtext('pathurl'):
-            files[f.get('id')] = _path_from_url(f.findtext('pathurl'))
     items, markers = [], []
     for kind in ('video', 'audio'):
-        for ti, tr in enumerate(seq.findall(f'media/{kind}/track')):
-            for c in tr.findall('clipitem'):
+        n = 0
+        for tpl, its in layers.get(kind, []):
+            if not its:
+                continue
+            n += 1
+            tname = f'{kind[0].upper()}{n}'
+            for c, s, e in sorted(its, key=lambda x: x[1]):
                 fe = c.find('file')
-                path = files.get(fe.get('id')) if fe is not None else None
-                st, en = int(c.findtext('start') or -1), int(c.findtext('end') or -1)
+                path = _path_from_url(ctx['files'][fe.get('id')].findtext('pathurl'))
+                Fc = _rate(c)
                 fi, fo = int(c.findtext('in') or 0), int(c.findtext('out') or 0)
-                if st < 0 or en < 0:          # transitions report -1: skip
-                    continue
+                st, en = int(round(s * F)), int(round(e * F))
                 enabled = (c.findtext('enabled') or 'TRUE').upper() != 'FALSE'
-                items.append({'track': f'{kind[0].upper()}{ti + 1}', 'name': c.findtext('name'), 'path': path,
+                items.append({'track': tname, 'name': c.findtext('name'), 'path': path,
                               'tl_in_f': st, 'tl_out_f': en, 'src_in_f': fi, 'src_out_f': fo, 'enabled': enabled,
-                              'tl_in': st / F, 'tl_out': en / F, 'src_in': fi / F, 'src_out': fo / F})
+                              'tl_in': s, 'tl_out': e, 'src_in': fi / Fc, 'src_out': fo / Fc})
                 for m in c.findall('marker'):
                     mi = int(m.findtext('in') or 0)
-                    markers.append({'where': 'clip', 'track': f'{kind[0].upper()}{ti + 1}', 'clip': c.findtext('name'),
-                                    'tl': round((st + mi - fi) / F, 3), 'name': m.findtext('name'), 'comment': m.findtext('comment')})
-    for m in seq.findall('marker'):
+                    markers.append({'where': 'clip', 'track': tname, 'clip': c.findtext('name'),
+                                    'tl': round(s + (mi - fi) / Fc, 3), 'name': m.findtext('name'), 'comment': m.findtext('comment')})
+    for m in top.findall('marker'):
         mi = int(m.findtext('in') or 0)
         markers.append({'where': 'sequence', 'tl': round(mi / F, 3), 'name': m.findtext('name'), 'comment': m.findtext('comment')})
-    return {'name': seq.findtext('name'), 'fps': f'{fps.numerator}/{fps.denominator}', 'duration': round(int(seq.findtext('duration') or 0) / F, 3),
-            'items': items, 'markers': sorted(markers, key=lambda m: m['tl'])}
+    return {'name': top.findtext('name'), 'fps': f'{fps.numerator}/{fps.denominator}', 'duration': round(int(top.findtext('duration') or 0) / F, 3),
+            'items': items, 'markers': sorted(markers, key=lambda m: m['tl']), 'nested': sorted(n_ for _, n_ in ctx['nests']),
+            'not_read': ctx['dropped']}
 
 
 def diff_with_edit(tl, fit):
@@ -239,3 +240,156 @@ def edit_from_timeline(tl, base_fit):
         edit['music'] = {k: v for k, v in base_fit['music'].items() if k != 'used_end'}
     edit.update(name=(tl['name'] or 'timeline') + ' (do NLE)', cut_on='none', shots=shots, overlays=runs, adopted_from_nle=True)
     return edit
+
+
+# ───────────────────────────── nested sequences → clips straight on the timeline ─────────────────────────────
+TICKS = 254016000000            # Premiere ticks per second (pproTicksIn/Out)
+
+
+def _rate(el):
+    """fps of a sequence/clipitem from its <rate>."""
+    tb = int(el.findtext('rate/timebase') or 30)
+    return tb * 1000 / 1001 if (el.findtext('rate/ntsc') or 'FALSE').upper() == 'TRUE' else float(tb)
+
+
+def _blank_track(tr):
+    t = copy.deepcopy(tr)
+    for ch in list(t):
+        if ch.tag in ('clipitem', 'transitionitem', 'generatoritem'):
+            t.remove(ch)
+    return t
+
+
+def _expand(seq, lo, hi, shift, seqs, ctx, inst=''):
+    """Clip items of `seq` inside [lo, hi) (seconds of `seq`), moved by `shift` seconds, with every nested sequence
+    replaced by its own clips. Returns {kind: [layer, ...]}, a layer being (track template, [(clipitem copy, start s,
+    end s)]). One parent track that holds nests becomes as many tracks as the deepest nest needs."""
+    F = _rate(seq)
+    out = {}
+    for kind in ('video', 'audio'):
+        layers = []
+        for tr in seq.findall(f'media/{kind}/track'):
+            mine = [(_blank_track(tr), [])]
+            for c in tr.findall('clipitem'):
+                st, en = int(c.findtext('start') or -1), int(c.findtext('end') or -1)
+                if st < 0 or en <= st:
+                    continue
+                a, b = st / F, en / F
+                wa, wb = max(a, lo), min(b, hi)
+                if wb - wa <= 1e-6:
+                    continue
+                nest = c.find('sequence')
+                if nest is not None:
+                    sid = nest.get('id')
+                    inner = seqs.get(sid)
+                    if inner is None:
+                        ctx['dropped'].append(f'{c.findtext("name")} (sequência aninhada sem conteúdo no XML)')
+                        continue
+                    key = (inst, sid, st, en, c.findtext('in'))
+                    if kind == 'audio' and key in ctx['audio_done']:
+                        continue                      # the same nest on A1 and A2 is one stereo nest: expand once
+                    if kind == 'audio':
+                        ctx['audio_done'].add(key)
+                    ctx['nests'].add((sid, inner.findtext('name')))
+                    cin = int(c.findtext('in') or 0) / _rate(c)
+                    sub = _expand(inner, cin + (wa - a), cin + (wb - a), shift + (a - cin), seqs, ctx, inst=f'{inst}{sid}@{st}.')
+                    sl = sub.get(kind, [])
+                    while len(mine) < len(sl):
+                        mine.append((sl[len(mine)][0], []))
+                    for k, (tpl, its) in enumerate(sl):
+                        mine[k][1].extend(its)
+                    continue
+                fe = c.find('file')
+                fid = fe.get('id') if fe is not None else None
+                full = ctx['files'].get(fid)
+                if full is None or full.findtext('pathurl') is None:
+                    ctx['dropped'].append(f'{c.findtext("name")} ({kind}, {a + shift:.2f}–{b + shift:.2f} s: '
+                                          + ('gerado no Premiere, ex.: adjustment layer' if fid else 'sem mídia') + ')')
+                    continue
+                cc = copy.deepcopy(c)
+                i0, o0 = int(c.findtext('in') or 0), int(c.findtext('out') or 0)
+                fa, fb = (wa - a) / (b - a), (wb - a) / (b - a)
+                cc.find('in').text = str(int(round(i0 + fa * (o0 - i0))))
+                cc.find('out').text = str(int(round(i0 + fb * (o0 - i0))))
+                ti, to = cc.find('pproTicksIn'), cc.find('pproTicksOut')
+                if ti is not None and to is not None and ti.text and to.text:
+                    t0, t1 = int(ti.text), int(to.text)
+                    ti.text, to.text = str(int(round(t0 + fa * (t1 - t0)))), str(int(round(t0 + fb * (t1 - t0))))
+                if inst:                                    # ids stay unique when one nest is used twice
+                    cc.set('id', f'{c.get("id")}-{abs(hash(inst)) % 10 ** 8}')
+                    for lk in cc.findall('link/linkclipref'):
+                        lk.text = f'{lk.text}-{abs(hash(inst)) % 10 ** 8}'
+                mine[0][1].append((cc, wa + shift, wb + shift))
+            layers.extend(mine)
+        out[kind] = layers
+    return out
+
+
+def flat_timeline(xml_path):
+    """The top sequence of an FCP7 XML with every nested sequence expanded into its clips (any depth), each clip
+    trimmed to the part of the nest that is used and placed where it plays. Speed, effects, levels, labels and links
+    of each clip are kept. Items with no media file (adjustment layers, generated slugs) can't round-trip through XML
+    and are listed in `dropped`."""
+    root = ET.parse(core.local_path(xml_path)).getroot()
+    top = root.find('sequence') if root.find('sequence') is not None else root.find('.//sequence')
+    seqs = {s.get('id'): s for s in root.iter('sequence') if s.get('id') and s.find('media') is not None}
+    files = {}
+    for f in root.iter('file'):
+        if f.get('id') and (f.get('id') not in files or (files[f.get('id')].find('pathurl') is None and f.find('pathurl') is not None)):
+            if len(f) or f.get('id') not in files:
+                files[f.get('id')] = f
+    ctx = {'files': files, 'dropped': [], 'nests': set(), 'audio_done': set()}
+    dur = int(top.findtext('duration') or 0) / _rate(top)
+    layers = _expand(top, 0.0, max(dur, 1e9), 0.0, seqs, ctx)
+    return root, top, layers, ctx
+
+
+def flatten_fcp7(xml_path, out_path, name=None):
+    """Write a NEW sequence with the clips of every nested sequence straight on its tracks (see flat_timeline): the
+    editor can grade take by take under the adjustment layer without opening nests."""
+    root, top, layers, ctx = flat_timeline(xml_path)
+    F = _rate(top)
+    seq = copy.deepcopy(top)
+    seq.set('id', 'sequence-flat')
+    seq.find('name').text = name or f'{top.findtext("name")} (sem aninhadas)'
+    seen, ids = set(), set()
+    for kind in ('video', 'audio'):
+        holder = seq.find(f'media/{kind}')
+        if holder is None:
+            continue
+        for tr in holder.findall('track'):
+            holder.remove(tr)
+        for tpl, items in layers.get(kind, []):
+            if not items:
+                continue
+            t = copy.deepcopy(tpl)
+            for cc, s, e in sorted(items, key=lambda x: x[1]):
+                cc.find('start').text = str(int(round(s * F)))
+                cc.find('end').text = str(int(round(e * F)))
+                fe = cc.find('file')
+                fid = fe.get('id')
+                if fid not in seen:                          # the first use of a file carries its full description
+                    cc.remove(fe)
+                    full = copy.deepcopy(ctx['files'][fid])
+                    cc.insert(list(cc).index(cc.find('out')) + 1 if cc.find('pproTicksOut') is None
+                              else list(cc).index(cc.find('pproTicksOut')) + 1, full)
+                    seen.add(fid)
+                elif len(fe):
+                    for ch in list(fe):
+                        fe.remove(ch)
+                ids.add(cc.get('id'))
+                t.append(cc)
+            holder.append(t)
+    for c in seq.iter('clipitem'):                           # links to clips that were trimmed away
+        for lk in list(c.findall('link')):
+            if lk.findtext('linkclipref') not in ids:
+                c.remove(lk)
+    proj = ET.Element('xmeml', {'version': root.get('version', '4')})
+    proj.append(seq)
+    out_path = core.local_path(out_path)
+    ET.ElementTree(proj).write(out_path, encoding='UTF-8', xml_declaration=True)
+    n = {k: sum(len(its) for _, its in layers.get(k, [])) for k in ('video', 'audio')}
+    return {'path': out_path, 'nle_path': core.nle_path(out_path), 'sequence': seq.findtext('name'),
+            'nests_expanded': sorted(n_ for _, n_ in ctx['nests']), 'clips_video': n['video'], 'clips_audio': n['audio'],
+            'tracks_video': sum(1 for _, i in layers.get('video', []) if i), 'tracks_audio': sum(1 for _, i in layers.get('audio', []) if i),
+            'dropped': ctx['dropped']}
