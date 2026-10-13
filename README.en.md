@@ -357,7 +357,8 @@ Text you write in the `.md` files outside the `<!-- decupa:auto -->` markers is 
 - NVDEC can't decode HEVC/H.264 4:2:2. decupa then analyses keyframes only, or you can use proxies.
 - One frame rate per exported timeline (with mixed fps, make one timeline per fps).
 - In Premiere, **import the XMLs by hand** (File › Import / Ctrl+I). Importing an XML through the Premiere MCP's
-  `import_media` crashes Premiere; manual import works. decupa hands you the XML path and asks you to import it.
+  `import_media` crashes Premiere; manual import works. decupa hands you the XML path, and the panel shows an
+  **Importar no Premiere** button that saves the project and imports one XML at a time with Premiere's dialogs shown.
   Regular media (`.mov` overlays, `.wav`, `.srt`) can go through the MCP.
 - Take ranking is evidence, not a verdict. For performances, look at the winner and the runner-up.
 

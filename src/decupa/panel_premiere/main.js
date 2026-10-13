@@ -47,6 +47,30 @@ function add(cls, text) {
   return d;
 }
 
+// XML paths in Claude's answer get an "Importar no Premiere" button: one file per click, project saved first,
+// Premiere's own dialogs shown. (Importing XML through the Premiere MCP crashed Premiere.)
+const XML_RE = process.platform === 'win32' ? /[A-Za-z]:\\[^\n"`*<>|]*?\.xml\b/g : /\/[^\n"`*<>|]*?\.xml\b/g;
+function importButtons(d, text) {
+  const seen = new Set();
+  for (const m of text.match(XML_RE) || []) {
+    const p = m.trim();
+    if (seen.has(p) || !fs.existsSync(p)) continue;
+    seen.add(p);
+    const b = document.createElement('button');
+    b.className = 'import';
+    b.textContent = 'Importar no Premiere: ' + path.basename(p);
+    b.onclick = async () => {
+      b.disabled = true; b.textContent = 'salvando o projeto e importando ' + path.basename(p) + '…';
+      let r = {};
+      try { r = JSON.parse(await evalHost('decupaImportXml(' + JSON.stringify(p) + ')')); } catch (e) { r = { ok: false, error: String(e) }; }
+      b.textContent = r.ok ? `importado: ${path.basename(p)}` : `não importou ${path.basename(p)}: ${r.error || 'cancelado'}`;
+      if (!r.ok) b.disabled = false;
+    };
+    d.appendChild(document.createElement('br'));
+    d.appendChild(b);
+  }
+}
+
 function rawFolder() {
   // BRUTOS is the convention; other jobs use VIDEOS / RAW / FOOTAGE / MATERIAL
   const names = ['BRUTOS', 'VIDEOS', 'VÍDEOS', 'RAW', 'FOOTAGE', 'MATERIAL', 'CARTOES', 'CARTÕES'];
@@ -60,7 +84,7 @@ function rawFolder() {
 
 const QUICK = {
   index: () => `Analise o material bruto deste trabalho: index_folder na pasta "${rawFolder()}" (mostre o progresso). Se houver perfil do cliente (client_profile), use o vocabulário dele. No fim, me diga em 4–6 linhas o que tem no material.`,
-  selects: () => `Faça as selects deste trabalho com make_selects (pasta "${rawFolder()}", XML em "${path.join(jobFolder(), '#projeto', 'decupa_selects.xml')}") e me passe o caminho do XML para eu importar (Ctrl+I) — não importe XML pelo MCP do Premiere. Depois me resuma as escolhas.`,
+  selects: () => `Faça as selects deste trabalho com make_selects (pasta "${rawFolder()}", XML em "${path.join(jobFolder(), '#projeto', 'decupa_selects.xml')}") e escreva o caminho completo do XML (o painel mostra o botão de importar) — não importe XML pelo MCP do Premiere. Depois me resuma as escolhas.`,
   notes: () => `Exporte a sequência ativa ("${ctx.sequence || ''}") como FCP XML com o MCP do Premiere, rode compare_with_nle contra a última versão do projeto decupa deste trabalho, e me mostre o que eu mudei e as notas (marcadores) que deixei. Não aplique nada ainda: proponha e espere meu ok.`,
   qc: () => `Faça o QC da sequência ativa ("${ctx.sequence || ''}", ${ctx.frame_size || ''}) antes de eu exportar: exporte como FCP XML com o MCP do Premiere e rode qc_timeline. Liste os problemas e pergunte se quero que você marque cada um como marcador na timeline.`,
   status: () => `Rode index_status e me diga o progresso em uma linha.`,
@@ -71,7 +95,7 @@ const QUICK = {
 
 function contextBlock() {
   const sel = (ctx.selection || []).map((s) => `  - ${s.name} (${s.track_type}) timeline ${(+s.start_s).toFixed(2)}–${(+s.end_s).toFixed(2)}s, fonte ${(+s.in_s).toFixed(2)}–${(+s.out_s).toFixed(2)}s${s.media ? ' · ' + s.media : ''}`).join('\n');
-  return `[Contexto do Premiere — painel decupa]\nPasta do trabalho: ${jobFolder()}\nProjeto: ${ctx.project || '-'}\nSequência ativa: ${ctx.sequence || '-'} (${ctx.frame_size || '-'})\nPlayhead: ${ctx.playhead_s != null ? (+ctx.playhead_s).toFixed(2) + 's' : '-'}\n${sel ? 'Clipes selecionados:\n' + sel : 'Nenhum clipe selecionado.'}\nRegras: o editor está no controle — proponha antes de mudar; nunca sobrescreva a sequência dele (crie uma nova); só renderize se ele pedir. XML (.xml) nunca vai pelo import_media do Premiere (derruba o Premiere): entregue o caminho e peça para ele importar com Ctrl+I; mídia comum (.mov/.wav/.srt) pode ir pelo import_media. Memória: este chat é separado das outras sessões; o que importar para depois vai para o vault (conector Vault) e para os arquivos do decupa no disco — ofereça registrar no vault quando houver decisões.\n\n`;
+  return `[Contexto do Premiere — painel decupa]\nPasta do trabalho: ${jobFolder()}\nProjeto: ${ctx.project || '-'}\nSequência ativa: ${ctx.sequence || '-'} (${ctx.frame_size || '-'})\nPlayhead: ${ctx.playhead_s != null ? (+ctx.playhead_s).toFixed(2) + 's' : '-'}\n${sel ? 'Clipes selecionados:\n' + sel : 'Nenhum clipe selecionado.'}\nRegras: o editor está no controle — proponha antes de mudar; nunca sobrescreva a sequência dele (crie uma nova); só renderize se ele pedir. XML (.xml) nunca vai pelo import_media do Premiere (derruba o Premiere): escreva o caminho completo do XML na resposta — o painel mostra um botão \"Importar no Premiere\" — ou ele importa com Ctrl+I; mídia comum (.mov/.wav/.srt) pode ir pelo import_media. Memória: este chat é separado das outras sessões; o que importar para depois vai para o vault (conector Vault) e para os arquivos do decupa no disco — ofereça registrar no vault quando houver decisões.\n\n`;
 }
 
 async function send(text) {
@@ -102,7 +126,7 @@ async function send(text) {
       if (ev.type === 'system' && ev.session_id) localStorage.setItem(sessionKey, ev.session_id);
       if (ev.type === 'assistant' && ev.message && ev.message.content) {
         for (const b of ev.message.content) {
-          if (b.type === 'text' && b.text.trim()) { cur = add('claude', b.text); $('#status').textContent = ''; }
+          if (b.type === 'text' && b.text.trim()) { cur = add('claude', b.text); importButtons(cur, b.text); $('#status').textContent = ''; }
           if (b.type === 'tool_use') {
             const name = b.name.replace(/^mcp__/, '').replace('__', ' › ');
             add('tool', name);

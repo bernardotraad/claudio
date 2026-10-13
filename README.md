@@ -358,7 +358,8 @@ O que você escrever nos `.md` fora dos marcadores `<!-- decupa:auto -->` nunca 
 - A NVDEC não decodifica HEVC/H.264 4:2:2. Nesses casos o decupa analisa só os keyframes, ou você pode usar proxies.
 - Uma taxa de quadros por timeline exportada (com fps misturado, gere uma timeline por fps).
 - No Premiere, **importe os XMLs à mão** (Arquivo › Importar / Ctrl+I). Importar XML pelo `import_media` do MCP do Premiere
-  derruba o Premiere; a importação manual funciona. O decupa entrega o caminho do XML e pede para você importar.
+  derruba o Premiere; a importação manual funciona. O decupa entrega o caminho do XML, e no painel aparece
+  o botão **Importar no Premiere**, que salva o projeto e importa um XML por vez com as janelas do Premiere visíveis.
   Mídia comum (overlays `.mov`, `.wav`, `.srt`) pode ir pelo MCP.
 - O ranking de takes é evidência, não veredito. Em atuação, olhe o vencedor e o segundo colocado.
 
