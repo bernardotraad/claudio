@@ -45,6 +45,11 @@ def test_render_in_hash_folder(tmp_path, skill):
                                       '-of', 'json', str(mov)], capture_output=True, text=True).stdout)['streams'][0]
     assert info['codec_name'] == 'png' and info['pix_fmt'] == 'rgba' and int(info['nb_frames']) == 96
     assert mov.stat().st_size < 3_000_000          # three distinct pictures, the rest are repeats
+    import struct
+    b = mov.read_bytes()
+    e = b.find(b'stsd') + 12
+    depth = struct.unpack('>H', b[e + 8 + 6 + 2 + 16 + 4 + 4 + 4 + 4 + 2 + 32:][:2])[0]
+    assert b[e + 4:e + 8] == b'png ' and depth == 32   # 24 makes Premiere ignore the alpha (black background)
 
 
 def test_codecs_listed():

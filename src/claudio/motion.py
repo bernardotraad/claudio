@@ -155,8 +155,30 @@ def encode_png_mov(frames_dir, fps, out):
     tmp = os.path.join(frames_dir, '_overlay.mov')               # mux on the Linux disk, then one sequential copy
     core.run(['ffmpeg', '-v', 'error', '-y', '-framerate', f'{f.numerator}/{f.denominator}', '-i', os.path.join(frames_dir, '%06d.png'),
               '-c:v', 'copy', '-f', 'mov', tmp])
+    mark_alpha(tmp)
     shutil.move(tmp, out)
     return out
+
+
+def mark_alpha(mov):
+    """Stream-copied PNG frames are muxed with a sample depth of 24, which tells Premiere "no alpha" — the overlay
+    shows on black. Set the depth of every PNG sample description to 32 (what a PNG re-encode writes). In place, instant.
+    Returns how many entries were changed."""
+    import struct
+    with open(mov, 'r+b') as fh:
+        data = fh.read()
+        n, i = 0, data.find(b'stsd')
+        while i >= 0:
+            count = struct.unpack('>I', data[i + 8:i + 12])[0]
+            e = i + 12
+            for _ in range(count):
+                size, kind = struct.unpack('>I', data[e:e + 4])[0], data[e + 4:e + 8]
+                depth_at = e + 8 + 6 + 2 + 16 + 4 + 4 + 4 + 4 + 2 + 32     # entry header, then the video sample fields
+                if kind == b'png ' and data[depth_at:depth_at + 2] != b'\x00\x20':
+                    fh.seek(depth_at); fh.write(b'\x00\x20'); n += 1
+                e += size
+            i = data.find(b'stsd', i + 4)
+    return n
 
 
 CODECS = {'png': (encode_png_mov, 'PNG in MOV (RGBA, alpha)'), 'prores': (encode_prores4444, 'ProRes 4444 (yuva444p10le)')}
