@@ -838,11 +838,18 @@ def qc_timeline(nle_xml: str, platform: str = None, sequence_width: int = None, 
     """Check the timeline AS IT IS in the NLE before the editor exports (export it first — Premiere export_as_fcp_xml,
     Resolve export_timeline FCP_7_XML). Reports only: flash frames, black gaps, overlaps, offline media, disabled
     clips, clips past their media, same take twice, jump cuts, speech level jumps, clipped source audio, and
-    size/duration vs platform (reels · tiktok · shorts · feed · youtube · youtube4k). Offer to drop each issue as a
-    marker in the NLE; the editor decides what to fix."""
+    size/duration vs platform (reels · tiktok · shorts · feed · youtube · youtube4k) — plus the AUDIO of the mix:
+    loudness (LUFS) vs the platform target (−14 social/YouTube, −23 tv, −16 podcast), true peak, and music too loud
+    under speech (`ducking`: where and how many dB to lower the music). Offer to drop each issue as a marker in the
+    NLE; the editor decides what to fix."""
     from claudio import qc
     size = (sequence_width, sequence_height) if sequence_width and sequence_height else None
-    return qc.qc_timeline(nle_xml, platform, size)
+    r = qc.qc_timeline(nle_xml, platform, size)
+    try:
+        r['audio'] = qc.audio_qc(nle_xml, platform)
+    except Exception as e:
+        r['audio'] = {'error': str(e)}
+    return r
 
 
 # ───────────────────────────── project overview · motion-designer on top of the edit ─────────────────────────────

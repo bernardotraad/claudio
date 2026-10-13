@@ -127,3 +127,114 @@ def qc_timeline(nle_xml, platform=None, seq_size=None):
             'summary': {'erros': sum(x['severity'] == 'erro' for x in issues), 'avisos': sum(x['severity'] == 'aviso' for x in issues)},
             'issues': issues,
             'markers_hint': 'add each issue as a marker in the NLE (Premiere add_marker / Resolve add_marker) so the editor sees it in place'}
+
+
+# ───────────────────────────── loudness of the mix + music ducking ─────────────────────────────
+TARGETS = {'reels': -14, 'tiktok': -14, 'shorts': -14, 'feed': -14, 'youtube': -14, 'youtube4k': -14, 'tv': -23, 'podcast': -16}
+MSR_MIX = 16000
+
+
+def _clip_audio(path, s, e):
+    """Mono 16 kHz samples of a source range: the index's a16.pcm when there is one (no re-reading 4K camera files),
+    else decoded (music files, recorders)."""
+    import subprocess
+    lp = core.local_path(path)
+    pcm = os.path.join(core.cache_dir(lp), 'a16.pcm')
+    if os.path.exists(pcm):
+        x = np.memmap(pcm, np.int16, 'r')
+        return np.asarray(x[int(s * MSR_MIX):int(e * MSR_MIX)], np.float32) / 32768.0
+    raw = subprocess.run(['ffmpeg', '-v', 'error', '-ss', f'{s:.3f}', '-t', f'{e - s:.3f}', '-i', lp, '-vn', '-ac', '1',
+                          '-ar', str(MSR_MIX), '-f', 's16le', '-'], capture_output=True).stdout
+    return np.frombuffer(raw, np.int16).astype(np.float32) / 32768.0
+
+
+def mix_audio(tl):
+    """The timeline's audio mixed to mono 16 kHz from its clips (each stereo pair counted once, Audio Levels applied).
+    Returns (mix, stems) with stems = {'speech': …, 'music': …} split by whether a clip has transcribed speech."""
+    dur = max([i['tl_out'] for i in tl['items']] + [tl['duration']])
+    n = int(dur * MSR_MIX) + 1
+    mix, speech, music = np.zeros(n, np.float32), np.zeros(n, np.float32), np.zeros(n, np.float32)
+    seen = set()
+    for it in tl['items']:
+        if not it['track'].startswith('A') or not it['enabled'] or not it['path'] or not os.path.exists(it['path']):
+            continue
+        key = (it['path'], round(it['tl_in'], 2), round(it['src_in'], 2))
+        if key in seen:                       # A1/A2 = left/right of the same clip
+            continue
+        seen.add(key)
+        x = _clip_audio(it['path'], it['src_in'], it['src_out']) * float(it.get('gain', 1.0))
+        a = int(it['tl_in'] * MSR_MIX)
+        x = x[:max(0, min(len(x), n - a, int((it['tl_out'] - it['tl_in']) * MSR_MIX)))]
+        mix[a:a + len(x)] += x
+        has_words = os.path.exists(os.path.join(core.cache_dir(core.local_path(it['path'])), 'words.json'))
+        (speech if has_words and os.path.splitext(it['path'])[1].lower() in core.VIDEO_EXT else music)[a:a + len(x)] += x
+    return mix, {'speech': speech, 'music': music}
+
+
+def loudness(x):
+    """Integrated loudness (LUFS), loudness range and true peak of mono samples, by ffmpeg's ebur128."""
+    import re, subprocess, tempfile
+    with tempfile.NamedTemporaryFile(suffix='.f32', dir=core.CACHE) as f:
+        np.asarray(x, np.float32).tofile(f.name)
+        # measured as dual mono (the same signal on L and R, as the export plays it): +3 dB vs reading it as mono
+        r = subprocess.run(['ffmpeg', '-v', 'info', '-nostats', '-f', 'f32le', '-ar', str(MSR_MIX), '-ac', '1', '-i', f.name,
+                            '-af', 'pan=stereo|c0=c0|c1=c0,ebur128=peak=true', '-f', 'null', '-'], capture_output=True, text=True).stderr
+    summ = r[r.rfind('Summary:'):]
+    g = lambda k: float(re.search(rf'{k}:\s+(-?[\d.]+|-inf)', summ).group(1).replace('-inf', '-99')) if re.search(rf'{k}:\s+(-?[\d.]+|-inf)', summ) else None
+    return {'lufs': g('I'), 'lra': g('LRA'), 'true_peak_db': g('Peak')}
+
+
+def _windows_db(x, win=0.4):
+    k = int(win * MSR_MIX)
+    m = len(x) // k
+    return 20 * np.log10(np.sqrt((x[:m * k].reshape(m, k) ** 2).mean(1)) + 1e-9)
+
+
+def ducking(stems, fps, min_gap_db=10.0):
+    """Stretches where music plays under speech without being at least `min_gap_db` below it: start/end, how loud each
+    is and how much to lower the music (keyframe it on the music track)."""
+    sp, mu = _windows_db(stems['speech']), _windows_db(stems['music'])
+    out, cur = [], None
+    for i, (a, b) in enumerate(zip(sp, mu)):
+        bad = a > -40 and b > -50 and b > a - min_gap_db
+        t = i * 0.4
+        if bad:
+            if cur and t - cur['end'] <= 0.8:
+                cur['end'] = t + 0.4; cur['sp'].append(a); cur['mu'].append(b)
+            else:
+                cur = {'start': t, 'end': t + 0.4, 'sp': [a], 'mu': [b]}
+                out.append(cur)
+    res = []
+    for c in out:
+        if c['end'] - c['start'] < 1.2:
+            continue
+        s, m = float(np.median(c['sp'])), float(np.median(c['mu']))
+        res.append({'start': round(c['start'], 2), 'end': round(c['end'], 2), 'tc': _tc(c['start'], fps),
+                    'speech_db': round(s, 1), 'music_db': round(m, 1), 'lower_music_by_db': round(m - (s - min_gap_db - 2), 1)})
+    return res
+
+
+def audio_qc(nle_xml, platform=None):
+    """Loudness of the whole mix vs the platform target, true peak, and music-under-speech ducking suggestions.
+    Built from the clips' indexed audio with the timeline's Audio Levels: an estimate of the export, before track
+    effects / bus processing."""
+    from claudio import nle_read
+    tl = nle_read.read_fcp7(nle_xml)
+    fps = Fraction(tl['fps'])
+    mix, stems = mix_audio(tl)
+    L = loudness(mix)
+    target = TARGETS.get(platform or 'youtube', -14)
+    notes = []
+    if L['lufs'] is not None:
+        d = round(L['lufs'] - target, 1)
+        if abs(d) > 1.0:
+            notes.append(f"loudness {L['lufs']} LUFS, alvo {target}: {'abaixe' if d > 0 else 'suba'} ~{abs(d)} dB no master (ou normalize no export)")
+    if L['true_peak_db'] is not None and L['true_peak_db'] > -1.0:
+        notes.append(f"true peak {L['true_peak_db']} dBTP: acima de −1 dBTP, use um limiter no master")
+    duck = ducking(stems, fps) if stems['music'].any() and stems['speech'].any() else []
+    if duck:
+        notes.append(f"{len(duck)} trecho(s) com música alta demais por baixo da fala: abaixe a música nos tempos de `ducking`")
+    return {'platform_target_lufs': target, **L, 'ducking': duck, 'notes': notes,
+            'estimate': 'mix rebuilt from the indexed clip audio (16 kHz mono, measured as dual mono) with the timeline '
+                        'Audio Levels; accurate to about ±3 dB (stereo width of the camera mics is lost); track/master '
+                        'effects are not included'}

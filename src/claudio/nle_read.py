@@ -142,6 +142,23 @@ def _path_from_url(u):
     return core.local_path(u)
 
 
+def _gain(c):
+    """Linear gain of a clip's Audio Levels (Premiere); keyframed levels → their mean. 1.0 when there is none."""
+    g = 1.0
+    for f in c.findall('filter'):
+        if f.findtext('effect/name') != 'Audio Levels':
+            continue
+        for par in f.iter('parameter'):
+            if par.findtext('parameterid') != 'level':
+                continue
+            ks = [float(k.findtext('value')) for k in par.findall('keyframe') if k.findtext('value')]
+            if ks:
+                g *= sum(ks) / len(ks)
+            elif par.findtext('value'):
+                g *= float(par.findtext('value'))
+    return g
+
+
 def read_fcp7(xml_path):
     """Parse an FCP7 XML timeline (Premiere export_as_fcp_xml / Resolve export_timeline FCP_7_XML): clip items per
     track with timeline/source frames and the media path, plus every marker (sequence and clip markers = notes).
@@ -168,7 +185,8 @@ def read_fcp7(xml_path):
                 enabled = (c.findtext('enabled') or 'TRUE').upper() != 'FALSE'
                 items.append({'track': tname, 'name': c.findtext('name'), 'path': path,
                               'tl_in_f': st, 'tl_out_f': en, 'src_in_f': fi, 'src_out_f': fo, 'enabled': enabled,
-                              'tl_in': s, 'tl_out': e, 'src_in': fi / Fc, 'src_out': fo / Fc})
+                              'tl_in': s, 'tl_out': e, 'src_in': fi / Fc, 'src_out': fo / Fc,
+                              **({'gain': _gain(c), 'channel': int(c.findtext('sourcetrack/trackindex') or 1)} if kind == 'audio' else {})})
                 for m in c.findall('marker'):
                     mi = int(m.findtext('in') or 0)
                     markers.append({'where': 'clip', 'track': tname, 'clip': c.findtext('name'),
