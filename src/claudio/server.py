@@ -1107,13 +1107,17 @@ marked "(Recomendado)" with a one-line reason). Skip what the request already an
    "Você decide" → finish the logging first, then propose 3 ideas grounded in what the footage holds.
 4. SETTINGS (one call): Format (9:16 · 16:9 · 4:5 · 1:1) · Duration (15 · 30 · 60 · 90+ s) · Captions (yes, social
    style · discreet · no — captions may be better made in the NLE) · Which NLE (Premiere · Resolve).
-5. MUSIC FIRST: user's track · one from the folder · no music (direct sound / the show itself). music_map → one line:
+5. MUSIC FIRST: user's track · one from the folder · a licensed track from Storyblocks · no music (direct sound / the
+   show itself). For Storyblocks (when its connector is available): search_audio by the mood/genre/BPM the editor gave,
+   show 3–5 options (title, BPM, duration, link), and only after they pick one get_download_url — they download it into
+   the job's music folder; never claim a track is licensed for a use you didn't check. music_map → one line:
    BPM (+ half-time reading), sections, drop, silences. music_windows(duration) → offer the 2–3 best stretches.
 6. PACE & SOUND (one call): pace (follow the music · calm · medium · fast) · cuts on beat or bar · original sound
    (speech in front, music ducked · low ambience · music only) · opening/closing (hook in 3 s, end card file, CTA).
 6a. OVERVIEW (after everything is indexed): project_digest → understand what the project is → save_project_overview
    (<job>/_VISAO_GERAL.md) → tell the user in 4–6 lines → ask: approximate final duration; soundtrack (a specific
-   track, or a mood/genre) → propose 2–4 concrete directions grounded in the material; they pick one or explain theirs.
+   track, or a mood/genre — with a mood and no track, offer Storyblocks options as in step 5) → propose 2–4 concrete
+   directions grounded in the material; they pick one or explain theirs.
 6b. SELECTS first (the editor checks your logging in the NLE before any cut): make_selects → import → ask if the
    choices of takes / b-roll look right.
 7. LOGGING with your eyes: scenes / takes (best take — usually the last complete one; a take the speaker criticised is

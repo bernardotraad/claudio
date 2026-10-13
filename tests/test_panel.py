@@ -43,6 +43,7 @@ def page(tmp_path_factory):
         pg.on('pageerror', lambda e: errs.append(str(e)))
         pg.goto((d / 'index.html').as_uri())
         pg.wait_for_timeout(400)
+        pg.evaluate("""()=>showImage('image/png','iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=')""")
         pg.evaluate("""(r)=>{for(let k=0;k<3;k++){add('user','Multicam do show, por favor. O Zoom tá na pasta AUDIO.',false);
             add('tool','claudio › library',false);add('tool','claudio › index_status',false);add('claude',r,false);}}""", REPLY)
         pg.wait_for_timeout(200)
@@ -59,7 +60,7 @@ def test_no_js_errors(page):
 def test_reply_html_is_escaped(page):
     pg, _ = page
     assert pg.evaluate('window.HACKED') is None
-    assert pg.evaluate("document.querySelectorAll('#log script, #log img').length") == 0
+    assert pg.evaluate("document.querySelectorAll('#log script, #log .msg:not(.shot) img').length") == 0
     assert pg.evaluate("document.querySelectorAll('#log table').length") == 3
 
 
@@ -86,3 +87,9 @@ def test_change_detector(page):
       const over={tracks:[b.tracks[0],{track:'V2',clips:[{name:'legenda.mov',start:0,end:250,in:0,out:250},{name:'Adjustment Layer',start:250,end:564,in:250,out:564}]}]};
       return [changedClips(b,newTrack).length, changedClips(b,over)]}""")
     assert r[0] == 0 and len(r[1]) == 1 and 'Adjustment Layer' in r[1][0]
+
+
+@needs_browser
+def test_tool_images_shown(page):
+    pg, _ = page
+    assert pg.evaluate("document.querySelectorAll('#log .msg.shot img').length") == 1

@@ -264,6 +264,27 @@ function contextBlock() {
   return warn + `[Contexto do Premiere — painel Cláudio, o Editor]\nPasta do trabalho: ${jobFolder()}\nProjeto: ${ctx.project || '-'}\nSequência ativa: ${ctx.sequence || '-'} (${ctx.frame_size || '-'})\nPlayhead: ${ctx.playhead_s != null ? (+ctx.playhead_s).toFixed(2) + 's' : '-'}\n${sel ? 'Clipes selecionados:\n' + sel : 'Nenhum clipe selecionado.'}\nRegras: o editor está no controle — proponha antes de mudar; nunca sobrescreva a sequência dele (crie uma nova); só renderize se ele pedir. Nunca aninhe sequências: os clipes montados vão direto nas trilhas de UMA sequência (o editor corrige a cor take a take); para juntar partes, monte uma sequência só ou rode flatten_timeline. Overlays, legendas e qualquer mídia nova entram SEMPRE numa trilha NOVA acima de todas as que têm clipes: nunca use overwrite/insert numa trilha ocupada (adjustment layer, títulos, b-roll) — liste as trilhas antes e, se não tiver certeza, pergunte. XML (.xml) nunca vai pelo import_media do Premiere (derruba o Premiere): escreva o caminho completo do XML na resposta — o painel mostra um botão \"Importar no Premiere\" — ou ele importa com Ctrl+I; mídia comum (.mov/.wav/.srt) pode ir pelo import_media. Memória: este chat é separado das outras sessões; o que importar para depois vai para o vault (conector Vault) e para os arquivos do claudio no disco — ofereça registrar no vault quando houver decisões.\n\n`;
 }
 
+// a running tool shows its name and a clock, so a long render never looks frozen
+let toolTimer = null;
+function toolStart(name) {
+  clearInterval(toolTimer); toolTimer = null;
+  if (!name) { if (child) $('#status').textContent = 'pensando…'; return; }
+  const t0 = Date.now();
+  const tick = () => { const s = Math.round((Date.now() - t0) / 1000); $('#status').textContent = `usando ${name}… ${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
+  tick(); toolTimer = setInterval(tick, 1000);
+}
+function showImage(type, data) {
+  const d = document.createElement('div');
+  d.className = 'msg shot';
+  const im = document.createElement('img');
+  im.src = `data:${type};base64,${data}`;
+  im.title = 'clique para ampliar';
+  im.onclick = () => d.classList.toggle('big');
+  d.appendChild(im);
+  log.appendChild(d);
+  log.scrollTop = log.scrollHeight;
+}
+
 async function send(text) {
   if (!text.trim() || child) return;
   await readContext();
@@ -272,7 +293,7 @@ async function send(text) {
   const bk = before ? await backup(before) : null;
   const sid = localStorage.getItem(sessionKey);
   const args = ['-p', contextBlock() + text, '--output-format', 'stream-json', '--verbose',
-                '--allowedTools', 'mcp__claudio,mcp__premiere-pro,mcp__davinci-resolve,mcp__claude_ai_Vault,Read,Glob,Grep',
+                '--allowedTools', 'mcp__claudio,mcp__premiere-pro,mcp__davinci-resolve,mcp__claude_ai_Vault,mcp__claude_ai_Storyblocks,Read,Glob,Grep',
                 // allowedTools only pre-approves; this BLOCKS shell and file edits from the panel
                 '--disallowedTools', 'Bash,PowerShell,Edit,Write,NotebookEdit'];
   if (sid) args.push('--resume', sid);
@@ -298,7 +319,17 @@ async function send(text) {
           if (b.type === 'tool_use') {
             const name = b.name.replace(/^mcp__/, '').replace('__', ' › ');
             add('tool', name);
-            $('#status').textContent = 'usando ' + name + '…';
+            toolStart(name);
+          }
+        }
+      }
+      // what Claude LOOKED at (contact sheets, frames, people board, find_shot): shown in the chat, not saved
+      if (ev.type === 'user' && ev.message && Array.isArray(ev.message.content)) {
+        toolStart(null);
+        for (const r of ev.message.content) {
+          if (r.type !== 'tool_result' || !Array.isArray(r.content)) continue;
+          for (const c of r.content) {
+            if (c.type === 'image' && c.source && c.source.data) showImage(c.source.media_type || 'image/jpeg', c.source.data);
           }
         }
       }
@@ -311,7 +342,7 @@ async function send(text) {
   });
   child.stderr.on('data', (d) => { const t = d.toString().trim(); if (t) $('#status').textContent = t.slice(-160); });
   child.on('close', (code) => {
-    child = null; $('#send').disabled = false; $('#stop').disabled = true; document.body.classList.remove('busy');
+    child = null; $('#send').disabled = false; $('#stop').disabled = true; document.body.classList.remove('busy'); toolStart(null);
     if (code && code !== 0) add('claude err', `O Claude Code terminou com código ${code}. Ele está instalado e logado no Windows? (${claudeExe()})`);
     $('#status').textContent = '';
     readContext();
