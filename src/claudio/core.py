@@ -365,11 +365,33 @@ def heavy_codec(path):
     return j.get('codec_name') in ('hevc', 'h264') and ((j.get('width') or 0) >= 3000 or '10' in pf or '422' in pf)
 
 
+THUMB_STEP, THUMB_W = 2.0, 256       # colour thumbnails kept from the same decode, for visual search (claudio.visual)
+
+
+def thumb_size(info):
+    return THUMB_W, max(2, int(round(THUMB_W * info['height'] / info['width'] / 2)) * 2)
+
+
+def load_thumbs(d, info):
+    """(times, images) saved by the picture analysis, or None for indexes made before v0.8."""
+    p = os.path.join(d, 'thumbs.rgb')
+    if not os.path.exists(p) or not info.get('width'):
+        return None
+    w, h = thumb_size(info)
+    a = np.fromfile(p, np.uint8)
+    n = len(a) // (w * h * 3)
+    a = a[:n * w * h * 3].reshape(n, h, w, 3)
+    return [k * THUMB_STEP for k in range(n)], [Image.fromarray(x) for x in a]
+
+
 def _analyze_keyframes(path, d, info, qw, qh, progress):
     qf = 2
     qraw = os.path.join(d, 'q.gray')
-    run(['ffmpeg', '-y', '-loglevel', 'error', '-skip_frame', 'nokey', *(['-hwaccel', 'videotoolbox'] if IS_MAC else []), '-i', path, '-vf',
-         f'fps={qf},scale={qw}:{qh}:flags=area,format=gray', '-f', 'rawvideo', qraw])
+    tw_, th_ = thumb_size(info)
+    run(['ffmpeg', '-y', '-loglevel', 'error', '-skip_frame', 'nokey', *(['-hwaccel', 'videotoolbox'] if IS_MAC else []), '-i', path,
+         '-filter_complex', f'[0:v:0]split=2[a][b];[a]fps={qf},scale={qw}:{qh}:flags=area,format=gray[q];'
+         f'[b]fps=1/{THUMB_STEP}:round=near,scale={tw_}:{th_}:flags=area,format=rgb24[c]',
+         '-map', '[q]', '-f', 'rawvideo', qraw, '-map', '[c]', '-f', 'rawvideo', os.path.join(d, 'thumbs.rgb')])
     progress('picture', 0.9)
     q = np.fromfile(qraw, np.uint8)
     q = q[:len(q) // (qw * qh) * qw * qh].reshape(-1, qh, qw).astype(np.float32)
@@ -395,20 +417,22 @@ def analyze_picture(path, d, info, progress=lambda *_: None):
     tw, th = 64, max(2, int(round(64 * H / W / 2)) * 2)
     qraw = os.path.join(d, 'q.gray')
     gpu = gpu_ffmpeg() if nvdec_ok(path) else None
+    cw, ch = thumb_size(info)
+    craw = os.path.join(d, 'thumbs.rgb')
     fast = not gpu and heavy_codec(path) and env('FAST', '1') != '0'
     if fast:     # keyframes only (~2/s): ~3× faster on 4K HEVC 4:2:2; in-file cuts are not detected (camera originals have none)
         return _analyze_keyframes(path, d, info, qw, qh, progress)
     if gpu:      # NVDEC decode + downscale on the GPU, only 320-px frames come back to the CPU (~2× faster on 4K)
         cmd = [gpu, '-y', '-loglevel', 'error', '-hwaccel', 'cuda', '-hwaccel_output_format', 'cuda', '-i', path,
-               '-filter_complex', f'[0:v:0]scale_cuda={qw}:{qh},hwdownload,format=nv12,format=gray,split=2[a][b];'
-               f'[a]scale={tw}:{th}:flags=area[t];[b]fps={QFPS}[q]',
-               '-map', '[t]', '-f', 'rawvideo', 'pipe:1', '-map', '[q]', '-f', 'rawvideo', qraw]
+               '-filter_complex', f'[0:v:0]scale_cuda={qw}:{qh},hwdownload,format=nv12,split=2[g][c0];[g]format=gray,split=2[a][b];'
+               f'[a]scale={tw}:{th}:flags=area[t];[b]fps={QFPS}[q];[c0]fps=1/{THUMB_STEP}:round=near,scale={cw}:{ch}:flags=area,format=rgb24[c]',
+               '-map', '[t]', '-f', 'rawvideo', 'pipe:1', '-map', '[q]', '-f', 'rawvideo', qraw, '-map', '[c]', '-f', 'rawvideo', craw]
     else:
         hw = ['-hwaccel', 'videotoolbox'] if IS_MAC else []          # Apple decoder; ffmpeg falls back to software
         cmd = ['ffmpeg', '-y', '-loglevel', 'error', '-threads', '0', '-skip_loop_filter', 'all', '-flags2', 'fast', *hw, '-i', path, '-filter_complex',
-               f'[0:v:0]split=2[a][b];[a]scale={tw}:{th}:flags=area,format=gray[t];'
-               f'[b]fps={QFPS},scale={qw}:{qh}:flags=area,format=gray[q]',
-               '-map', '[t]', '-f', 'rawvideo', 'pipe:1', '-map', '[q]', '-f', 'rawvideo', qraw]
+               f'[0:v:0]split=3[a][b][c0];[a]scale={tw}:{th}:flags=area,format=gray[t];'
+               f'[b]fps={QFPS},scale={qw}:{qh}:flags=area,format=gray[q];[c0]fps=1/{THUMB_STEP}:round=near,scale={cw}:{ch}:flags=area,format=rgb24[c]',
+               '-map', '[t]', '-f', 'rawvideo', 'pipe:1', '-map', '[q]', '-f', 'rawvideo', qraw, '-map', '[c]', '-f', 'rawvideo', craw]
     p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
     fsz = tw * th
     diffs, lum, prev, k = [], [], None, 0

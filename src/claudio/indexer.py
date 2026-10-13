@@ -12,7 +12,7 @@ from claudio import core, sidecar
 
 JOBS = os.path.join(core.CACHE, 'jobs')
 STAGE_W = {'probe': (0.0, 0.02), 'audio': (0.02, 0.08), 'picture': (0.10, 0.65), 'speech': (0.75, 0.25)}
-STAGE_PT = {'probe': 'lendo metadados', 'audio': 'áudio', 'picture': 'imagem', 'speech': 'transcrição'}
+STAGE_PT = {'probe': 'lendo metadados', 'audio': 'áudio', 'picture': 'imagem', 'speech': 'transcrição', 'visual': 'busca visual'}
 
 
 def job_path(folder):
@@ -170,6 +170,21 @@ def run(folder, vocabulary=None, lang='pt'):
         j['files_done'] += 1
         j.update(current=None, stage=None, stage_progress=0, _cur_path=None)
         save()
+    # visual search (CLIP) for every clip of the folder, also the ones indexed earlier: free for new indexes (the picture
+    # analysis kept thumbnails), one keyframe decode per 2 s for older ones. Never fails the job.
+    try:
+        from claudio import visual
+        vis = [f for f in files if not visual.is_embedded(f)]
+        for k, f in enumerate(vis):
+            j.update(current=os.path.basename(f), stage='visual', stage_progress=round(k / len(vis), 3), _cur_path=None)
+            save()
+            try:
+                visual.embed_clip(f)
+            except Exception as e:
+                j['errors'].append(f'{os.path.basename(f)} (busca visual): {e}')
+        j.update(current=None, stage=None)
+    except Exception as e:
+        j['errors'].append(f'busca visual indisponível: {e}')
     j['state'] = 'done'
     save(True)
     try:

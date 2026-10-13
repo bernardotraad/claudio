@@ -5,7 +5,7 @@ Workflow the tools are designed for:
   1. index_media / index_folder   → probe, transcript (word timestamps), cuts, focus/exposure/motion
   2. overview                     → what is in the clip (speech? b-roll? shots, takes, usable windows)
   3. contact_sheet / timeline_strip / frames  → LOOK at the picture (and words + waveform) at exact times
-  4. takes (dialogue) · broll (no speech) · find_phrase   → evidence-ranked candidates
+  4. takes (dialogue) · broll (no speech) · find_phrase · find_shot (describe a shot)  → evidence-ranked candidates
   5. annotate                     → write the decupagem log (what you saw) so it persists
   6. snap_cut → export_timeline / nle_cut_list   → frame-accurate handoff to the Premiere / Resolve MCPs
   7. build_edit → edit_storyboard → export_edit    → a reviewable timeline in Premiere / Resolve (no render)
@@ -665,6 +665,35 @@ def make_selects(out_xml: str, folder: str = None, paths: list[str] = None, incl
 
 
 @mcp.tool()
+async def find_shot(query: str, ctx: Context, folder: str = None, paths: list[str] = None, top: int = 8) -> list:
+    """Find shots by DESCRIBING them — "hands on the guitar neck", "crowd with phones up", "road at sunset", "a man
+    talking to the camera". Write the query in ENGLISH (CLIP). Searches every clip of `folder` (or `paths`) and returns
+    a contact sheet of the best moments (clip · time · score) to LOOK at, plus the windows (start/end/peak, seconds of
+    the source). Scores compare candidates (~0.20 unrelated, ~0.28+ a good match). Clips indexed with index_folder are
+    ready; others are embedded on first search (a few seconds per minute of footage). Confirm with frames/contact_sheet
+    before cutting."""
+    import asyncio
+    from claudio import visual, indexer
+    files = [core.local_path(p) for p in (paths or [])]
+    if folder:
+        files += indexer.list_videos(folder)
+    if not files:
+        return ['no clips: pass folder or paths']
+    todo = [f for f in files if not visual.is_embedded(f)]
+    loop = asyncio.get_running_loop()
+    for k, f in enumerate(todo):
+        try:
+            await ctx.report_progress(k, len(todo), f'preparando a busca visual: {os.path.basename(f)} ({k + 1}/{len(todo)})')
+        except Exception:
+            pass
+        await loop.run_in_executor(None, visual.embed_clip, f)
+    hits = await loop.run_in_executor(None, lambda: visual.search(files, query, top=max(1, min(top, 16))))
+    img = await loop.run_in_executor(None, visual.board, hits)
+    out = [__import__('json').dumps({'query': query, 'clips_searched': len(files), 'hits': hits}, ensure_ascii=False)]
+    return ([Image(data=core.to_jpeg(img), format='jpeg')] if img else []) + out
+
+
+@mcp.tool()
 def flatten_timeline(nle_xml: str, out_xml: str = None, name: str = None) -> dict:
     """Clips straight on the timeline instead of nested sequences. Reads an FCP7 XML of the editor's sequence (Premiere
     MCP export_as_fcp_xml) and writes a NEW sequence where every nested sequence is replaced by its own clips — each
@@ -1013,7 +1042,7 @@ marked "(Recomendado)" with a one-line reason). Skip what the request already an
 6b. SELECTS first (the editor checks your logging in the NLE before any cut): make_selects → import → ask if the
    choices of takes / b-roll look right.
 7. LOGGING with your eyes: scenes / takes (best take — usually the last complete one; a take the speaker criticised is
-   out) · broll · find_phrase · contact_sheet on every candidate · timeline_strip for tight speech cuts ·
+   out) · broll · find_phrase · find_shot ("hands on the guitar") · contact_sheet on every candidate · timeline_strip for tight speech cuts ·
    reframe_preview + set_rotation for vertical / sideways cameras · annotate what you saw (it goes into the .md).
    Colour: footage in log (S-Log, C-Log, BMD Film…) looks flat and washed out — that is NOT a defect, never reject or
    "fix" it; the user applies LUT/grade in the NLE. Judge focus, framing, action, expression instead.

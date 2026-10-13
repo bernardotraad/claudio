@@ -39,6 +39,8 @@ cartão ─► ingest ─► decupagem (.md ao lado de cada clipe) ─► visão
 | Entender | `project_digest`, `save_project_overview` | Lê todos os `.md` e escreve **`_VISAO_GERAL.md`**. Pergunta a duração do vídeo e a trilha (música específica ou mood/gênero) e propõe 2–4 direcionamentos. |
 | Olhar | `contact_sheet`, `timeline_strip`, `frames`, `reframe_preview`, `multicam_monitor` | Imagens reais do material, com TC e a fala do instante. |
 | Escolher | `scenes`, `takes`, `broll`, `find_phrase`, `annotate` | Melhor take de cada fala (geralmente o último completo; o take que o falante criticou fica de fora) e trechos de b-roll aproveitáveis. As anotações vão pro `.md`. |
+| Busca visual | `find_shot` | Acha planos pela descrição ("mãos no braço da guitarra", "estrada ao pôr do sol"), com CLIP rodando na CPU. As miniaturas saem da própria indexação. |
+| Desaninhar | `flatten_timeline` | Troca as sequências aninhadas pelos próprios clipes, direto nas trilhas, para corrigir a cor take a take. |
 | Multicâmera | `sync_multicam` | Sincroniza câmeras e gravadores pelo áudio, no lugar do PluralEyes: corrige o drift do gravador e gera o XML no mesmo layout, com uma **cor de label por câmera** (vídeo, áudio e bin) e outra para o áudio externo. |
 | Selects | `make_selects` | Sequências de melhores takes e de b-roll + marcadores em todos os clipes (✅ melhor / ✗ criticado / 👁 notas). |
 | Montar | `music_map`, `music_windows`, `build_edit`, `edit_storyboard`, `export_edit` | Trilha primeiro (BPM, compassos, seções), corte no beat, b-roll sobre a fala, storyboard **sem render**, FCP7 XML pro NLE. |
