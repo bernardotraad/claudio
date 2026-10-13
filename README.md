@@ -1,416 +1,340 @@
 # decupa
 
-**An MCP server that lets Claude actually _see_ and _hear_ your footage before it cuts.**
+**Um servidor MCP que faz o Claude _ver_ e _ouvir_ o seu material bruto antes de montar — e entregar a montagem como
+timeline no Premiere Pro ou no DaVinci Resolve, com você no controle.**
 
-[Português](README.pt-BR.md)
+[English](README.en.md)
 
-The Premiere Pro and DaVinci Resolve MCP servers let an AI *operate* your editor — import media, place clips,
-trim, export. What they can't do is look at the footage. Ask for "the best take" or "a good b-roll of the
-hands" and the model is guessing from file names.
+Os MCPs do Premiere e do Resolve deixam uma IA *operar* o editor (importar, colocar clipes, aparar, exportar). O que
+falta é olhar o material: sem isso, "o melhor take" ou "um b-roll bom das mãos" vira chute pelo nome do arquivo.
 
-`decupa` (from Portuguese *decupagem*, footage logging) is the missing eyes and ears. It analyses the real
-media and gives the model evidence:
+O `decupa` (de *decupagem*) é esse par de olhos e ouvidos:
 
-- **What is said** — word-level transcript (Whisper), including the slate called out loud
-  (*"scene 3, take 2 … action … cut"*).
-- **What is seen** — contact sheets, full frames and timeline strips returned as **images**, every tile stamped
-  with source timecode, seconds and the words spoken at that instant.
-- **What is usable** — hard cuts, relative focus, exposure, camera motion (static / pan / tilt / shaky),
-  silences, aborted takes.
+- **O que é dito** — transcrição por palavra (Whisper), incluindo a claquete falada ("cena 3, take 2… ação… corta").
+- **O que se vê** — contact sheets, frames e timelines com waveform devolvidos como **imagens**, com timecode.
+- **O que serve** — foco relativo, exposição, movimento de câmera, takes repetidos, falas criticadas pelo próprio
+  falante, cor (log × Rec.709), silêncios.
 
-The model decides from that evidence, `decupa` turns the decision into **frame-accurate in/out points**, and the
-Premiere or Resolve MCP executes it.
+A decisão sai disso, o `decupa` transforma em **in/out exatos por frame**, e a timeline entra no Premiere/Resolve como
+uma **sequência nova** para você revisar, ajustar, colorir e exportar. Ele **nunca renderiza o vídeo final** sem você
+pedir.
 
 ```
-footage ──► decupa (index, look, rank, snap) ──► cut plan ──► Premiere MCP / Resolve MCP
-                    ▲                                         (or FCP7 XML / EDL import)
-            images + transcript + metrics
-                    ▼
-                  Claude
+cartão ─► ingest ─► decupagem (.md ao lado de cada clipe) ─► visão geral + perguntas ─► selects ─► timeline
+                                                                                                    │
+              você revisa no NLE (marcadores = notas) ◄── nova versão ◄── decupa lê o que você mudou ◄┘
+                                │
+                                └─► QC ─► você finaliza (cor, efeitos) e exporta
 ```
 
-## What it does
+## O que ele faz
 
-| Need | Tool | How |
+| Etapa | Ferramentas | |
 | --- | --- | --- |
-| Index footage | `index_media`, `index_folder`, `index_status` | Background queue (GPU). ~4 min per 15 min of 1080p on an RTX 3060. Cached. |
-| Best dialogue take across clips | `scenes` | Reads the spoken slate, keeps only what's between **"action"** and **"cut"**, flags aborted takes ("wait", "again"), compares each take's lines with the consensus version, ranks them (`prefer="last"` by default — the last complete take usually wins). Tells you whether to judge by lines, performance (improvised) or picture (no dialogue). |
-| Repeated lines inside one clip | `takes` | Splits speech at pauses, groups repeated attempts and false starts, ranks them. |
-| B-roll / no-speech material | `broll` | Splits at hard cuts, then into runs of the same camera behaviour that are in focus, exposed and steady. Returns usable windows (best first) and rejected stretches with the reason (`soft`, `blown`, `dark`, `shaky`, `chaotic`). |
-| **Look** | `contact_sheet` | Grid of N frames over a range, stamped with TC + spoken words. |
-| **Look closer** | `timeline_strip` | Thumbnails + waveform + every word as a box on one time axis — for exact in/out points. |
-| **Check a frame** | `frames` | Full-size frames at exact seconds (focus, blinks, first/last frame of a cut). |
-| Find a line | `find_phrase` | Fuzzy search over word-level transcripts of many clips. |
-| Remember what was seen | `annotate`, `read_annotations` | Persistent footage log per clip; exported as markers in the XML. |
-| Frame-accurate cut | `snap_cut` | Never clips a word (moves the boundary out of it, onto the quietest audio frame); `tighten=True` trims to the words for jump cuts; `mode="picture"` avoids flash frames from the next shot. |
-| Hand off | `nle_cut_list`, `export_timeline` | Exact numbers for the Premiere/Resolve MCPs, or an FCP7 XML / CMX3600 EDL both editors import. |
+| Descarregar | `ingest_card` | Cópia verificada (xxHash64 copiando e relendo o destino) para `BRUTOS/<câmera>`, `00 AUDIO`, `03 FOTOS`, `#projeto`, `#trilhas`. Nunca sobrescreve (outro cartão com os mesmos nomes vai pra `CARD_n`) e nunca mexe no cartão. Depois indexa. |
+| Indexar | `index_folder`, `index_status` | Em processo próprio (segue mesmo com o chat ou o Premiere fechados), com barra de progresso. Usa proxies (`Proxy/` ou `Proxies/`) quando existem, e GPU (NVDEC) ou só keyframes no 4K pesado. Grava **`<clipe>.md`** + contact sheet ao lado de cada vídeo e **`_DECUPA.md`** por pasta. |
+| Entender | `project_digest`, `save_project_overview` | Lê todos os `.md` e escreve **`_VISAO_GERAL.md`**. Pergunta a duração do vídeo e a trilha (música específica ou mood/gênero) e propõe 2–4 direcionamentos. |
+| Olhar | `contact_sheet`, `timeline_strip`, `frames`, `reframe_preview`, `multicam_monitor` | Imagens reais do material, com TC e a fala do instante. |
+| Escolher | `scenes`, `takes`, `broll`, `find_phrase`, `annotate` | Melhor take de cada fala (geralmente o último completo; o take que o falante criticou fica de fora) e trechos de b-roll aproveitáveis. As anotações vão pro `.md`. |
+| Multicâmera | `sync_multicam` | Sincroniza câmeras e gravadores pelo áudio, no lugar do PluralEyes: corrige o drift do gravador e gera o XML no mesmo layout. |
+| Selects | `make_selects` | Sequências de melhores takes e de b-roll + marcadores em todos os clipes (✅ melhor / ✗ criticado / 👁 notas). |
+| Montar | `music_map`, `music_windows`, `build_edit`, `edit_storyboard`, `export_edit` | Trilha primeiro (BPM, compassos, seções), corte no beat, b-roll sobre a fala, storyboard **sem render**, FCP7 XML pro NLE. |
+| Revisar | `compare_with_nle`, `adopt_nle_timeline` | Lê a timeline como está no NLE: o que você mudou e seus marcadores como notas. As suas mudanças viram a nova base. |
+| Legendas e overlays | `caption_sentences`, `caption_style_preview`, `captions_srt`, `caption_overlay`, `render_overlay`, `narration` | Gramática corrigida sem mudar a fala, 6 estilos com preview, SRT editável ou overlay com alpha (ProRes 4444), lower thirds e títulos, narração ElevenLabs/edge-tts. Usa a skill motion-designer. |
+| Finalizar | `qc_timeline` | Aponta flash frame, buraco preto, mídia offline, take repetido, jump cut, salto de volume e formato errado pra plataforma. Não corrige nada sozinho. |
+| Lembrar | `client_profile`, `save_client_profile`, `read_premiere_project` | Perfil por cliente com vocabulário, assinatura, trilhas e o estilo da casa medido nos seus projetos finalizados. |
 
-Also: `overview`, `library`, `transcript`, `quality`.
+E também um **painel dentro do Premiere** (Janela › Extensões › decupa): chat com o Claude Code com o contexto do
+projeto (sequência ativa, playhead, clipes selecionados), botões para cada etapa e barra de progresso.
 
-## Install
+---
 
-Requirements: Python ≥ 3.10, `ffmpeg` and `ffprobe` on `PATH`.
+## Instalação
 
-Transcription backend is picked automatically:
+O decupa trabalha junto com três peças: o **Claude Code** (onde você conversa) e o **MCP do Premiere** e/ou o **MCP
+do Resolve** (que operam o editor). Abaixo, o passo a passo completo para cada sistema.
 
-| Machine | Backend |
-| --- | --- |
-| NVIDIA GPU (Linux / WSL / Windows) | `faster-whisper` on CUDA — install with the `[cuda]` extra |
-| Apple Silicon Mac | `mlx-whisper` (installed automatically on macOS arm64) |
-| Anything else | `faster-whisper` on CPU (slower) |
+| | Windows (recomendado com placa NVIDIA) | macOS (Apple Silicon) |
+| --- | --- | --- |
+| decupa | dentro do **WSL** (Ubuntu), usando a GPU | nativo |
+| Transcrição | faster-whisper na GPU (CUDA) | mlx-whisper |
+| Decodificação | NVDEC (opcional) ou CPU; proxies | VideoToolbox; proxies |
+| Premiere / Resolve / Claude Code | no Windows | no Mac |
 
-The first transcription downloads `whisper-large-v3-turbo` (~1.6 GB).
+> Os passos marcados como **opcional** podem ser pulados. O resto é necessário.
+
+### Windows
+
+#### 1. Programas no Windows
+
+No **PowerShell**:
+
+```powershell
+winget install Git.Git
+winget install OpenJS.NodeJS.LTS
+winget install Gyan.FFmpeg
+```
+
+- **Node.js 20.19+**: usado pelo MCP do Premiere.
+- **Python 3.12** do instalador oficial ([python.org](https://www.python.org/downloads/windows/)), com *Add python.exe
+  to PATH* marcado: usado pelo MCP do Resolve.
+- Driver **NVIDIA** atualizado (o driver do Windows também atende o WSL).
+
+#### 2. Claude Code
+
+```powershell
+irm https://claude.ai/install.ps1 | iex
+```
+
+Rode `claude` uma vez e faça login com a sua conta Anthropic (`/login`). Documentação:
+[docs.claude.com/claude-code](https://docs.claude.com/en/docs/claude-code/overview).
+
+#### 3. WSL com Ubuntu
+
+No PowerShell **como administrador**:
+
+```powershell
+wsl --install -d Ubuntu
+```
+
+Reinicie se pedir, abra o **Ubuntu** pelo menu Iniciar e crie o seu usuário.
+
+#### 4. decupa (dentro do Ubuntu)
+
+```bash
+sudo apt update && sudo apt install -y ffmpeg git curl
+curl -LsSf https://astral.sh/uv/install.sh | sh
+source ~/.bashrc
+uv tool install --python 3.12 "decupa[cuda,motion] @ git+https://github.com/bernardotraad/decupa.git"
+decupa-doctor --fix-browser
+```
+
+- `[cuda]` traz as bibliotecas da transcrição na GPU; `[motion]` traz o navegador usado nas legendas e overlays.
+- O `decupa-doctor` confere tudo e diz o que falta. Rode de novo no fim da instalação.
+- Para atualizar depois: `uv tool upgrade decupa`.
+
+**Opcional — decodificação na GPU (NVDEC):** cerca de 2× mais rápido em 4K H.264. HEVC 4:2:2 (ex.: Canon 10 bits)
+não roda na NVDEC; para esses arquivos, use proxies.
+
+```bash
+mkdir -p ~/.local/opt && cd ~/.local/opt
+curl -L -o ff.tar.xz https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-linux64-gpl.tar.xz
+tar xf ff.tar.xz && rm ff.tar.xz && cd ~
+```
+
+**Opcional — mais núcleos e memória para o WSL:** crie `C:\Users\<você>\.wslconfig` com uma seção `[wsl2]` contendo
+`processors=<núcleos>` e `memory=<GB>GB`, e rode `wsl --shutdown`.
+
+#### 5. Registrar o decupa no Claude Code (PowerShell)
+
+Troque `<usuario>` pelo seu usuário do Ubuntu:
+
+```powershell
+claude mcp add -s user decupa -- C:\Windows\System32\wsl.exe -d Ubuntu -- /home/<usuario>/.local/bin/decupa
+```
+
+Caminhos `D:\...` funcionam direto: o decupa traduz para o WSL e devolve tudo (XML, `.md`) com o caminho do Windows.
+
+#### 6. MCP do Premiere Pro — [leancoderkavy/premiere-pro-mcp](https://github.com/leancoderkavy/premiere-pro-mcp)
+
+Premiere 2020–2026. Com o **Premiere fechado**, no PowerShell:
+
+```powershell
+npm install -g premiere-pro-mcp
+premiere-pro-mcp --install-cep
+claude mcp add -s user premiere-pro -- cmd /c premiere-pro-mcp
+```
+
+Abra o Premiere com um projeto → **Janela › Extensões › MCP for Adobe Premiere Pro** → status *Running*. Para conferir:
+`premiere-pro-mcp --doctor`. O nome `premiere-pro` importa: é o que o painel do decupa espera.
+
+#### 7. MCP do DaVinci Resolve — [hiteshK03/davinci-resolve-mcp](https://github.com/hiteshK03/davinci-resolve-mcp)
+
+Resolve 18+ (funciona no Free). No PowerShell, na pasta onde você guarda projetos:
+
+```powershell
+git clone https://github.com/hiteshK03/davinci-resolve-mcp.git
+cd davinci-resolve-mcp
+python -m venv venv
+venv\Scripts\pip install -r requirements.txt "mcp<2"
+copy src\CursorBridge.py "$env:APPDATA\Blackmagic Design\DaVinci Resolve\Support\Fusion\Scripts\Utility\"
+claude mcp add -s user davinci-resolve -- "$PWD\venv\Scripts\python.exe" "$PWD\src\resolve_mcp_bridge.py"
+```
+
+O `mcp<2` é necessário porque o servidor quebra com o pacote `mcp` 2.x. Toda vez que abrir o Resolve: **Workspace ›
+Scripts › Utility › CursorBridge** (o console mostra *Bridge is running*).
+
+#### 8. Painel do decupa no Premiere (dentro do Ubuntu)
+
+```bash
+decupa-panel
+```
+
+Instala o painel no Premiere do Windows e libera extensões não assinadas. Reinicie o Premiere → **Janela › Extensões ›
+decupa**.
+
+#### 9. Opcionais
+
+- **Skill motion-designer** (legendas estilizadas, overlays, narração): copie a pasta da skill para
+  `~/.claude/skills/motion-designer` **dentro do Ubuntu**.
+- **ElevenLabs** (narração mais natural): salve a chave em `~/.config/elevenlabs/api_key` dentro do Ubuntu. Sem ela, a
+  narração usa o edge-tts gratuito.
+- **Claude Desktop**: em `claude_desktop_config.json`, use o mesmo comando do passo 5:
+  `"command": "C:\\Windows\\System32\\wsl.exe", "args": ["-d", "Ubuntu", "--", "/home/<usuario>/.local/bin/decupa"]`.
+
+#### 10. Conferir
+
+```bash
+decupa-doctor
+```
+
+No PowerShell, `claude mcp list` deve mostrar `decupa`, `premiere-pro` e `davinci-resolve` como *Connected*.
+
+---
 
 ### macOS (Apple Silicon)
 
-```bash
-brew install ffmpeg uv
-uv tool install --python 3.12 git+https://github.com/bernardotraad/decupa.git
-claude mcp add -s user decupa -- decupa
-```
+#### 1. Programas
 
-Update later with `uv tool upgrade decupa`.
-
-### Windows — GPU through WSL (recommended with an NVIDIA card)
-
-Premiere and Resolve run on Windows; the analysis runs in WSL where CUDA is easy. `decupa` translates paths both
-ways: you pass `D:\Footage\A001.mov`, it reads `/mnt/d/Footage/A001.mov`, and everything it returns
-(and writes into XML/EDL) uses the Windows path the editor sees.
-
-Inside WSL (Ubuntu):
+Instale o [Homebrew](https://brew.sh) e, no Terminal:
 
 ```bash
-sudo apt install ffmpeg python3-pip
-pip install --user --break-system-packages "decupa[cuda] @ git+https://github.com/bernardotraad/decupa.git"
-which decupa   # e.g. /home/<you>/.local/bin/decupa
+brew install ffmpeg uv node git
 ```
 
-Then in **Windows** (PowerShell), register it with Claude Code so it sits next to the Premiere/Resolve MCPs:
+Para o MCP do Resolve, instale o **Python 3.12 do [python.org](https://www.python.org/downloads/macos/)** (não o do
+Homebrew).
 
-```powershell
-claude mcp add -s user decupa -- C:\Windows\System32\wsl.exe -d Ubuntu -- /home/<you>/.local/bin/decupa
-```
-
-### Windows / Linux — native
+#### 2. Claude Code
 
 ```bash
-pip install "decupa[cuda] @ git+https://github.com/bernardotraad/decupa.git"   # drop [cuda] without NVIDIA
-claude mcp add -s user decupa -- decupa
+curl -fsSL https://claude.ai/install.sh | bash
 ```
 
-### Claude Desktop
+Rode `claude` e faça login (`/login`).
 
-Add to `claude_desktop_config.json` (same command as above):
-
-```json
-{
-  "mcpServers": {
-    "decupa": { "command": "decupa" }
-  }
-}
-```
-
-On Windows + WSL: `"command": "C:\\Windows\\System32\\wsl.exe", "args": ["-d", "Ubuntu", "--", "/home/<you>/.local/bin/decupa"]`.
-
-### Check
+#### 3. decupa
 
 ```bash
-claude mcp list        # decupa: … ✓ Connected
+uv tool install --python 3.12 "decupa[motion] @ git+https://github.com/bernardotraad/decupa.git"
+decupa-doctor --fix-browser
+claude mcp add -s user decupa -- "$HOME/.local/bin/decupa"
 ```
 
-## Use it with the Premiere Pro and DaVinci Resolve MCPs
+No Mac a transcrição usa o **mlx-whisper** (instalado junto) e a decodificação usa o **VideoToolbox**. A primeira
+transcrição baixa o modelo `whisper-large-v3-turbo` (~1,6 GB).
 
-`decupa` doesn't talk to the editors itself — it is designed to run **in the same Claude session** as an editor
-MCP. Tested alongside:
+> Registre os MCPs no Mac sempre com **caminho absoluto**: o Premiere aberto pelo Dock não enxerga o PATH do Terminal,
+> e o painel do decupa roda a partir dele.
 
-- **Premiere Pro** — [leancoderkavy/premiere-pro-mcp](https://github.com/leancoderkavy/premiere-pro-mcp)
-  (also available as a Claude Desktop extension)
-- **DaVinci Resolve** — [hiteshK03/davinci-resolve-mcp](https://github.com/hiteshK03/davinci-resolve-mcp)
+#### 4. MCP do Premiere Pro — [leancoderkavy/premiere-pro-mcp](https://github.com/leancoderkavy/premiere-pro-mcp)
 
-Register them in the same client (Claude Code user scope or Claude Desktop), open the editor, and ask in plain
-language. There are two ways to hand off a cut.
+Com o **Premiere fechado**:
 
-### A. Timeline file (most robust, works for both)
-
-`export_timeline(plan, "D:\\Edits\\assembly_v1.xml")` writes an FCP7 XML (or `format="edl"` for CMX3600) with
-frame-accurate in/out, linked audio and your `annotate` notes as clip markers.
-
-- **Resolve:** `import_timeline_from_file(file_path="D:\\Edits\\assembly_v1.xml")`
-- **Premiere:** `import_media(file_paths=["D:\\Edits\\assembly_v1.xml"])` — Premiere turns the XML into a sequence
-  (or File › Import manually).
-
-### B. Clip by clip through the editor MCP
-
-`nle_cut_list(plan)` returns, per clip: `in_frame`, `out_frame_exclusive`, `end_frame_inclusive`, `in_sec`,
-`out_sec`, source timecodes, `record_frame` and the path the editor sees.
-
-- **Resolve:** `import_media([...])` → `insert_to_timeline(clip_name, track_index=1, record_frame, start_frame=in_frame, end_frame=end_frame_inclusive)`
-- **Premiere:** `import_media([...])` → `add_to_timeline(item_id, track_index=0, start_seconds=<record time>)` →
-  `trim_clip(node_id, new_out_seconds=out_sec)` then `trim_clip(node_id, new_in_seconds=in_sec)` (one edit point
-  per call; tracks are 0-based). For many clips, route A is simpler.
-
-### The cut plan
-
-Both hand-offs take the same plan:
-
-```json
-{
-  "name": "assembly v1",
-  "fps": "30000/1001",
-  "clips": [
-    {"path": "D:\\Shoot\\MVI_7965.MP4", "in": 17.5, "out": 25.0, "snap": "speech", "label": "sc3 pt3 take 3"},
-    {"path": "D:\\Shoot\\MVI_7984.MP4", "in": 3.0,  "out": 9.0,  "snap": "picture", "label": "reaction"},
-    {"path": "D:\\Shoot\\MVI_7975.MP4", "in_frame": 300, "out_frame": 481}
-  ]
-}
+```bash
+npm install -g premiere-pro-mcp
+premiere-pro-mcp --install-cep
+claude mcp add -s user premiere-pro -- "$(which premiere-pro-mcp)"
 ```
 
-`in`/`out` are seconds (snapped to frames, optionally with `snap`); `in_frame`/`out_frame` are exact source frames
-(out is exclusive). `fps` defaults to the first clip's.
+Abra o Premiere → **Janela › Extensões › MCP for Adobe Premiere Pro** → *Running*. Para conferir:
+`premiere-pro-mcp --doctor`.
 
-## A typical session
+#### 5. MCP do DaVinci Resolve — [hiteshK03/davinci-resolve-mcp](https://github.com/hiteshK03/davinci-resolve-mcp)
 
-> Index `D:\Shoot\Day1`. Find the best take of each scene (usually the last full one) and confirm by looking at
-> the frames. Then log the good b-roll without dialogue with a short description of each. Build an
-> "assembly v1" timeline in Resolve with the best takes in scene order, plus a bin of the b-roll.
+```bash
+cd ~/Documents
+git clone https://github.com/hiteshK03/davinci-resolve-mcp.git
+cd davinci-resolve-mcp
+/usr/local/bin/python3.12 -m venv venv
+venv/bin/pip install -r requirements.txt "mcp<2"
+cp src/CursorBridge.py "$HOME/Library/Application Support/Blackmagic Design/DaVinci Resolve/Fusion/Scripts/Utility/"
+claude mcp add -s user davinci-resolve -- "$PWD/venv/bin/python" "$PWD/src/resolve_mcp_bridge.py"
+```
 
-What happens under the hood:
+Toda vez que abrir o Resolve: **Workspace › Scripts › Utility › CursorBridge**.
 
-1. `index_folder` → `index_status` until done.
-2. `scenes(folder)` → ranked takes per scene; `contact_sheet` on the winner and the runner-up; `timeline_strip`
-   on the line delivery when it's close.
-3. `broll(path)` on clips without slate/dialogue → `contact_sheet` of each window → `annotate` with what's in it.
-4. `snap_cut` on the chosen ranges → `export_timeline` (or `nle_cut_list`) → Resolve MCP imports / inserts.
+#### 6. Painel do decupa no Premiere
 
-Short prompts that work well:
+```bash
+decupa-panel
+```
 
-- *"Show me a contact sheet of A003 from 10 to 40 s."*
-- *"Which take of scene 12 has the cleanest delivery? Compare the last two with timeline strips."*
-- *"Where does she say 'I'm from the play too'? Search all clips."*
-- *"Find steady, sharp b-roll longer than 3 s in this folder and describe each one."*
+Reinicie o Premiere → **Janela › Extensões › decupa**.
 
-## Footage logs on disk (`.md` next to every clip)
+#### 7. Opcionais e conferência
 
-Indexing writes, **next to each video**:
+- **Skill motion-designer**: copie a pasta para `~/.claude/skills/motion-designer`.
+- **ElevenLabs**: salve a chave em `~/.config/elevenlabs/api_key`.
+- **Claude Desktop**: `"command": "/Users/<você>/.local/bin/decupa"`.
+- Para conferir: `decupa-doctor` e `claude mcp list`.
 
-- `C0025.md` with:
-  - file, camera, timecode, rotation;
-  - **colour space**;
-  - audio;
-  - 👁 scene descriptions (written by Claude after *looking*, via `annotate`);
-  - takes with verdicts (✅ best / ✗ the speaker criticised it);
-  - slate;
-  - usable b-roll stretches;
-  - the transcript with timecode.
-- `_decupa/C0025.jpg`: a contact sheet linked from the `.md`.
-- `_DECUPA.md`: one table of every clip in the folder, with live progress while indexing runs.
+---
 
-Any agent or person can read these files and understand the footage without analysing it again. Text you write
-outside the `<!-- decupa:auto -->` markers is never overwritten.
+## Como usar
 
-## Progress you can see
+1. Monte o projeto no Premiere/Resolve e **salve o `.prproj` dentro de `<trabalho>/#projeto/`**: o painel acha a pasta
+   do material a partir dele.
+2. Abra o painel **decupa** e clique em **Analisar material**. A barra mostra o progresso. Pode fechar o painel, o
+   Claude Desktop ou o Premiere: a indexação continua.
+3. Quando terminar, o painel oferece a **Visão geral**: o que é o projeto, as perguntas (duração, trilha) e os
+   direcionamentos possíveis. Escolha um ou explique a sua ideia.
+4. **Selects** → confira no NLE as escolhas de take e b-roll.
+5. Peça a montagem. Ela entra como sequência nova. Revise, mexa à vontade e deixe **marcadores** com notas.
+6. **Ler minhas notas** → o decupa compara com o que entregou, adota as suas mudanças e aplica as notas numa nova
+   versão.
+7. **Legendas** → frases corrigidas (tabela fala → legenda), preview dos 6 estilos com o recomendado marcado, SRT
+   editável e/ou overlay com alpha.
+8. **QC antes de exportar** → lista de problemas com timecode. Você finaliza (cor, efeitos) e exporta.
 
-Indexing runs in its own process. On Windows + WSL it is launched through a hidden `wsl.exe`, so it keeps going when
-Claude Desktop, Premiere or the panel close. WSL shuts down when no Windows process is attached to it.
+Também dá pra fazer tudo pelo terminal do Claude Code, com o prompt guiado `/mcp__decupa__montar`.
 
+**Regras do decupa:** você está sempre no controle. Ele propõe antes de mudar, nunca sobrescreve a sua sequência (cria
+uma nova), não desfaz suas mudanças manuais e só renderiza o vídeo final se você pedir. Material em log (S-Log, C-Log,
+BMD Film) parece lavado de propósito: a correção de cor é sua, no NLE.
 
-`index_folder` / `index_media` / `sync_multicam` stream progress to the client: percentage, current clip and step,
-speed (× real time) and minutes left. The same line is shown on top of `_DECUPA.md` and in `index_status`.
+### Arquivos que ele cria
 
-## Colour space (log vs Rec.709)
-
-Each clip gets a camera and a colour profile:
-
-- **Metadata first**: Sony `CaptureGammaEquation`, HLG/PQ transfer tags.
-- **Then the image**: log has a hard raised black floor (S-Log3 ≈ 9.5 %, C-Log3 ≈ 12.5 %), highlights that don't
-  clip and low saturation. Rec.709 reaches true black and saturates.
-
-The result looks like *"likely S-Log3 (Sony ILCE-7M3)"* or *"likely C-Log3 (Canon EOS R6)"*. A flat, washed-out
-image in log is expected: it is **never** treated as a defect. The grade (LUT + correction) belongs to the editor,
-in the NLE.
-
-## Multicam sync without PluralEyes
-
-`sync_multicam(cameras={"CAM A": folder, "CAM B": folder}, external_audio=[recorder files])` aligns everything by
-audio, the way PluralEyes does:
-
-1. **Envelope.** Every file is reduced to an 8 kHz onset envelope. The envelope is robust across different mics
-   (camera on-board mic vs board feed).
-2. **Graph placement.** The anchor is the longest recorder file, else the longest clip. The most confident match is
-   placed next, and so on until every clip is on the timeline.
-3. **Refinement** on the waveform (sub-millisecond).
-4. **Transcript fallback** when two mics sound too different: it aligns what is *said*.
-5. **Recorder clock drift.** The offset is measured every 30 s on long clips with a robust slope fit (ppm). A
-   corrected copy is written to `decupa_drift_corrected/<name>_drift_corrected±X.wav`, the same convention as
-   PluralEyes.
-6. **Export.** An FCP7 XML in the PluralEyes layout: **"Synced Sequence"**, one video track per camera, stereo pairs
-   per camera, the recorder on the last pair, one bin per camera. Premiere and Resolve both import it.
-
-Then `multicam_monitor` shows every angle side by side over a stretch, to pick angles by looking.
-
-Validated two ways:
-
-- **Synthetic test with known answers**: drift measured at 20.1 ppm (truth 20), clip positions within 0.1–3 ms.
-- **A real 1h53 concert** (2 cameras at 29.97 + 23.976, board recording), compared with the PluralEyes sync of the
-  same footage:
-  - all 31 clips that share audio with the rest land **within one frame** of PluralEyes (median 6.8 ms);
-  - drift is −11.6 ppm, corrected file `…+0.079.wav`; PluralEyes wrote `…+0.078.wav`.
-
-  Four clips share no audio with anything (recorded before the board started, or 1.4 s long). PluralEyes parks those
-  at the start or end of the timeline. decupa places them by the **camera clock**, calibrated on that camera's synced
-  clips, and labels them approximate.
-
-Proxies (`Proxy/` or `Proxies/` next to the clips) are used to read audio and pictures whenever their duration
-matches the original. Everything decupa writes still points at the original media.
-
-## From card to selects: ingest, selects, review loop
-
-| Step | Tool | |
-| --- | --- | --- |
-| Offload | `ingest_card` | Verified copy (xxHash64 while copying, destination read back) into `BRUTOS/<camera>`, `BRUTOS/00 AUDIO`, `BRUTOS/03 FOTOS`, `#projeto`, `#trilhas`. Sony XML sidecars travel with their clips. Never overwrites (a new card with the same names goes to `CARD_n`), never touches the card. Writes `_ingest.md`, then starts indexing. |
-| Selects | `make_selects` | Built in the NLE before any cut: **SELECTS — falas** (best take of every repeated line, alternates in the marker), **falas únicas** (interview-like material), **b-roll**, plus a bin of every clip with markers (✅ / ✗ / 👁). |
-| Review loop | `compare_with_nle`, `adopt_nle_timeline` | Export the current timeline from the NLE (Premiere `export_as_fcp_xml`, Resolve `export_timeline FCP_7_XML`). decupa lists what you trimmed, moved, removed and added, plus your **markers as notes**. Your timeline becomes the new base version, frame-exact, and the next version is imported as a new sequence. |
-
-## Client profiles
-
-`client_profile` / `save_client_profile` keep one `<client>.md` per client in `$DECUPA_CLIENTS` (default
-`D:\Documentos\decupa\clientes`). The file is readable by people and agents, with a JSON block decupa reads. It
-holds:
-
-- vocabulary;
-- formats;
-- end card;
-- music;
-- captions;
-- structure;
-- notes and past jobs;
-- **house style**, measured from the client's finished Premiere sequences (`learn_from_prproj`): typical duration,
-  speech shot length, b-roll length and coverage, caption block length, end card.
-
-The next job for that client starts from the profile, and the intake shrinks to "anything different this time?".
-
-## QC before export
-
-`qc_timeline(nle_xml, platform)` checks the timeline as it is in the NLE. It reports and changes nothing:
-
-- flash frames, black gaps, overlaps;
-- offline media, disabled clips, clips past the end of their media;
-- the same take used twice, jump cuts;
-- speech level jumps between cuts, clipped source audio;
-- size and duration vs the platform (reels / tiktok / shorts / feed / youtube).
-
-Each issue comes with a timecode, ready to drop as a marker.
-
-## GPU decoding
-
-If an ffmpeg with CUDA is present (`$DECUPA_FFMPEG_GPU` or `~/.local/opt/ffmpeg-*/bin/ffmpeg`, e.g. a BtbN static
-build), picture analysis decodes on NVDEC and downscales on the GPU. On 4K H.264 that is ~2× faster than CPU (4.8×
-vs 2.5× real time on an RTX 3060). It falls back to the CPU automatically. NVDEC can't decode HEVC/H.264 4:2:2 (e.g.
-Canon 10-bit 4:2:2): for those, proxies are the fast path.
-
-## Panel inside Premiere
-
-`python -m decupa.panel install` adds **Window › Extensions › decupa**, a chat with Claude Code inside Premiere:
-
-- It runs `claude -p` in the job folder with the same MCP servers (decupa, Premiere, Resolve), and the session
-  continues between messages.
-- Every message carries the Premiere context: project, active sequence, playhead, selected clips.
-- One-click actions: analyse BRUTOS · selects · read my notes · QC · status.
-- Tools are limited to the MCP servers and file reading (no shell). Claude proposes and creates new sequences; it
-  never overwrites yours.
-
-Requires Claude Code installed and logged in on the same machine.
-
-## Overview after indexing
-
-When a whole job is indexed, `project_digest` condenses every log: totals, cameras, colour, minutes of speech,
-frequent words, and what is said or seen per clip. Claude reads it, writes `<job>/_VISAO_GERAL.md` with
-`save_project_overview`, and asks two basics: approximate final duration, and soundtrack (a specific track or a
-mood/genre). It then proposes 2–4 directions grounded in the material. You pick one or explain your own idea. The
-Premiere panel offers this by itself when the progress bar completes.
-
-## Motion-designer on top of the edit
-
-The motion-designer Claude Code skill's core (layout, platform safe zones, `Captions()`,
-`EndCard()`, easing) renders **overlay assets** for the timeline. The background is transparent; PNG frames with
-alpha are encoded as **ProRes 4444** (Premiere and Resolve keep the alpha).
-
-| Tool | |
+| Onde | O quê |
 | --- | --- |
-| `caption_sentences` | Step 1: the edit's speech as sentences. Claude fixes **grammar only** (agreement, regência, crase, punctuation) and keeps the speaker's words. Corrected words are laid onto the spoken words' timings, and approved corrections are remembered per clip. |
-| `caption_style_preview` | Step 2: one real frame of the edit with each style (social · bold · clean · karaoke · box · minimal). The recommended style is starred: from the client profile, else the format. |
-| `captions_srt` | Editable captions (.srt) with the corrections. |
-| `caption_overlay` | Step 3: the chosen style over the whole edit, corrected, as ProRes 4444 with alpha. |
-| `render_overlay` | Lower thirds, titles, callouts, end cards written against the skill's core. |
-| `narration` | ElevenLabs (one take, word timings, credit budget) or edge-tts → `narration.wav`. |
-| `motion_reference` | The skill's craft rules (readability, safe zones, captions, narration). |
+| ao lado de cada vídeo | `<clipe>.md` (técnico, cor, cenas, takes, transcrição) e `_decupa/<clipe>.jpg` |
+| em cada pasta de material | `_DECUPA.md` (tabela da pasta + progresso) e `_decupa/progress.json` |
+| na raiz do trabalho | `_VISAO_GERAL.md`, `_ingest.md` / `_ingest.json` |
+| `#projeto/` | XMLs (selects, sync, versões da montagem) e `decupa_overlays/` (legendas, overlays, narração) |
+| `D:\Documentos\decupa\clientes` (Mac: `~/decupa/clientes`) | perfis de cliente (`<cliente>.md`) |
+| `~/.cache/decupa/` | índices (transcrição, métricas, áudio). Apagar só força uma nova análise. |
 
-These are assets you lay on the timeline, not a render of the video. The skill is looked up in
-`$DECUPA_MOTION_SKILL` or `~/.claude/skills/motion-designer`.
+O que você escrever nos `.md` fora dos marcadores `<!-- decupa:auto -->` nunca é apagado.
 
-## Building the timeline (with the Premiere / Resolve MCP)
+## Validações
 
-The deliverable is a **timeline in your NLE**. You review it, adjust it with Claude, then grade, add effects and
-export yourself. Start with the **`montar`** prompt (`/mcp__decupa__montar`). It runs a short intake, one question
-at a time: type, idea, format, duration, captions, which NLE, **music first**, pace, sound, opening/closing. Then it
-logs the footage by looking at it and builds a first version.
+- **Multicâmera:** num show de 1h53 (2 câmeras a 29,97 e 23,976 fps, mais o gravador de mesa), os 31 clipes com áudio em
+  comum ficaram **a até 1 frame** do sync do PluralEyes, com o mesmo drift (`+0.079` × `+0.078` s). Os clipes sem áudio
+  em comum o PluralEyes só estaciona no início/fim da timeline; o decupa posiciona pelo relógio da câmera e marca como
+  aproximado.
+- **Takes:** em reels de corretor, escolheu os mesmos takes de gancho e CTA que o editor (entrada do CTA a 20 ms).
+- **Batida:** erro mediano de 7 ms num click de 128 BPM.
+- **Multicâmera sintética:** drift medido de 20,1 ppm (real 20) e posições a 0,1–3 ms.
 
-| Step | Tool | |
+## Configuração
+
+| Variável | Padrão | |
 | --- | --- | --- |
-| House style | `read_premiere_project` | Reads your finished `.prproj` (read-only): spine shot length, b-roll over speech (count, length, % covered), caption length, end card. |
-| Music first | `music_map`, `music_windows` | Tempo (+ half/double time), beats, bars, energy sections, drop, silences, best stretch for the duration. |
-| Build | `build_edit` | **V1 spine.** Dialogue keeps its length and its tail stretches to the next beat; other shots are measured in beats. **V2 b-roll runs.** B-roll plays over speech, cut on the beat. **Multicam.** Angles follow the master clock. Each build is a new version, and it warns about jump cuts, gaps and cuts off the beat. |
-| Review | `edit_storyboard` | One tile per shot from the **source** frames with crop/rotation applied, plus a bar with beats and the b-roll layer. **No render.** |
-| Into the NLE | `export_edit` | FCP7 XML: V1 + V2 (Basic Motion scale/centre/rotation), audio levels per shot, music. Premiere: `import_media`; Resolve: `import_timeline_from_file`. |
-| Render | `render_edit` | **Only when the user asks for it** (`authorized_by_user=True`). |
+| `DECUPA_CACHE` | `~/.cache/decupa` | índices |
+| `DECUPA_CLIENTS` | `D:\Documentos\decupa\clientes` / `~/decupa/clientes` | perfis de cliente |
+| `DECUPA_MOTION_SKILL` | `~/.claude/skills/motion-designer` | skill de motion |
+| `DECUPA_WHISPER` / `DECUPA_MLX_MODEL` | `large-v3-turbo` | modelo de transcrição |
+| `DECUPA_FFMPEG_GPU` | `~/.local/opt/ffmpeg-*/bin/ffmpeg` | ffmpeg com CUDA |
+| `DECUPA_GPU` / `DECUPA_FAST` | `1` | `0` desliga a NVDEC / o modo keyframes |
 
-Vertical helpers: `reframe_preview` shows the crop, `reframe_x: "auto"` follows the in-focus subject, and
-`set_rotation` fixes cameras shot on their side without metadata.
+## Limitações
 
-Names Whisper must get right go in `vocabulary` ("INC Empreendimentos, Juiz de Fora"). They are applied as a
-post-correction by similarity, never as a Whisper hint: as a prompt Whisper writes the hint into the transcript, and
-as hotwords it drops words.
+- Câmeras sem timecode (ex.: Canon `MVI_*`) começam em `00:00:00:00`, mas os frames continuam exatos.
+- A NVDEC não decodifica HEVC/H.264 4:2:2. Nesses casos o decupa analisa só os keyframes, ou você pode usar proxies.
+- Uma taxa de quadros por timeline exportada (com fps misturado, gere uma timeline por fps).
+- A importação dos XMLs foi validada estruturalmente; o comportamento pode variar entre versões do Premiere/Resolve.
+- O ranking de takes é evidência, não veredito. Em atuação, olhe o vencedor e o segundo colocado.
 
-### What real projects taught it
-
-- **Testimonial reels.** `takes` picks the same hook and CTA takes the editor used (CTA in-point within 20 ms). Two
-  rules made that possible:
-  - a take the speaker criticises right after ("gaguejei", "desculpa", "mais um") is out;
-  - completeness is measured against the consensus line.
-- **Multicam concert** (2 cameras at 29.97 + 23.976, a 1h53 board recording). Audio sync lands within one frame of
-  PluralEyes for every clip that shares audio, with the same recorder drift correction.
-
-## How it works
-
-One `ffmpeg` decode per clip produces two streams: tiny full-rate frames (frame-accurate hard-cut detection that
-ignores objects whipping past the lens) and 4 fps 320 px frames (Laplacian sharpness relative to the clip's own
-best focus, clipped highlights/crushed blacks, global motion by phase correlation → static / pan / tilt / shake).
-Audio becomes a 20 ms RMS envelope (silences, quietest cut points). Whisper runs with word timestamps, VAD and
-`condition_on_previous_text=False` so repeated takes are transcribed instead of "deduplicated".
-
-Everything is cached in `~/.cache/decupa/<file>-<hash>/` (keyed by path + size + mtime): `index.json`,
-`words.json`, `q.npy`, `rms_db.npy`, `log.json`.
-
-## Configuration
-
-| Env var | Default | |
-| --- | --- | --- |
-| `DECUPA_CACHE` | `~/.cache/decupa` | Index cache |
-| `DECUPA_WHISPER` | `large-v3-turbo` | faster-whisper model |
-| `DECUPA_MLX_MODEL` | `mlx-community/whisper-large-v3-turbo` | mlx-whisper model |
-| `DECUPA_BACKEND` | auto | Force `mlx` or `faster-whisper` |
-
-Language defaults to Portuguese (`language="pt"` on `index_media` / `index_folder`); pass `"en"`, `"es"`, … or
-`""` to auto-detect. Slate parsing understands Portuguese and English call-outs.
-
-## Limitations
-
-- Cameras without embedded timecode (e.g. Canon `MVI_*.MP4`) start at `00:00:00:00`; frame numbers are still exact.
-- One frame rate per exported timeline (mixed-fps plans are refused — make one per fps).
-- Rankings are evidence, not verdicts. For performances, look at the winner and the runner-up.
-- XML/EDL import has been validated structurally; behaviour may vary between Premiere/Resolve versions —
-  issues welcome.
-
-## License
+## Licença
 
 [MIT](LICENSE)

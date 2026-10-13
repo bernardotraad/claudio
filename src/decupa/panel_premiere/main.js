@@ -88,7 +88,10 @@ async function send(text) {
   $('#status').textContent = 'pensando…';
   let cur = null, buf = '';
   // stdin closed: otherwise claude -p waits 3 s for piped input ("no stdin data received")
-  child = cp.spawn(claudeExe(), args, { cwd: jobFolder(), windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
+  // apps opened from the Dock/Finder get a minimal PATH on macOS: add where claude, node, uv tools and ffmpeg live
+  const extra = process.platform === 'win32' ? [] : [path.join(os.homedir(), '.local', 'bin'), '/opt/homebrew/bin', '/usr/local/bin'];
+  const env = Object.assign({}, process.env, { PATH: [...extra, process.env.PATH || ''].join(path.delimiter) });
+  child = cp.spawn(claudeExe(), args, { cwd: jobFolder(), windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'], env });
   child.stdout.on('data', (chunk) => {
     buf += chunk.toString();
     let i;

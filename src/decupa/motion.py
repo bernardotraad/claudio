@@ -238,7 +238,7 @@ def narration(text, out_dir, engine='elevenlabs', voice=None, budget=None, lang=
         v = voice or ('pt-BR-ThalitaMultilingualNeural' if lang.startswith('pt') else 'en-US-AndrewMultilingualNeural')
         wav = os.path.join(out_dir, 'narration.wav')
         mp3 = os.path.join(out_dir, 'narration.mp3')
-        core.run(['edge-tts', '--voice', v, '--text', text, '--write-media', mp3])
+        core.run([sys.executable, '-m', 'edge_tts', '--voice', v, '--text', text, '--write-media', mp3])   # works inside a uv/pipx env too
         core.run(['ffmpeg', '-v', 'error', '-y', '-i', mp3, '-ar', '48000', '-ac', '2', wav])
         info = f'edge-tts {v}'
     dur = core.probe(wav)['duration']

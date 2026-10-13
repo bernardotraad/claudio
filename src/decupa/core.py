@@ -314,7 +314,7 @@ def heavy_codec(path):
 def _analyze_keyframes(path, d, info, qw, qh, progress):
     qf = 2
     qraw = os.path.join(d, 'q.gray')
-    run(['ffmpeg', '-y', '-loglevel', 'error', '-skip_frame', 'nokey', '-i', path, '-vf',
+    run(['ffmpeg', '-y', '-loglevel', 'error', '-skip_frame', 'nokey', *(['-hwaccel', 'videotoolbox'] if IS_MAC else []), '-i', path, '-vf',
          f'fps={qf},scale={qw}:{qh}:flags=area,format=gray', '-f', 'rawvideo', qraw])
     progress('picture', 0.9)
     q = np.fromfile(qraw, np.uint8)
@@ -350,7 +350,8 @@ def analyze_picture(path, d, info, progress=lambda *_: None):
                f'[a]scale={tw}:{th}:flags=area[t];[b]fps={QFPS}[q]',
                '-map', '[t]', '-f', 'rawvideo', 'pipe:1', '-map', '[q]', '-f', 'rawvideo', qraw]
     else:
-        cmd = ['ffmpeg', '-y', '-loglevel', 'error', '-threads', '0', '-skip_loop_filter', 'all', '-flags2', 'fast', '-i', path, '-filter_complex',
+        hw = ['-hwaccel', 'videotoolbox'] if IS_MAC else []          # Apple decoder; ffmpeg falls back to software
+        cmd = ['ffmpeg', '-y', '-loglevel', 'error', '-threads', '0', '-skip_loop_filter', 'all', '-flags2', 'fast', *hw, '-i', path, '-filter_complex',
                f'[0:v:0]split=2[a][b];[a]scale={tw}:{th}:flags=area,format=gray[t];'
                f'[b]fps={QFPS},scale={qw}:{qh}:flags=area,format=gray[q]',
                '-map', '[t]', '-f', 'rawvideo', 'pipe:1', '-map', '[q]', '-f', 'rawvideo', qraw]

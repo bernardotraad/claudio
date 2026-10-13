@@ -180,8 +180,8 @@ def run(folder, vocabulary=None, lang='pt'):
     return j
 
 
-if __name__ == '__main__':
-    ap = argparse.ArgumentParser()
+def cli():
+    ap = argparse.ArgumentParser(description='Index every video in a folder (writes the .md next to each clip).')
     ap.add_argument('folder')
     ap.add_argument('--vocabulary')
     ap.add_argument('--language', default='pt')
@@ -191,3 +191,7 @@ if __name__ == '__main__':
         print('already running', ex.get('pid'))
         sys.exit(0)
     run(a.folder, a.vocabulary, a.language)
+
+
+if __name__ == '__main__':
+    cli()

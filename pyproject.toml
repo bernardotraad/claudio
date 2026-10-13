@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "decupa"
-version = "0.5.0"
+version = "0.6.0"
 description = "MCP that sees and hears footage (takes, b-roll, contact sheets) and hands frame-accurate cuts to Premiere / Resolve"
 readme = "README.md"
 license = "MIT"
@@ -25,9 +25,13 @@ Homepage = "https://github.com/bernardotraad/decupa"
 
 [project.optional-dependencies]
 cuda = ["nvidia-cublas-cu12", "nvidia-cudnn-cu12>=9,<10"]
+motion = ["playwright", "edge-tts"]
 
 [project.scripts]
 decupa = "decupa.server:main"
+decupa-panel = "decupa.panel:main"
+decupa-doctor = "decupa.doctor:main"
+decupa-index = "decupa.indexer:cli"
 
 [tool.setuptools.packages.find]
 where = ["src"]

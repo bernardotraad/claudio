@@ -43,8 +43,12 @@ def install():
     return dst
 
 
-if __name__ == '__main__':
-    if sys.argv[1:] == ['install']:
-        print('panel installed at', core.nle_path(install()), '— restart Premiere: Window › Extensions › decupa')
+def main():
+    if sys.argv[1:] in ([], ['install']):
+        print('painel instalado em', core.nle_path(install()), '— reinicie o Premiere: Janela › Extensões › decupa')
     else:
         print(__doc__)
+
+
+if __name__ == '__main__':
+    main()
