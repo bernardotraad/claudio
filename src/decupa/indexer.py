@@ -69,6 +69,29 @@ def progress_line(j):
     return s
 
 
+def launch_detached(folder, vocabulary=None, lang='pt'):
+    """Start the indexer outside any chat. On WSL it is launched through a hidden Windows wsl.exe, so WSL stays up
+    until indexing ends even if Claude Desktop / Premiere / the panel are closed (WSL shuts down when no Windows
+    process is attached). Elsewhere a plain detached process."""
+    import shlex, subprocess as sp
+    folder = core.local_path(folder)
+    os.makedirs(JOBS, exist_ok=True)
+    args = [sys.executable, '-m', 'decupa.indexer', folder, '--language', lang] + (['--vocabulary', vocabulary] if vocabulary else [])
+    log = os.path.join(JOBS, 'indexer.log')
+    if core.IS_WSL:
+        sh = os.path.join(JOBS, hashlib.sha1(folder.encode()).hexdigest()[:12] + '.sh')
+        open(sh, 'w').write('#!/bin/bash\ncd /tmp\nexec ' + ' '.join(shlex.quote(a) for a in args) + f' >> {shlex.quote(log)} 2>&1 < /dev/null\n')
+        os.chmod(sh, 0o755)
+        distro = os.environ.get('WSL_DISTRO_NAME', 'Ubuntu')
+        ps = (f"Start-Process -WindowStyle Hidden -FilePath 'C:\\Windows\\System32\\wsl.exe' "
+              f"-ArgumentList '-d','{distro}','--','bash','{sh}'")
+        r = sp.run(['powershell.exe', '-NoProfile', '-Command', ps], cwd='/mnt/c', capture_output=True, text=True)
+        if r.returncode == 0:
+            return 'wsl.exe'
+    sp.Popen(args, stdout=open(log, 'a'), stderr=sp.STDOUT, stdin=sp.DEVNULL, start_new_session=True, close_fds=True)
+    return 'detached'
+
+
 def list_videos(folder):
     root = core.local_path(folder)
     out = []

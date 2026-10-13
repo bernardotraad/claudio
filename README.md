@@ -210,6 +210,10 @@ outside the `<!-- decupa:auto -->` markers is never overwritten.
 
 ## Progress you can see
 
+Indexing runs in its own process. On Windows + WSL it is launched through a hidden `wsl.exe`, so it keeps going when
+Claude Desktop, Premiere or the panel close. WSL shuts down when no Windows process is attached to it.
+
+
 `index_folder` / `index_media` / `sync_multicam` stream progress to the client: percentage, current clip and step,
 speed (× real time) and minutes left. The same line is shown on top of `_DECUPA.md` and in `index_status`.
 
@@ -316,6 +320,31 @@ Canon 10-bit 4:2:2): for those, proxies are the fast path.
   never overwrites yours.
 
 Requires Claude Code installed and logged in on the same machine.
+
+## Overview after indexing
+
+When a whole job is indexed, `project_digest` condenses every log: totals, cameras, colour, minutes of speech,
+frequent words, and what is said or seen per clip. Claude reads it, writes `<job>/_VISAO_GERAL.md` with
+`save_project_overview`, and asks two basics: approximate final duration, and soundtrack (a specific track or a
+mood/genre). It then proposes 2–4 directions grounded in the material. You pick one or explain your own idea. The
+Premiere panel offers this by itself when the progress bar completes.
+
+## Motion-designer on top of the edit
+
+The [motion-designer](https://github.com/bernardotraad) skill's core (layout, platform safe zones, `Captions()`,
+`EndCard()`, easing) renders **overlay assets** for the timeline. The background is transparent; PNG frames with
+alpha are encoded as **ProRes 4444** (Premiere and Resolve keep the alpha).
+
+| Tool | |
+| --- | --- |
+| `captions_srt` | Captions of the edit as it is now (words of A1 on the edit's clock), editable in Premiere/Resolve. |
+| `caption_overlay` | The same captions in the skill's social style: chunked per sentence, each word pops when spoken, plate behind. |
+| `render_overlay` | Lower thirds, titles, callouts, end cards written against the skill's core. |
+| `narration` | ElevenLabs (one take, word timings, credit budget) or edge-tts → `narration.wav`. |
+| `motion_reference` | The skill's craft rules (readability, safe zones, captions, narration). |
+
+These are assets you lay on the timeline, not a render of the video. The skill is looked up in
+`$DECUPA_MOTION_SKILL` or `~/.claude/skills/motion-designer`.
 
 ## Building the timeline (with the Premiere / Resolve MCP)
 

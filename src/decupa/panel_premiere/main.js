@@ -64,6 +64,8 @@ const QUICK = {
   notes: () => `Exporte a sequência ativa ("${ctx.sequence || ''}") como FCP XML com o MCP do Premiere, rode compare_with_nle contra a última versão do projeto decupa deste trabalho, e me mostre o que eu mudei e as notas (marcadores) que deixei. Não aplique nada ainda: proponha e espere meu ok.`,
   qc: () => `Faça o QC da sequência ativa ("${ctx.sequence || ''}", ${ctx.frame_size || ''}) antes de eu exportar: exporte como FCP XML com o MCP do Premiere e rode qc_timeline. Liste os problemas e pergunte se quero que você marque cada um como marcador na timeline.`,
   status: () => `Rode index_status e me diga o progresso em uma linha.`,
+  overview: () => `Faça a visão geral do projeto: project_digest na pasta "${rawFolder()}", entenda sobre o que é o trabalho, salve com save_project_overview em "${jobFolder()}" e me resuma em 4–6 linhas. Depois me pergunte a duração aproximada do vídeo final e a trilha (uma música específica ou um mood/gênero) e proponha 2–4 direcionamentos concretos a partir do material. Eu escolho um ou explico a minha ideia.`,
+  captions: () => `Legendas da sequência ativa ("${ctx.sequence || ''}", ${ctx.frame_size || ''}): exporte como FCP XML com o MCP do Premiere; gere o .srt editável (captions_srt) e o overlay estilizado com alpha (caption_overlay, aspect conforme o frame da sequência) em "${path.join(jobFolder(), '#projeto', 'decupa_overlays')}"; importe e coloque o overlay na trilha de vídeo mais alta em 0 s. Use o vocabulário do cliente como fix. Me mostre antes de importar.`,
   vault: () => `Registre este trabalho no vault (conector Vault), seguindo as regras do CLAUDE.md do vault (leia-o com read_note antes): 1) nota do trabalho com cliente, data, pasta "${jobFolder()}", material (câmeras, horas, cor/log, áudio), decisões de montagem desta conversa, versões entregues e onde estão os arquivos (.md da decupagem, XMLs, perfil do cliente); 2) entrada no diário de hoje (append_diary) com um resumo de 2–4 linhas e link pra nota; 3) se o cliente tiver página, linke. Não grave senhas nem dados sensíveis. No fim me diga o que foi escrito.`,
 };
 
@@ -85,7 +87,8 @@ async function send(text) {
   $('#send').disabled = true; $('#stop').disabled = false;
   $('#status').textContent = 'pensando…';
   let cur = null, buf = '';
-  child = cp.spawn(claudeExe(), args, { cwd: jobFolder(), windowsHide: true });
+  // stdin closed: otherwise claude -p waits 3 s for piped input ("no stdin data received")
+  child = cp.spawn(claudeExe(), args, { cwd: jobFolder(), windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
   child.stdout.on('data', (chunk) => {
     buf += chunk.toString();
     let i;
@@ -158,6 +161,13 @@ function showProgress() {
   const name = path.basename(String(best.folder || '').replace(/\\/g, '/'));
   box.querySelector('.txt').textContent = `${best.state === 'running' ? 'Indexando' : best.state === 'done' ? 'Indexado' : 'Indexação parada'} ${name}: ${best.line || ''}`;
   box.querySelector('.fill').style.width = Math.round((best.fraction || 0) * 100) + '%';
+  const key = 'decupa-overview-offered:' + (best.folder || '');
+  if (best.state === 'done' && !localStorage.getItem(key)) {
+    localStorage.setItem(key, '1');
+    const d = add('claude', `Material todo indexado (${best.files_total || ''} clipes). Quer que eu faça a visão geral do projeto e proponha direcionamentos?  `);
+    const b = document.createElement('button'); b.textContent = 'Fazer visão geral'; b.className = 'primary';
+    b.onclick = async () => { await readContext(); send(QUICK.overview()); }; d.appendChild(b);
+  }
 }
 setInterval(showProgress, 2000);
 

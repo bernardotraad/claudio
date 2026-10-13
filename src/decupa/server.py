@@ -240,10 +240,8 @@ async def index_folder(folder: str, ctx: Context, language: str = 'pt', vocabula
     pending = [f for f in files if not _is_indexed(f) or vocabulary]
     j = indexer.read_job(root)
     if pending and not (j and j.get('state') == 'running'):
-        logf = open(os.path.join(core.cache_dir(root) if os.path.isfile(root) else indexer.JOBS, 'indexer.log'), 'a')
-        cmd = [sys.executable, '-m', 'decupa.indexer', root, '--language', language] + (['--vocabulary', vocabulary] if vocabulary else [])
-        sp.Popen(cmd, stdout=logf, stderr=logf, stdin=sp.DEVNULL, start_new_session=True, close_fds=True)
-        await asyncio.sleep(3)
+        indexer.launch_detached(root, vocabulary, language)      # survives the chat, the panel and Claude Desktop
+        await asyncio.sleep(4)
     # already-indexed clips without their .md get one now
     for f in files:
         if f not in pending:
@@ -735,6 +733,96 @@ def qc_timeline(nle_xml: str, platform: str = None, sequence_width: int = None, 
     return qc.qc_timeline(nle_xml, platform, size)
 
 
+# ───────────────────────────── project overview · motion-designer on top of the edit ─────────────────────────────
+@mcp.tool()
+def project_digest(folder: str) -> dict:
+    """AFTER indexing the whole job: everything the logs know, condensed (totals, cameras, colour, minutes of speech,
+    most frequent words, what is said / seen per clip). Read it, understand what the project IS, write the overview
+    with save_project_overview, then ask the user the basics (approximate final duration; soundtrack — a specific
+    track or a mood/genre) and propose 2–4 concrete directions grounded in the material. They pick one or explain their
+    own idea, and the edit starts from there."""
+    from decupa import sidecar as _s
+    return _s.project_digest(folder)
+
+
+@mcp.tool()
+def save_project_overview(job_folder: str, markdown: str) -> dict:
+    """Write <job>/_VISAO_GERAL.md — what the project is about, the material (cameras, hours, colour, sound, people,
+    places, moments), what is strong / missing, the open questions (duration, soundtrack) and the proposed directions.
+    Any agent reads it next time. Text outside the auto markers is kept."""
+    from decupa import sidecar as _s
+    return {'written': core.nle_path(_s.write_overview(job_folder, markdown))}
+
+
+@mcp.tool()
+def motion_reference(topic: str = None) -> str:
+    """The motion-designer skill's craft rules (readability, safe zones, captions, narration, composition, fit…).
+    Read the relevant section BEFORE designing an overlay or writing narration."""
+    from decupa import motion
+    return motion.reference(topic)
+
+
+@mcp.tool()
+async def render_overlay(code: str, name: str, out_folder: str, ctx: Context, aspect: str = '9x16', fps: str = '30000/1001') -> dict:
+    """An overlay ASSET for the edit (lower third, title, animated callout, end card…) made with the motion-designer
+    skill's core on a TRANSPARENT background → ProRes 4444 .mov with alpha, ready to import and lay on the top video
+    track at the time it should appear. aspect: 9x16 · 16x9 · 1x1 · 4x5 or WxH (match the sequence). fps: the
+    sequence rate. This is an asset for the timeline, not a render of the video.
+    """
+    import asyncio
+    from decupa import motion
+    st = {'f': 0.0}
+    loop = asyncio.get_running_loop()
+    task = loop.run_in_executor(None, lambda: motion.render_overlay(code, name, out_folder, aspect, fps, progress=lambda f: st.update(f=f)))
+    while not task.done():
+        try:
+            await ctx.report_progress(st['f'] * 100, 100, f'renderizando overlay {name} {int(st["f"] * 100)}%')
+        except Exception:
+            pass
+        await asyncio.sleep(2)
+    return task.result()
+
+
+@mcp.tool()
+async def caption_overlay(nle_xml: str, out_folder: str, ctx: Context, aspect: str = '9x16', accent: str = '#4ea1ff',
+                          uppercase: bool = False, max_words: int = 4, fix: dict = None) -> dict:
+    """Styled social captions for the edit as it is NOW (export the sequence as FCP7 XML first): the words of the clips
+    on A1, on the edit's clock, drawn with the skill's Captions() (chunked per sentence, each word pops when spoken,
+    plate behind) → one transparent ProRes 4444 .mov the length of the edit, to lay on the top track at 0.
+    fix: spelling fixes {"Enki": "INC"}. For editable captions use captions_srt instead (or both)."""
+    import asyncio
+    from decupa import motion
+    st = {'f': 0.0}
+    loop = asyncio.get_running_loop()
+    task = loop.run_in_executor(None, lambda: motion.caption_overlay(nle_xml, out_folder, aspect, accent, uppercase, max_words, fix,
+                                                                     progress=lambda f: st.update(f=f)))
+    while not task.done():
+        try:
+            await ctx.report_progress(st['f'] * 100, 100, f'renderizando legendas {int(st["f"] * 100)}%')
+        except Exception:
+            pass
+        await asyncio.sleep(2)
+    return task.result()
+
+
+@mcp.tool()
+def captions_srt(nle_xml: str, out_srt: str, max_words: int = 4, max_chars: int = 24, fix: dict = None) -> dict:
+    """Captions of the edit as an .srt (editable): Premiere — import as a caption track; Resolve — import subtitle.
+    Same chunking rules as the styled overlay (≤ max_words / max_chars, never across a sentence end)."""
+    from decupa import motion
+    return motion.captions_srt(nle_xml, out_srt, max_words, max_chars, fix)
+
+
+@mcp.tool()
+def narration(text: str, out_folder: str, engine: str = 'elevenlabs', voice: str = None, budget: int = None) -> dict:
+    """Narration for the edit with the motion-designer skill: engine='elevenlabs' (one continuous take, word timings,
+    cached; voice = ElevenLabs voice_id; hard credit budget, default = text length + 10 % — tell the user the cost
+    BEFORE running) or engine='edge' (free edge-tts pt-BR/en voices). Returns narration.wav (+ words.json) to import
+    on an audio track. Follow motion_reference('Narration') for how to write the script."""
+    from decupa import motion
+    return motion.narration(text, out_folder, engine, voice, budget)
+
+
 EDIT_DOC = """edit = {
   "name": "INC — Guilherme v1", "aspect": "9:16" | "16:9" | "1:1" | "4:5", "fps": optional "30000/1001",
   "music": {"path": "D:\\x\\song.wav", "start": 63.32 (a downbeat, from music_windows), "gain_db": -4, "duck_db": -14,
@@ -873,6 +961,9 @@ marked "(Recomendado)" with a one-line reason). Skip what the request already an
    BPM (+ half-time reading), sections, drop, silences. music_windows(duration) → offer the 2–3 best stretches.
 6. PACE & SOUND (one call): pace (follow the music · calm · medium · fast) · cuts on beat or bar · original sound
    (speech in front, music ducked · low ambience · music only) · opening/closing (hook in 3 s, end card file, CTA).
+6a. OVERVIEW (after everything is indexed): project_digest → understand what the project is → save_project_overview
+   (<job>/_VISAO_GERAL.md) → tell the user in 4–6 lines → ask: approximate final duration; soundtrack (a specific
+   track, or a mood/genre) → propose 2–4 concrete directions grounded in the material; they pick one or explain theirs.
 6b. SELECTS first (the editor checks your logging in the NLE before any cut): make_selects → import → ask if the
    choices of takes / b-roll look right.
 7. LOGGING with your eyes: scenes / takes (best take — usually the last complete one; a take the speaker criticised is
@@ -887,6 +978,10 @@ marked "(Recomendado)" with a one-line reason). Skip what the request already an
 10. Each round of notes: export the CURRENT timeline from the NLE → compare_with_nle (what the editor changed + their
     marker notes) → adopt_nle_timeline (their changes become the base) → apply the notes → export_edit → import as a
     NEW sequence. Never overwrite the editor's sequence; never undo their manual changes.
+10b. Overlays / captions / narration when the piece needs them (motion-designer skill): motion_reference first;
+    captions_srt (editable) and/or caption_overlay (styled, alpha); render_overlay for lower thirds / titles / end cards;
+    narration (ElevenLabs — say the cost first — or edge). Save into <job>/#projeto/decupa_overlays and import them on
+    the top video track / an audio track at the right time. These are ASSETS for the timeline, not a final render.
 11. Before they finalise: qc_timeline(current XML, platform) → offer the issues as markers; they decide.
 12. Render (render_edit with authorized_by_user=True) ONLY if the user asks for a rendered file. At the end,
     save_client_profile(jobs=[...], plus anything learned) so the next job starts from here.

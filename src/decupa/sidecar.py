@@ -189,3 +189,72 @@ def write_folder_md(folder, progress=None):
         return p
     except OSError:
         return None
+
+
+# ───────────────────────────── project overview (after everything is indexed) ─────────────────────────────
+STOP = set('a o e de da do das dos que um uma é em no na nos nas pra para por com se não mas mais como eu você ele ela a gente '
+           'isso esse essa aqui lá tá né então já foi vai ser tem ter meu minha seu sua the and to of in is it you that on for'.split())
+
+
+def project_digest(folder, max_chars=18000):
+    """Everything the logs know about a job, condensed for reading at once: totals, cameras, colour, when it was shot,
+    what is said (most frequent words, first lines per clip), what was seen (annotations), takes, b-roll."""
+    import collections
+    root = core.local_path(folder)
+    vids = []
+    for dp, dn, fn in os.walk(root):
+        dn[:] = [x for x in dn if x.lower() not in core.PROXY_DIRS and not x.startswith(('_decupa', '.', '#'))]
+        vids += [os.path.join(dp, f) for f in sorted(fn) if os.path.splitext(f)[1].lower() in core.VIDEO_EXT and not core.is_proxy(os.path.join(dp, f))]
+    clips, words, cams, colors, total, speech_s, not_indexed = [], collections.Counter(), collections.Counter(), collections.Counter(), 0.0, 0.0, []
+    for p in vids:
+        ip = os.path.join(core.cache_dir(p), 'index.json')
+        if not os.path.exists(ip):
+            not_indexed.append(os.path.basename(p)); continue
+        idx = json.load(open(ip))
+        info = idx['info']; total += info['duration']
+        col = {}
+        cp = os.path.join(idx['cache'], 'color.json')
+        if os.path.exists(cp):
+            col = json.load(open(cp))
+        if not col.get('camera'):
+            try:
+                col['camera'] = core.camera_of(p)          # bytes scan only: milliseconds
+            except Exception:
+                pass
+        cams[col.get('camera') or '?'] += 1
+        colors[(col.get('profile') or 'não medido').replace('provável ', '')] += 1
+        segs = (idx.get('speech') or {}).get('segments') or []
+        txt = ' '.join(s['text'] for s in segs)
+        if segs:
+            speech_s += sum(s['e'] - s['s'] for s in segs)
+        for w in re.findall(r'\w+', txt.lower()):
+            if len(w) > 3 and w not in STOP and core.norm(w) not in core.CREW:
+                words[w] += 1
+        log = core.read_log(idx) if os.path.exists(core.log_path(idx)) else []
+        clips.append({'clip': os.path.relpath(p, root), 'dur': round(info['duration'], 1), 'tc': info.get('start_tc'),
+                      'fps': info.get('fps_float'), 'speech': bool(segs) and len(txt) > 60,
+                      'said': core.clean_text(txt)[:220], 'seen': [l['text'] for l in log][:3]})
+    head = {'folder': core.nle_path(root), 'clips': len(clips), 'not_indexed': not_indexed[:20], 'total_min': round(total / 60, 1),
+            'speech_min': round(speech_s / 60, 1), 'cameras': dict(cams), 'color': dict(colors),
+            'frequent_words': [w for w, _ in words.most_common(40)]}
+    body, used = [], len(json.dumps(head, ensure_ascii=False))
+    for c in clips:
+        s = json.dumps(c, ensure_ascii=False)
+        if used + len(s) > max_chars:
+            body.append({'more_clips': len(clips) - len(body)}); break
+        body.append(c); used += len(s)
+    return {**head, 'per_clip': body}
+
+
+def write_overview(job_folder, markdown):
+    """_VISAO_GERAL.md at the job root: what the project is, the material, the open questions and the directions."""
+    root = core.local_path(job_folder)
+    p = os.path.join(root, '_VISAO_GERAL.md')
+    old = open(p, encoding='utf-8').read() if os.path.exists(p) else ''
+    body = markdown.strip() + '\n'
+    if AUTO_BEGIN in old and AUTO_END in old:
+        new = old[:old.index(AUTO_BEGIN)] + AUTO_BEGIN + '\n' + body + old[old.index(AUTO_END):]
+    else:
+        new = AUTO_BEGIN + '\n' + body + AUTO_END + '\n\n## Notas\n_(livre — o decupa não apaga o que estiver fora dos marcadores)_\n'
+    open(p, 'w', encoding='utf-8').write(new)
+    return p
