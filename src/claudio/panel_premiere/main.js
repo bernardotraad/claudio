@@ -143,11 +143,11 @@ function add(cls, text, keep = true, t = Date.now()) {
   if (keep) { hist.push({ cls, text, t }); saveHist(); }
   const d = document.createElement('div');
   d.className = 'msg ' + cls;
-  if (cls === 'user' || cls.startsWith('claude')) {
+  if (cls === 'user' || cls.startsWith('claude') || cls.startsWith('local')) {
     const hd = document.createElement('div'), bd = document.createElement('div');
     hd.className = 'hd'; bd.className = 'bd';
     const when = new Date(t);
-    hd.innerHTML = `<b>${cls === 'user' ? 'você' : 'cláudio'}</b><time>${String(when.getHours()).padStart(2, '0')}:${String(when.getMinutes()).padStart(2, '0')}</time>`;
+    hd.innerHTML = `<b>${cls === 'user' ? 'você' : cls.startsWith('local') ? 'painel · sem IA' : 'cláudio'}</b><time>${String(when.getHours()).padStart(2, '0')}:${String(when.getMinutes()).padStart(2, '0')}</time>`;
     if (cls === 'user') bd.textContent = text; else bd.innerHTML = md(text);
     d.append(hd, bd);
   } else {
@@ -258,6 +258,103 @@ function warnChanges(list, snap, bk) {
   lastWarning = `[Aviso do painel: na sua última resposta, clipes que já estavam na sequência "${snap.name}" foram alterados sem estar previsto: ${list.slice(0, 8).join('; ')}. Explique ao editor o que aconteceu e não mexa em trilhas ocupadas.]\n`;
 }
 
+// ── local jobs: claudio-run straight from the panel, no AI model, no credits ─────────────────────────────────
+function claudioCmd() {
+  // the same registration Claude Code uses (~/.claude.json → mcpServers.claudio), with claudio → claudio-run
+  try {
+    const cfg = JSON.parse(fs.readFileSync(path.join(os.homedir(), '.claude.json'), 'utf8'));
+    const m = cfg.mcpServers && cfg.mcpServers.claudio;
+    if (m) {
+      if (/wsl(\.exe)?$/i.test(m.command)) {
+        const a = m.args || [];
+        const exe = a[a.length - 1];
+        const d = a.indexOf('-d');
+        return { cmd: m.command, pre: [...(d >= 0 ? ['-d', a[d + 1]] : []), '--exec', exe + '-run'] };
+      }
+      return { cmd: m.command + '-run', pre: [] };
+    }
+  } catch (e) {}
+  return { cmd: path.join(os.homedir(), '.local', 'bin', 'claudio-run'), pre: [] };
+}
+function runLocal(action, args) {
+  return new Promise((res) => {
+    const c = claudioCmd();
+    const b64 = 'b64:' + Buffer.from(JSON.stringify(args || {}), 'utf8').toString('base64');
+    let out = '';
+    const p = cp.spawn(c.cmd, [...c.pre, action, b64], { windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
+    p.stdout.on('data', (d) => { out += d.toString(); });
+    p.on('close', () => { try { res(JSON.parse(out.trim().split('\n').pop())); } catch (e) { res({ ok: false, error: out.slice(-400) || 'sem resposta' }); } });
+    p.on('error', (e) => res({ ok: false, error: String(e) }));
+  });
+}
+async function exportActive() {
+  await readContext();
+  if (!ctx.sequence) { add('local err', 'Abra a sequência na timeline primeiro.', false); return null; }
+  const snap = await snapshot('');
+  const p = snap && await backup(snap);
+  if (!p) add('local err', 'Não consegui exportar a sequência ativa como XML.', false);
+  return p;
+}
+async function localJob(label, fn) {
+  if (child || localBusy) return;
+  localBusy = true; document.body.classList.add('busy'); toolStart(label + ' (local, sem IA)');
+  try { await fn(); } catch (e) { add('local err', String(e)); }
+  localBusy = false; document.body.classList.remove('busy'); toolStart(null); $('#status').textContent = '';
+}
+let localBusy = false;
+const dur = (s) => clock(+s);
+const LOCAL = {
+  status: () => localJob('status', async () => {
+    const r = await runLocal('status', { folder: rawFolder() });
+    add('local', r.ok ? (r.jobs.length ? r.jobs.map((j) => `**${path.basename(j.folder.replace(/\\/g, '/'))}**: ${j.line}`).join('\n') : 'Nenhuma indexação nesta pasta.') : r.error);
+  }),
+  index: () => localJob('indexação', async () => {
+    const r = await runLocal('index', { folder: rawFolder() });
+    add('local', r.ok ? (r.started ? `Indexação iniciada em segundo plano: ${r.files} vídeos em \`${rawFolder()}\`. A barra embaixo mostra o progresso; pode fechar o painel.` : `Já está indexando: ${r.line}`) : r.error);
+    progScan = 0;
+  }),
+  stereo: () => {
+    const d = add('local', 'Áudio que sai de um lado só (lapela ou um microfone em L ou R) passa a sair dos dois. Quer também **nivelar as falas** (cada clipe com fala no mesmo volume, até +12 dB)? O resultado vem numa sequência nova.', false);
+    for (const [txt, norm] of [['Só deixar estéreo', false], ['Estéreo + nivelar falas', true]]) {
+      const b = document.createElement('button'); b.textContent = txt;
+      b.onclick = () => { d.querySelectorAll('button').forEach((x) => (x.disabled = true)); stereoRun(norm); };
+      d.appendChild(b);
+    }
+  },
+  flatten: () => localJob('desaninhar', async () => {
+    const x = await exportActive(); if (!x) return;
+    const r = await runLocal('flatten', { nle_xml: x });
+    if (!r.ok) return add('local err', r.error);
+    const m = add('local', `**${r.nests_expanded.length} aninhada(s)** viraram **${r.clips_video} clipes de vídeo** e ${r.clips_audio} de áudio direto nas trilhas.` +
+      (r.dropped.length ? `\n\nFicou de fora (copie da sequência antiga para a trilha de cima): ${r.dropped.join('; ')}` : '') + `\n\nXML: \`${r.nle_path}\``);
+    importButtons(m, r.nle_path);
+  }),
+  qc: () => localJob('QC', async () => {
+    const x = await exportActive(); if (!x) return;
+    const r = await runLocal('qc', { nle_xml: x, platform: null });
+    if (!r.ok) return add('local err', r.error);
+    const iss = (r.issues || []).slice(0, 15).map((i) => `- \`${i.tc}\` ${i.severity === 'high' ? '**' + i.issue + '**' : i.issue}${i.detail ? ' — ' + i.detail : ''}`).join('\n');
+    const a = r.audio || {};
+    add('local', `**QC de "${ctx.sequence}"**: ${(r.issues || []).length} ponto(s).\n\n${iss || '- nada na imagem'}\n\n**Áudio:** ${a.lufs != null ? a.lufs + ' LUFS' : '—'} (alvo ${a.platform_target_lufs}), pico ${a.true_peak_db} dBTP` +
+      ((a.notes || []).length ? '\n' + a.notes.map((n) => '- ' + n).join('\n') : '') +
+      ((a.ducking || []).length ? '\n\n| começa | termina | abaixar a música |\n|---|---|---|\n' + a.ducking.map((d) => `| \`${d.tc}\` | ${dur(d.end)} | ${d.lower_music_by_db} dB |`).join('\n') : ''));
+  }),
+};
+async function stereoRun(normalize) {
+  await localJob('áudio estéreo', async () => {
+    const x = await exportActive(); if (!x) return;
+    const r = await runLocal('stereo', { nle_xml: x, normalize });
+    if (!r.ok) return add('local err', r.error);
+    const fx = r.made_dual_mono || [];
+    const m = add('local', `**${fx.length} clipe(s)** com áudio de um lado só agora saem dos dois lados` +
+      (fx.length ? ':\n\n| clipe | na timeline | lado com som |\n|---|---|---|\n' + fx.slice(0, 20).map((f) => `| ${f.clip} | ${dur(f.tl)} | ${f.side} |`).join('\n') : '.') +
+      ((r.two_live_channels_kept || []).length ? `\n\nMantidos com dois microfones: ${r.two_live_channels_kept.length}.` : '') +
+      (normalize ? `\n\n**${(r.normalized || []).length} fala(s) niveladas** em ${r.target_lufs} LUFS` + ((r.normalized || []).some((n) => n.capped) ? ' (algumas no teto de +12 dB: o áudio da câmera estava muito baixo)' : '') + '.' : '') +
+      ((r.skipped || []).length ? `\n\nSem mexer: ${r.skipped.join('; ')}` : '') + `\n\nSequência nova: **${r.sequence}** · XML: \`${r.nle_path}\``);
+    importButtons(m, r.nle_path);
+  });
+}
+
 function contextBlock() {
   const sel = (ctx.selection || []).map((s) => `  - ${s.name} (${s.track_type}) timeline ${(+s.start_s).toFixed(2)}–${(+s.end_s).toFixed(2)}s, fonte ${(+s.in_s).toFixed(2)}–${(+s.out_s).toFixed(2)}s${s.media ? ' · ' + s.media : ''}`).join('\n');
   const warn = lastWarning; lastWarning = '';
@@ -292,7 +389,8 @@ async function send(text) {
   const before = ctx.sequence ? await snapshot('') : null;
   const bk = before ? await backup(before) : null;
   const sid = localStorage.getItem(sessionKey);
-  const args = ['-p', contextBlock() + text, '--output-format', 'stream-json', '--verbose',
+  const model = ($('#model') && $('#model').value) || 'sonnet';
+  const args = ['-p', contextBlock() + text, '--output-format', 'stream-json', '--verbose', '--model', model,
                 '--allowedTools', 'mcp__claudio,mcp__premiere-pro,mcp__davinci-resolve,mcp__claude_ai_Vault,mcp__claude_ai_Storyblocks,Read,Glob,Grep',
                 // allowedTools only pre-approves; this BLOCKS shell and file edits from the panel
                 '--disallowedTools', 'Bash,PowerShell,Edit,Write,NotebookEdit'];
@@ -360,7 +458,12 @@ $('#binhead').onclick = () => {
   try { localStorage.setItem('claudio-bin-shut', shut ? '1' : '0'); } catch (e) {}
 };
 $('#newchat').onclick = () => { localStorage.removeItem(sessionKey); log.innerHTML = ''; hist = []; saveHist(); add('meta', 'nova conversa', false); };
-document.querySelectorAll('#quick button').forEach((b) => (b.onclick = async () => { await readContext(); send(QUICK[b.dataset.q]()); }));
+document.querySelectorAll('#quick button').forEach((b) => (b.onclick = async () => {
+  if (LOCAL[b.dataset.q]) return LOCAL[b.dataset.q]();       // no AI: runs on this machine, no credits
+  await readContext(); send(QUICK[b.dataset.q]());
+}));
+try { const m = localStorage.getItem('claudio-model'); if (m && $('#model')) $('#model').value = m; } catch (e) {}
+if ($('#model')) $('#model').onchange = () => { try { localStorage.setItem('claudio-model', $('#model').value); } catch (e) {} };
 
 // indexing progress: read <footage>/_claudio/progress.json (written by the background indexer) every 2 s
 function findProgressFiles() {

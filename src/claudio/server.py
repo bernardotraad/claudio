@@ -762,6 +762,18 @@ async def find_shot(query: str, ctx: Context, folder: str = None, paths: list[st
 
 
 @mcp.tool()
+def stereo_fix(nle_xml: str, normalize: bool = False, out_xml: str = None) -> dict:
+    """Audio that plays on ONE side only (a lav or a single mic recorded on L or R) → plays on BOTH sides. Reads the
+    editor's sequence (FCP7 XML), measures L and R of every audio clip over the part used, and where one side is
+    (near) silent makes both tracks play the live channel (dual mono); two live channels (two mics) are kept.
+    normalize=True also levels every clip with speech to the same dialogue loudness (−18 LUFS per clip, Audio Levels,
+    max +12 dB; muted or keyframed clips untouched). Nested sequences are flattened. Writes a NEW sequence — hand the
+    editor the XML path (panel import button)."""
+    from claudio import stereo
+    return stereo.stereo_fix(nle_xml, out_xml, normalize=normalize)
+
+
+@mcp.tool()
 def flatten_timeline(nle_xml: str, out_xml: str = None, name: str = None) -> dict:
     """Clips straight on the timeline instead of nested sequences. Reads an FCP7 XML of the editor's sequence (Premiere
     MCP export_as_fcp_xml) and writes a NEW sequence where every nested sequence is replaced by its own clips — each

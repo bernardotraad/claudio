@@ -41,6 +41,7 @@ card ─► ingest ─► logging (.md next to every clip) ─► overview + que
 | Choose | `scenes`, `takes`, `broll`, `find_phrase`, `annotate` | Best take of every line (usually the last complete one; a take the speaker criticised is out) and usable b-roll stretches. Notes go into the `.md`. |
 | Visual search | `find_shot` | Finds shots by description ("hands on the guitar neck", "road at sunset") with CLIP on the CPU; thumbnails come from indexing itself. |
 | People | `people`, `name_people`, `find_person` | Who appears (faces) and who speaks (voices), the same person under one name across clips; you confirm the names and they stick ("only Caio's lines"). |
+| Stereo audio | `stereo_fix` | Audio that plays on one side only (a lav or a single mic on L or R) plays on both; two real mics are kept. Optionally levels the speech. |
 | Flatten | `flatten_timeline` | Replaces nested sequences with their own clips, straight on the tracks, to grade take by take. |
 | Multicam | `sync_multicam` | Syncs cameras and recorders by audio, replacing PluralEyes: corrects recorder drift and exports an XML in the same layout, with **one label colour per camera** (video, audio and bin) and another for external audio. |
 | Selects | `make_selects` | Best-take and b-roll sequences + markers on every clip (✅ best / ✗ criticised / 👁 notes). |
@@ -376,6 +377,18 @@ The old `DECUPA_*` variables still work.
   **Importar no Premiere** button that saves the project and imports one XML at a time with Premiere's dialogs shown.
   Regular media (`.mov` overlays, `.wav`, `.srt`) can go through the MCP.
 - Take ranking is evidence, not a verdict. For performances, look at the winner and the runner-up.
+
+## Spending little AI
+
+Cláudio runs **on your machine**: transcription, picture, sync, visual search, faces, voices, captions and QC use no AI
+credits. What costs is the conversation with the model (Claude), and each message resends the history.
+
+- **"sem IA" buttons** (green dot in the panel): Analisar material, QC, Áudio estéreo, Desaninhar and Status run
+  straight in Cláudio through `claudio-run`, with no model at all.
+- **Model picker** in the panel: Econômico (Haiku) for simple questions, Padrão (Sonnet) day to day, Máximo (Opus)
+  only for hard editing calls.
+- **＋ new conversation** when the subject changes: a long conversation costs more on every message.
+- From a terminal: `claudio-run <status|index|stereo|flatten|qc|sync> '{json}'`.
 
 ## Tests
 

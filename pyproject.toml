@@ -38,6 +38,7 @@ claudio = "claudio.server:main"
 claudio-panel = "claudio.panel:main"
 claudio-doctor = "claudio.doctor:main"
 claudio-index = "claudio.indexer:cli"
+claudio-run = "claudio.run:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

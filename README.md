@@ -41,6 +41,7 @@ cartão ─► ingest ─► decupagem (.md ao lado de cada clipe) ─► visão
 | Escolher | `scenes`, `takes`, `broll`, `find_phrase`, `annotate` | Melhor take de cada fala (geralmente o último completo; o take que o falante criticou fica de fora) e trechos de b-roll aproveitáveis. As anotações vão pro `.md`. |
 | Busca visual | `find_shot` | Acha planos pela descrição ("mãos no braço da guitarra", "estrada ao pôr do sol"), com CLIP rodando na CPU. As miniaturas saem da própria indexação. |
 | Pessoas | `people`, `name_people`, `find_person` | Quem aparece (rostos) e quem fala (vozes), a mesma pessoa com o mesmo nome em todos os clipes. Você confirma os nomes e eles ficam guardados. Ex.: "só as falas do Caio". |
+| Áudio estéreo | `stereo_fix` | Áudio que sai de um lado só (lapela ou um microfone em L ou R) passa a sair dos dois; dois microfones de verdade ficam como estão. Opcional: nivela as falas. |
 | Desaninhar | `flatten_timeline` | Troca as sequências aninhadas pelos próprios clipes, direto nas trilhas, para corrigir a cor take a take. |
 | Multicâmera | `sync_multicam` | Sincroniza câmeras e gravadores pelo áudio, no lugar do PluralEyes: corrige o drift do gravador e gera o XML no mesmo layout, com uma **cor de label por câmera** (vídeo, áudio e bin) e outra para o áudio externo. |
 | Selects | `make_selects` | Sequências de melhores takes e de b-roll + marcadores em todos os clipes (✅ melhor / ✗ criticado / 👁 notas). |
@@ -377,6 +378,18 @@ As variáveis antigas `DECUPA_*` continuam valendo.
   o botão **Importar no Premiere**, que salva o projeto e importa um XML por vez com as janelas do Premiere visíveis.
   Mídia comum (overlays `.mov`, `.wav`, `.srt`) pode ir pelo MCP.
 - O ranking de takes é evidência, não veredito. Em atuação, olhe o vencedor e o segundo colocado.
+
+## Gastar pouca IA
+
+O Cláudio roda **na sua máquina**: transcrição, imagem, sync, busca visual, rostos, vozes, legendas e QC não usam
+crédito de IA. O que consome é a conversa com o modelo (Claude), e cada mensagem reenvia o histórico.
+
+- **Botões "sem IA"** (ponto verde no painel): Analisar material, QC, Áudio estéreo, Desaninhar e Status rodam direto
+  no Cláudio pelo `claudio-run`, sem modelo nenhum.
+- **Seletor de modelo** no painel: Econômico (Haiku) para perguntas simples, Padrão (Sonnet) para o dia a dia,
+  Máximo (Opus) só para decisões difíceis de montagem.
+- **＋ nova conversa** quando mudar de assunto: conversa longa custa mais a cada mensagem.
+- Pelo terminal: `claudio-run <status|index|stereo|flatten|qc|sync> '{json}'`.
 
 ## Testes
 
