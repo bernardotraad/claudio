@@ -1,6 +1,7 @@
 /* Cláudio, o Editor — panel: talk to Claude Code (with the claudio + Premiere MCPs) from inside Premiere.
    Each message runs `claude -p … --output-format stream-json --resume <session>` in the job folder, with the current
-   Premiere context (project, active sequence, playhead, selected clips) attached. Tools are limited to the MCP servers
+   Premiere context (project, active sequence, playhead, selected clips, tracks, and the sequence already exported as
+   FCP XML) attached, and only the claudio + Premiere MCPs loaded. Tools are limited to the MCP servers
    and file reading: the panel never runs shell commands. The editor stays in control: Claude proposes, asks, and
    builds new sequences; it never overwrites the editor's. */
 const cp = require('child_process');
@@ -196,11 +197,11 @@ function rawFolder() {
 const QUICK = {
   index: () => `Analise o material bruto deste trabalho: index_folder na pasta "${rawFolder()}" (mostre o progresso). Se houver perfil do cliente (client_profile), use o vocabulário dele. No fim, me diga em 4–6 linhas o que tem no material.`,
   selects: () => `Faça as selects deste trabalho com make_selects (pasta "${rawFolder()}", XML em "${path.join(jobFolder(), '#projeto', 'claudio_selects.xml')}") e escreva o caminho completo do XML (o painel mostra o botão de importar) — não importe XML pelo MCP do Premiere. Depois me resuma as escolhas.`,
-  notes: () => `Exporte a sequência ativa ("${ctx.sequence || ''}") como FCP XML com o MCP do Premiere, rode compare_with_nle contra a última versão entregue pelo Cláudio deste trabalho, e me mostre o que eu mudei e as notas (marcadores) que deixei. Não aplique nada ainda: proponha e espere meu ok.`,
-  qc: () => `Faça o QC da sequência ativa ("${ctx.sequence || ''}", ${ctx.frame_size || ''}) antes de eu exportar: exporte como FCP XML com o MCP do Premiere e rode qc_timeline. Liste os problemas e pergunte se quero que você marque cada um como marcador na timeline.`,
+  notes: () => `Com o XML da sequência ativa ("${ctx.sequence || ''}") que o painel já exportou (está no contexto), rode compare_with_nle contra a última versão entregue pelo Cláudio deste trabalho, e me mostre o que eu mudei e as notas (marcadores) que deixei. Não aplique nada ainda: proponha e espere meu ok.`,
+  qc: () => `Faça o QC da sequência ativa ("${ctx.sequence || ''}", ${ctx.frame_size || ''}) antes de eu exportar: rode qc_timeline no XML da sequência ativa que o painel já exportou (está no contexto). Liste os problemas e pergunte se quero que você marque cada um como marcador na timeline.`,
   status: () => `Rode index_status e me diga o progresso em uma linha.`,
   overview: () => `Faça a visão geral do projeto: project_digest na pasta "${rawFolder()}", entenda sobre o que é o trabalho, salve com save_project_overview em "${jobFolder()}" e me resuma em 4–6 linhas. Depois me pergunte a duração aproximada do vídeo final e a trilha (uma música específica ou um mood/gênero) e proponha 2–4 direcionamentos concretos a partir do material. Eu escolho um ou explico a minha ideia.`,
-  captions: () => `Legendas da sequência ativa ("${ctx.sequence || ''}", ${ctx.frame_size || ''}). Exporte a sequência como FCP XML com o MCP do Premiere e siga os 3 passos: 1) caption_sentences e corrija SÓ a gramática (concordância, regência, crase, pontuação), sem mudar as palavras do falante nem nomes de marca — me mostre a tabela fala → legenda; 2) caption_style_preview (aspect conforme o frame da sequência; se houver perfil do cliente, passe client) e me pergunte qual estilo; 3) com a minha escolha, gere o .srt (captions_srt) e o overlay (caption_overlay) em "${path.join(jobFolder(), '#projeto', 'claudio_overlays')}" e importe o overlay em 0 s numa trilha de vídeo NOVA, acima de todas as que têm clipes (crie a trilha; antes, liste as trilhas da sequência).`,
+  captions: () => `Legendas da sequência ativa ("${ctx.sequence || ''}", ${ctx.frame_size || ''}). Use o XML da sequência ativa que o painel já exportou (está no contexto) e siga os 3 passos: 1) caption_sentences e corrija SÓ a gramática (concordância, regência, crase, pontuação), sem mudar as palavras do falante nem nomes de marca — me mostre a tabela fala → legenda; 2) caption_style_preview (aspect conforme o frame da sequência; se houver perfil do cliente, passe client) e me pergunte qual estilo; 3) com a minha escolha, gere o .srt (captions_srt) e o overlay (caption_overlay) em "${path.join(jobFolder(), '#projeto', 'claudio_overlays')}" e importe o overlay em 0 s numa trilha de vídeo NOVA, acima de todas as que têm clipes (crie a trilha; as trilhas da sequência já estão no contexto).`,
   multicam: () => `Multicâmera deste trabalho, no lugar do PluralEyes. 1) Liste as pastas de "${jobFolder()}" (material de câmera e áudio; ignore #projeto e proxies) e proponha o mapeamento: cada pasta de câmera vira uma câmera com nome curto (ex.: "CAM A — A7III"), e gravadores externos (Zoom, mesa, lapela) vão em external_audio. Proponha uma cor de label do Premiere por câmera e uma para o áudio externo (Cerulean, Mango, Forest, Magenta, Yellow, Violet, Teal, Rose, Caribbean…) numa tabela câmera → pasta → nº de clipes → cor, e ME PERGUNTE antes de rodar. 2) Com o meu ok, rode sync_multicam (correct_drift true, labels com as cores, out_xml "${path.join(jobFolder(), '#projeto', 'claudio_sync.xml')}"). 3) Resuma: clipes posicionados, os aproximados (sem áudio em comum, posicionados pelo relógio da câmera) e o drift do gravador. 4) Confira com multicam_monitor em 2 ou 3 momentos em que todas as câmeras estão rodando e me diga se algo parece fora de sincronia. 5) Escreva o caminho completo do XML (o painel mostra o botão de importar; não importe pelo MCP do Premiere) e explique o próximo passo: a "Synced Sequence" chega com V1..Vn por câmera e cada câmera (vídeo, áudio e bin) na sua cor; dali eu corto direto ou crio uma Multi-Camera Source Sequence.`,
   vault: () => `Registre este trabalho no vault (conector Vault), seguindo as regras do CLAUDE.md do vault (leia-o com read_note antes): 1) nota do trabalho com cliente, data, pasta "${jobFolder()}", material (câmeras, horas, cor/log, áudio), decisões de montagem desta conversa, versões entregues e onde estão os arquivos (.md da decupagem, XMLs, perfil do cliente); 2) entrada no diário de hoje (append_diary) com um resumo de 2–4 linhas e link pra nota; 3) se o cliente tiver página, linke. Não grave senhas nem dados sensíveis. No fim me diga o que foi escrito.`,
 };
@@ -399,10 +400,32 @@ async function stereoRun(normalize) {
   });
 }
 
-function contextBlock() {
+// what Claude would otherwise ask the Premiere MCP for (export the sequence, list the tracks) goes in the context:
+// the panel already exported the active sequence (backup) and read every track (snapshot) before this message
+function tracksLine(snap) {
+  if (!snap) return '';
+  const fmt = (k) => snap.tracks.filter((t) => t.track[0] === k).map((t) => `${t.track}: ${t.clips.length || 'vazia'}`).join(' · ');
+  return `Trilhas (clipes por trilha): ${fmt('V')} | ${fmt('A')}\n`;
+}
+function contextBlock(snap, xml) {
   const sel = (ctx.selection || []).map((s) => `  - ${s.name} (${s.track_type}) timeline ${(+s.start_s).toFixed(2)}–${(+s.end_s).toFixed(2)}s, fonte ${(+s.in_s).toFixed(2)}–${(+s.out_s).toFixed(2)}s${s.media ? ' · ' + s.media : ''}`).join('\n');
   const warn = lastWarning; lastWarning = '';
-  return warn + `[Contexto do Premiere — painel Cláudio, o Editor]\nPasta do trabalho: ${jobFolder()}\nProjeto: ${ctx.project || '-'}\nSequência ativa: ${ctx.sequence || '-'} (${ctx.frame_size || '-'})\nPlayhead: ${ctx.playhead_s != null ? (+ctx.playhead_s).toFixed(2) + 's' : '-'}\n${sel ? 'Clipes selecionados:\n' + sel : 'Nenhum clipe selecionado.'}\nRegras: o editor está no controle — proponha antes de mudar; nunca sobrescreva a sequência dele (crie uma nova); só renderize se ele pedir. Nunca aninhe sequências: os clipes montados vão direto nas trilhas de UMA sequência (o editor corrige a cor take a take); para juntar partes, monte uma sequência só ou rode flatten_timeline. Overlays, legendas e qualquer mídia nova entram SEMPRE numa trilha NOVA acima de todas as que têm clipes: nunca use overwrite/insert numa trilha ocupada (adjustment layer, títulos, b-roll) — liste as trilhas antes e, se não tiver certeza, pergunte. XML (.xml) nunca vai pelo import_media do Premiere (derruba o Premiere): escreva o caminho completo do XML na resposta — o painel mostra um botão \"Importar no Premiere\" — ou ele importa com Ctrl+I; mídia comum (.mov/.wav/.srt) pode ir pelo import_media. Memória: este chat é separado das outras sessões; o que importar para depois vai para o vault (conector Vault) e para os arquivos do claudio no disco — ofereça registrar no vault quando houver decisões.\n\n`;
+  return warn + `[Contexto do Premiere — painel Cláudio, o Editor]\nPasta do trabalho: ${jobFolder()}\nProjeto: ${ctx.project || '-'}\nSequência ativa: ${ctx.sequence || '-'} (${ctx.frame_size || '-'})\nPlayhead: ${ctx.playhead_s != null ? (+ctx.playhead_s).toFixed(2) + 's' : '-'}\n${tracksLine(snap)}${xml ? `XML da sequência ativa, exportado agora pelo painel: ${xml}\n` : ''}${sel ? 'Clipes selecionados:\n' + sel : 'Nenhum clipe selecionado.'}\nRegras: para LER a sequência (compare_with_nle, qc_timeline, caption_sentences, stereo_fix, flatten_timeline…) use o XML acima e as trilhas acima — não exporte nem liste pelo MCP do Premiere; use o MCP do Premiere só para MEXER no Premiere (importar mídia, criar trilha, colocar clipe, marcadores). O editor está no controle — proponha antes de mudar; nunca sobrescreva a sequência dele (crie uma nova); só renderize se ele pedir. Nunca aninhe sequências: os clipes montados vão direto nas trilhas de UMA sequência (o editor corrige a cor take a take); para juntar partes, monte uma sequência só ou rode flatten_timeline. Overlays, legendas e qualquer mídia nova entram SEMPRE numa trilha NOVA acima de todas as que têm clipes: nunca use overwrite/insert numa trilha ocupada (adjustment layer, títulos, b-roll) — liste as trilhas antes e, se não tiver certeza, pergunte. XML (.xml) nunca vai pelo import_media do Premiere (derruba o Premiere): escreva o caminho completo do XML na resposta — o painel mostra um botão \"Importar no Premiere\" — ou ele importa com Ctrl+I; mídia comum (.mov/.wav/.srt) pode ir pelo import_media. Memória: este chat é separado das outras sessões; o que importar para depois vai para o vault (conector Vault) e para os arquivos do claudio no disco — ofereça registrar no vault quando houver decisões.\n\n`;
+}
+
+// Only claudio + premiere-pro are loaded (the same registrations as ~/.claude.json): otherwise every message also
+// starts every other MCP and claude.ai connector (Gmail, Drive, Resolve…) and pays for their tools and instructions.
+// The claude.ai connectors (Vault, Storyblocks) only exist in the full setup, so a message that asks for them gets it.
+const WANTS_CONNECTORS = /\bvault\b|storyblocks|banco de (imagens|vídeos)|stock/i;
+function mcpArgs(text) {
+  if (WANTS_CONNECTORS.test(text)) return [];
+  try {
+    const all = (JSON.parse(fs.readFileSync(path.join(os.homedir(), '.claude.json'), 'utf8')).mcpServers) || {};
+    if (!all.claudio || !all['premiere-pro']) return [];
+    const f = path.join(os.tmpdir(), 'claudio-panel-mcp.json');
+    fs.writeFileSync(f, JSON.stringify({ mcpServers: { claudio: all.claudio, 'premiere-pro': all['premiere-pro'] } }));
+    return ['--strict-mcp-config', '--mcp-config', f];
+  } catch (e) { return []; }
 }
 
 // a running tool shows its name and a clock, so a long render never looks frozen
@@ -434,10 +457,13 @@ async function send(text) {
   const bk = before ? await backup(before) : null;
   const sid = localStorage.getItem(sessionKey);
   const model = ($('#model') && $('#model').value) || 'sonnet';
-  const args = ['-p', contextBlock() + text, '--output-format', 'stream-json', '--verbose', '--model', model,
-                '--allowedTools', 'mcp__claudio,mcp__premiere-pro,mcp__davinci-resolve,mcp__claude_ai_Vault,mcp__claude_ai_Storyblocks,Read,Glob,Grep',
+  const args = ['-p', contextBlock(before, bk) + text, '--output-format', 'stream-json', '--verbose', '--model', model,
+                '--allowedTools', 'mcp__claudio,mcp__premiere-pro,mcp__claude_ai_Vault,mcp__claude_ai_Storyblocks,Read,Glob,Grep',
                 // allowedTools only pre-approves; this BLOCKS shell and file edits from the panel
-                '--disallowedTools', 'Bash,PowerShell,Edit,Write,NotebookEdit'];
+                '--disallowedTools', 'Bash,PowerShell,Edit,Write,NotebookEdit',
+                // the only built-in tools the panel uses (~20k tokens less per message). ToolSearch must stay: without
+                // it every Premiere MCP tool definition is sent up front (~580k tokens, more than fits)
+                '--tools', 'Read,Glob,Grep,ToolSearch', ...mcpArgs(text)];
   if (sid) args.push('--resume', sid);
   $('#send').disabled = true; $('#stop').disabled = false; document.body.classList.add('busy');
   $('#status').textContent = 'pensando…';

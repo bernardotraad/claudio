@@ -104,3 +104,14 @@ def test_local_buttons_and_model(page):
     assert pg.evaluate("document.querySelector('#model').value") == 'sonnet'
     pg.evaluate("add('local','**3 clipe(s)** com áudio de um lado só',false)")
     assert 'sem IA' in pg.evaluate("[...document.querySelectorAll('.msg.local .hd b')].pop().textContent")
+
+
+@needs_browser
+def test_context_carries_xml_and_tracks(page):
+    """Claude reads the sequence from the XML the panel already exported, instead of asking the Premiere MCP."""
+    pg, _ = page
+    ctx = pg.evaluate("""()=>contextBlock({tracks:[{track:'V1',clips:[1,2]},{track:'V2',clips:[]},{track:'A1',clips:[1]}]},
+        'E:\\\\job\\\\claudio_backups\\\\seq.xml')""")
+    assert 'XML da sequência ativa, exportado agora pelo painel: E:\\job\\claudio_backups\\seq.xml' in ctx
+    assert 'V1: 2 · V2: vazia | A1: 1' in ctx
+    assert 'XML da sequência' not in pg.evaluate('()=>contextBlock(null, null)')
