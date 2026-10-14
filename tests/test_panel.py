@@ -115,3 +115,16 @@ def test_context_carries_xml_and_tracks(page):
     assert 'XML da sequência ativa, exportado agora pelo painel: E:\\job\\claudio_backups\\seq.xml' in ctx
     assert 'V1: 2 · V2: vazia | A1: 1' in ctx
     assert 'XML da sequência' not in pg.evaluate('()=>contextBlock(null, null)')
+
+
+@needs_browser
+def test_connectors_toggle(page):
+    """Vault·Stock off: only claudio + Premiere load unless the message asks; on: the full setup every time."""
+    pg, _ = page
+    pg.evaluate("()=>{connectorsOn=false;document.querySelector('#conn').setAttribute('aria-pressed','false')}")
+    assert pg.evaluate("()=>mcpArgs('salva isso no vault')") == []
+    pg.click('#conn')
+    assert pg.get_attribute('#conn', 'aria-pressed') == 'true'
+    assert pg.evaluate("()=>mcpArgs('monta a abertura')") == []
+    pg.click('#conn')
+    assert pg.get_attribute('#conn', 'aria-pressed') == 'false'

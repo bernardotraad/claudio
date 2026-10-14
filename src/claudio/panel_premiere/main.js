@@ -415,10 +415,13 @@ function contextBlock(snap, xml) {
 
 // Only claudio + premiere-pro are loaded (the same registrations as ~/.claude.json): otherwise every message also
 // starts every other MCP and claude.ai connector (Gmail, Drive, Resolve…) and pays for their tools and instructions.
-// The claude.ai connectors (Vault, Storyblocks) only exist in the full setup, so a message that asks for them gets it.
+// The claude.ai connectors (Vault, Storyblocks) only exist in the full setup (~45% more input tokens per message), so
+// a message that asks for them gets it, and the Vault·Stock toggle turns it on for every message.
 const WANTS_CONNECTORS = /\bvault\b|storyblocks|banco de (imagens|vídeos)|stock/i;
+let connectorsOn = false;
+try { connectorsOn = localStorage.getItem('claudio-connectors') === '1'; } catch (e) {}
 function mcpArgs(text) {
-  if (WANTS_CONNECTORS.test(text)) return [];
+  if (connectorsOn || WANTS_CONNECTORS.test(text)) return [];
   try {
     const all = (JSON.parse(fs.readFileSync(path.join(os.homedir(), '.claude.json'), 'utf8')).mcpServers) || {};
     if (!all.claudio || !all['premiere-pro']) return [];
@@ -533,6 +536,11 @@ document.querySelectorAll('#quick button').forEach((b) => (b.onclick = async () 
   await readContext(); send(QUICK[b.dataset.q]());
 }));
 try { const m = localStorage.getItem('claudio-model'); if (m && $('#model')) $('#model').value = m; } catch (e) {}
+if ($('#conn')) {
+  const paint = () => $('#conn').setAttribute('aria-pressed', connectorsOn ? 'true' : 'false');
+  paint();
+  $('#conn').onclick = () => { connectorsOn = !connectorsOn; paint(); try { localStorage.setItem('claudio-connectors', connectorsOn ? '1' : '0'); } catch (e) {} };
+}
 if ($('#model')) $('#model').onchange = () => { try { localStorage.setItem('claudio-model', $('#model').value); } catch (e) {} };
 
 // indexing progress: read <footage>/_claudio/progress.json (written by the background indexer) every 2 s
