@@ -369,6 +369,7 @@ async function multicamPlan() {
       .concat((r.external_audio || []).map((e) => `| áudio externo | \`${path.basename(e.folder.replace(/\\/g, '/'))}\` | ${e.files} | ${r.audio_label} |`));
     const d = add('local', `**Multicâmera** — achei ${cams.length} câmera(s)` + ((r.external_audio || []).length ? ' e um gravador externo' : '') + ':\n\n' +
       '| fonte | pasta | arquivos | cor |\n|---|---|---|---|\n' + rows.join('\n') +
+      (r.music ? `\n\n**Parece um clipe musical:** \`${path.basename(r.guide.replace(/\\/g, '/'))}\` vira a trilha guia, cada take é alinhado contra ela e os takes que se sobrepõem ficam em trilhas empilhadas. Takes de refrão repetido saem marcados para você conferir.` : '') +
       (r.ready ? '\n\nSincronizo pelo áudio (sem IA) e gero a "Synced Sequence" com cada câmera na sua cor? Se o mapeamento estiver errado, peça ao Cláudio.' : `\n\n${r.note}`));
     if (!r.ready) return;
     const go = document.createElement('button'); go.textContent = 'Sincronizar (sem IA)';
@@ -383,16 +384,19 @@ async function multicamSync(plan) {
     const cameras = {}, labels = {};
     for (const [n, c] of Object.entries(plan.cameras)) { cameras[n] = c.folder; labels[n] = c.label; }
     if (plan.audio_label) labels.AUDIO = plan.audio_label;
-    const r = await runLocal('sync', { cameras, external_audio: (plan.external_audio || []).map((e) => e.folder), labels,
+    const r = await runLocal('sync', { cameras, external_audio: (plan.external_audio || []).map((e) => e.folder), labels, music: !!plan.music,
                                        out_xml: path.join(jobFolder(), '#projeto', 'claudio_sync.xml') });
     if (!r.ok) return add('local err', r.error);
     const clips = r.clips || [];
     const placed = clips.filter((c) => c.start_s != null);
     const approx = placed.filter((c) => /relógio|aprox/i.test(String(c.method || '')));
+    const amb = placed.filter((c) => c.also_fits_at_s && c.also_fits_at_s.length);
     const dr = r.drift;
     const drift = dr ? [`${dr.reference}: ${dr.ppm} ppm` + (dr.corrected_file ? ` → \`${path.basename(dr.corrected_file.replace(/\\/g, '/'))}\`` : '')] : [];
     const m = add('local', `**Sincronizado:** ${placed.length} de ${clips.length} clipe(s)` + (approx.length ? `, ${approx.length} pelo relógio da câmera (aproximados — sem áudio em comum)` : '') + '.' +
       ((r.unplaced || []).length ? `\n\nNão posicionados: ${r.unplaced.slice(0, 8).join(', ')}` : '') +
+      (amb.length ? '\n\n**Confira (trecho repetido da música, ex.: refrão):**\n\n| take | coloquei em | também cabe em |\n|---|---|---|\n' +
+        amb.map((c) => `| ${c.clip} | ${dur(c.start_s)} | ${c.also_fits_at_s.map(dur).join(', ')} |`).join('\n') : '') +
       (drift.length ? `\n\nDrift do gravador corrigido: ${drift.join('; ')}` : '') +
       `\n\nXML: \`${r.xml.nle_path}\` — ${r.xml.tracks_video} trilha(s) de vídeo, ${r.xml.tracks_audio} de áudio, cada câmera na sua cor.`);
     importButtons(m, r.xml.nle_path);

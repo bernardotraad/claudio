@@ -1523,13 +1523,35 @@ def read_log(idx):
     return json.load(open(p)) if os.path.exists(p) else []
 
 
-def annotate(idx, s, e, text, tags=(), rating=None):
+def annotate(idx, s, e, text, tags=(), rating=None, replace=False):
+    """Add one line to the clip's log. replace=True first removes every line that overlaps [s, e] (to rewrite a
+    description instead of stacking a second one)."""
     L = read_log(idx)
+    if replace:
+        L = [l for l in L if l['e'] <= s or l['s'] >= e]
     L.append({'s': round(s, 2), 'e': round(e, 2), 'text': text, 'tags': list(tags), 'rating': rating,
               'tc_in': clock_of(idx['info']).tc(clock_of(idx['info']).frame(s, 'floor'))})
     L.sort(key=lambda x: x['s'])
     json.dump(L, open(log_path(idx), 'w'), ensure_ascii=False, indent=1)
     return L
+
+
+def relabel_log(idx, mapping):
+    """Replace phrases in the clip's log (texts and tags), case-insensitive: {"violonista de jaqueta vermelha": "Rayo"}.
+    Returns how many lines changed."""
+    L = read_log(idx)
+    n = 0
+    for l in L:
+        old = (l['text'], list(l.get('tags') or []))
+        for a, b in sorted(mapping.items(), key=lambda kv: -len(kv[0])):      # longest phrase first
+            pat = re.compile(re.escape(a), re.I)
+            l['text'] = pat.sub(b, l['text'])
+            l['tags'] = [pat.sub(b, t) for t in l.get('tags') or []]
+        if (l['text'], l['tags']) != old:
+            n += 1
+    if n:
+        json.dump(L, open(log_path(idx), 'w'), ensure_ascii=False, indent=1)
+    return n
 
 
 # ───────────────────────────── export ─────────────────────────────

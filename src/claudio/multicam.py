@@ -24,7 +24,8 @@ from claudio import core
 
 SR = 8000
 ENV = 100                      # envelope rate (10 ms)
-AUDIO_EXT = {'.wav', '.mp3', '.m4a', '.aif', '.aiff', '.flac', '.bwf', '.ogg', '.aac'}
+AUDIO_EXT = {'.wav', '.mp3', '.m4a', '.aif', '.aiff', '.flac', '.bwf', '.ogg', '.aac', '.mpeg', '.mpga', '.opus', '.oga', '.wma',
+             '.m4b', '.caf'}   # .mpeg: WhatsApp voice/audio files
 
 
 # ───────────────────────────── audio access (cached) ─────────────────────────────
@@ -79,6 +80,125 @@ def xcorr(a, b):
     second = float(cc[m].max()) if m.any() else 1e-9
     # normalise by overlap so short overlaps at the edges don't win by accident
     return int(lags[i]), float(cc[i] / (abs(second) + 1e-9))
+
+
+def peaks(a, b, k=3, min_sep_s=2.0):
+    """The k best distinct alignments of a inside b: [(lag_s, score)], score = Pearson correlation of the envelopes
+    over their overlap at that lag (comparable between takes, unlike the raw peak)."""
+    n = 1 << int(math.ceil(math.log2(len(a) + len(b))))
+    cc = np.fft.irfft(np.fft.rfft(b, n) * np.conj(np.fft.rfft(a, n)), n)
+    lags = np.r_[np.arange(0, len(b)), np.arange(-len(a) + 1, 0)]
+    cc = np.r_[cc[:len(b)], cc[n - len(a) + 1:]]
+    out, m = [], np.ones(len(cc), bool)
+    sep = int(min_sep_s * ENV)
+    for _ in range(k):
+        if not m.any():
+            break
+        i = int(np.argmax(np.where(m, cc, -np.inf)))
+        lag = int(lags[i])
+        x0, y0 = max(0, -lag), max(0, lag)
+        L = min(len(a) - x0, len(b) - y0)
+        if L > ENV * 2:
+            xa, yb = a[x0:x0 + L], b[y0:y0 + L]
+            r = float(np.corrcoef(xa, yb)[0, 1]) if xa.std() > 0 and yb.std() > 0 else 0.0
+            out.append((lag / ENV, r))
+        m[max(0, i - sep):i + sep] = False
+    return sorted(out, key=lambda p: -p[1])
+
+
+CH_HOP, CH_NF = 400, 4096          # chroma at 20 frames/s from the 8 kHz audio
+
+
+def chroma(x):
+    """12-bin pitch-class profile per 50 ms (60 Hz–2 kHz), log-compressed and normalised per frame: which notes sound,
+    regardless of mix, timbre or loudness — a playback of another mix, or the band playing along, still matches."""
+    n = 1 + (len(x) - CH_NF) // CH_HOP
+    if n < 4:
+        return np.zeros((0, 12), np.float32)
+    f = np.fft.rfftfreq(CH_NF, 1 / SR)
+    ok = (f > 60) & (f < 2000)
+    pc = (np.round(12 * np.log2(f[ok] / 440)) % 12).astype(int)
+    win = np.hanning(CH_NF).astype(np.float32)
+    C = np.zeros((n, 12), np.float32)
+    for i in range(0, n, 512):                      # chunked: long takes stay light on memory
+        idx = np.arange(i, min(n, i + 512))[:, None] * CH_HOP + np.arange(CH_NF)[None]
+        S = np.abs(np.fft.rfft(x[idx] * win, axis=1))[:, ok]
+        for k in range(12):
+            C[i:i + len(idx), k] = S[:, pc == k].sum(1)
+    C = np.log1p(C)
+    C -= C.mean(1, keepdims=True)
+    C /= np.linalg.norm(C, axis=1, keepdims=True) + 1e-9
+    return C
+
+
+def chroma_peaks(ct, cg, k=3, min_sep_s=2.0):
+    """Best alignments of take chroma ct inside guide chroma cg: [(lag_s, score)], score = mean frame similarity over
+    the overlap (needs at least half of the shorter one to overlap)."""
+    fps = SR / CH_HOP
+    L, G = len(ct), len(cg)
+    if not L or not G:
+        return []
+    n = 1 << int(math.ceil(math.log2(G + L)))
+    cc = sum(np.fft.irfft(np.fft.rfft(cg[:, j], n) * np.conj(np.fft.rfft(ct[:, j], n)), n) for j in range(12))
+    lags = np.r_[np.arange(0, G), np.arange(-L + 1, 0)]
+    cc = np.r_[cc[:G], cc[n - L + 1:]]
+    ov = np.minimum(G, lags + L) - np.maximum(0, lags)
+    score = np.where(ov >= 0.5 * min(L, G), cc / np.maximum(ov, 1), -1.0)
+    out, sep = [], int(min_sep_s * fps)
+    for i in np.argsort(-score)[:400]:
+        if score[i] <= 0:
+            break
+        if all(abs(lags[i] - l) > sep for l, _ in out):
+            out.append((int(lags[i]), float(score[i])))
+        if len(out) == k:
+            break
+    return [(l / fps, s) for l, s in out]
+
+
+def _refine_lag(et, eg, lag_s, reach_s=0.6):
+    """The onset-envelope alignment closest to a chroma lag, for frame accuracy (chroma frames are 50 ms)."""
+    c = int(round(lag_s * ENV)); r = int(reach_s * ENV)
+    best = None
+    for lag in range(c - r, c + r + 1):
+        x0, y0 = max(0, -lag), max(0, lag)
+        Lx = min(len(et) - x0, len(eg) - y0)
+        if Lx < ENV * 2:
+            continue
+        a, b = et[x0:x0 + Lx], eg[y0:y0 + Lx]
+        v = float(np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b) + 1e-9))
+        if best is None or v > best[1]:
+            best = (lag, v)
+    return best[0] / ENV if best else lag_s
+
+
+def place_music(nodes, ref, progress=lambda *_: None, min_r=0.45, tie=0.92):
+    """Music video: every take plays the same song, so each one is aligned against the guide track only.
+    A take that fits two places almost equally well (a repeated chorus) is placed at the best one and flagged with the
+    alternatives; a take whose audio doesn't match the song at all stays unplaced."""
+    from concurrent.futures import as_completed
+    with ThreadPoolExecutor(3) as ex:
+        futs = {ex.submit(audio8k, n['path']): n for n in nodes}
+        for k, f in enumerate(as_completed(futs)):
+            f.result()
+            progress(f"audio {futs[f]['name']}", (k + 1) / len(nodes))
+    gx = audio8k(ref['path'])
+    eref, cref = envelope(gx), chroma(gx)
+    ref.update(t0=0.0, via=None, conf=None, method='trilha guia')
+    todo = [n for n in nodes if n is not ref]
+    for k, n in enumerate(todo):
+        x = audio8k(n['path'])
+        ps = chroma_peaks(chroma(x), cref)          # where in the song: by the notes (robust to mix / live playing)
+        progress('align', (k + 1) / max(len(todo), 1))
+        if not ps or ps[0][1] < min_r:
+            n.update(t0=None, via=None, conf=round(ps[0][1], 2) if ps else None, method='unplaced')
+            continue
+        best = ps[0]
+        lag = _refine_lag(envelope(x), eref, best[0])   # exactly where: by the onsets, near that spot
+        alts = [p for p in ps[1:] if p[1] >= best[1] * tie and p[1] >= min_r]
+        n.update(t0=lag, via=ref['name'], conf=round(best[1], 2),
+                 method='música' if not alts else 'música: ambíguo (trecho repetido?) — confira',
+                 alternatives=[round(p[0], 2) for p in alts])
+    return nodes
 
 
 # ───────────────────────────── inputs ─────────────────────────────
@@ -346,15 +466,23 @@ def drift_correct(ext, ppm, out_dir=None):
 
 
 # ───────────────────────────── main entry ─────────────────────────────
-def sync_cameras(cameras, external=None, fps=None, correct_drift=True, progress=lambda *_: None, drift_dir=None):
+def sync_cameras(cameras, external=None, fps=None, correct_drift=True, progress=lambda *_: None, drift_dir=None, music=False):
+    """music=True: a music video — the external audio is the guide track and every take is aligned against it (see
+    place_music); no drift correction (the guide is a digital file, not a recorder)."""
     nodes = collect(cameras, external)
     if len(nodes) < 2:
         raise ValueError('need at least two files with audio')
-    place(nodes, progress=progress)
+    ext0 = [n for n in nodes if n['kind'] == 'audio']
+    if music:
+        if not ext0:
+            raise ValueError('music video mode needs the guide track as external audio')
+        place_music(nodes, max(ext0, key=lambda n: n['duration']), progress)
+    else:
+        place(nodes, progress=progress)
     placed = [n for n in nodes if n.get('t0') is not None]
     ext = [n for n in placed if n['kind'] == 'audio']
     drift = None
-    if ext:
+    if ext and not music:
         ref = max(ext, key=lambda n: n['duration'])
         meas = []
         long_clips = sorted([n for n in placed if n['kind'] == 'video' and n['duration'] >= 240], key=lambda n: -n['duration'])[:6]
@@ -392,7 +520,7 @@ def sync_cameras(cameras, external=None, fps=None, correct_drift=True, progress=
     F = float(Fraction(fps))
     for n in placed:
         n['start_frame'] = int(round(n['t0'] * F))
-    return {'fps': fps, 'nodes': nodes, 'drift': drift,
+    return {'fps': fps, 'nodes': nodes, 'drift': drift, 'music': bool(music),
             'unplaced': [n['name'] for n in nodes if n.get('t0') is None]}
 
 
@@ -401,7 +529,8 @@ def summary(res):
     for n in sorted(res['nodes'], key=lambda n: (n['cam'], n.get('t0') if n.get('t0') is not None else 1e12)):
         rows.append({'cam': n['cam'], 'clip': n['name'], 'start_s': round(n['t0'], 3) if n.get('t0') is not None else None,
                      'start_frame': n.get('start_frame'), 'duration': round(n['duration'], 2), 'method': n.get('method', 'anchor'),
-                     'confidence': n.get('conf'), 'placed_from': n.get('via')})
+                     'confidence': n.get('conf'), 'placed_from': n.get('via'),
+                     **({'also_fits_at_s': n['alternatives']} if n.get('alternatives') else {})})
     return {'fps': res['fps'], 'clips': rows, 'drift': res['drift'], 'unplaced': res['unplaced']}
 
 
@@ -473,9 +602,21 @@ def export_xml(res, out_path, name='Synced Sequence', labels=None):
     seen = set()
     vtracks, atracks = [], []
     clipid = {}
-    for c in vcams:
+    def lanes(ns, dur_of):
+        """Clips of one source that overlap in time (music-video takes all play the same song) go on stacked tracks."""
+        out = []
+        for n in sorted(ns, key=lambda n: n['t0']):
+            for lane in out:
+                if lane[-1]['t0'] + dur_of(lane[-1]) <= n['t0'] + 1e-3:
+                    lane.append(n); break
+            else:
+                out.append([n])
+        return out
+
+    vlanes = [(c, ln) for c in vcams for ln in lanes([n for n in placed if n['cam'] == c and n['kind'] == 'video'], lambda n: n['duration'])]
+    for c, lane in vlanes:
         items = []
-        for n in sorted([n for n in placed if n['cam'] == c and n['kind'] == 'video'], key=lambda n: n['t0']):
+        for n in lane:
             d = int(round(n['duration'] * F))
             cid = f'v-{fid(n)}'; clipid[n['path']] = cid
             full = n['path'] not in seen; seen.add(n['path'])
@@ -485,10 +626,11 @@ def export_xml(res, out_path, name='Synced Sequence', labels=None):
             items.append(f'<clipitem id="{cid}"><name>{E(n["name"])}</name><duration>{d}</duration>{rate}<start>{n["start_frame"]}</start>'
                          f'<end>{n["start_frame"] + d}</end><in>0</in><out>{d}</out>{file_el(n, full)}{links}{lab(n)}</clipitem>')
         vtracks.append(f'<track>{"".join(items)}</track>')
-    for c in acams:
+    alanes = [(c, ln) for c in acams for ln in lanes([n for n in placed if n['cam'] == c], lambda n: n.get('duration_corrected') or n['duration'])]
+    for c, lane in alanes:
         for ch_ in (1, 2):
             items = []
-            for n in sorted([n for n in placed if n['cam'] == c], key=lambda n: n['t0']):
+            for n in lane:
                 if ch_ > min(int(n['info'].get('audio_channels') or 2), 2):
                     continue
                 d = int(round((n.get('duration_corrected') or n['duration']) * F))

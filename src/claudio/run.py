@@ -57,7 +57,8 @@ def _qc(a):
 def _sync(a):
     import os as _os
     from claudio import core, multicam
-    res = multicam.sync_cameras(a['cameras'], a.get('external_audio'), a.get('fps'), a.get('correct_drift', True))
+    res = multicam.sync_cameras(a['cameras'], a.get('external_audio'), a.get('fps'), a.get('correct_drift', True),
+                                music=bool(a.get('music')))
     base = _os.path.dirname(_os.path.commonpath([n['path'] for n in res['nodes']]))
     out = core.local_path(a['out_xml']) if a.get('out_xml') else _os.path.join(base, 'claudio_sync.xml')
     _os.makedirs(_os.path.dirname(out), exist_ok=True)
@@ -95,10 +96,21 @@ def _multicam_plan(a):
                 'folder': core.nle_path(dp), 'clips': len(vids), 'model': model}
         elif auds:
             ext.append({'folder': core.nle_path(dp), 'files': len(auds)})
+    # one short external audio file and takes no longer than it: a music video with its guide track
+    files = [os.path.join(core.local_path(e['folder']), f) for e in ext for f in os.listdir(core.local_path(e['folder']))
+             if os.path.splitext(f)[1].lower() in multicam.AUDIO_EXT]
+    music = False
+    if len(files) == 1:
+        try:
+            g = core.probe(files[0])['duration']
+            music = 60 <= g <= 15 * 60
+        except Exception:
+            pass
     labels = multicam.camera_labels(list(cams) + (['AUDIO'] if ext else []))
     for k in cams:
         cams[k]['label'] = labels[k]
-    return {'cameras': cams, 'external_audio': ext, 'audio_label': labels.get('AUDIO'),
+    return {'cameras': cams, 'external_audio': ext, 'audio_label': labels.get('AUDIO'), 'music': music,
+            'guide': core.nle_path(files[0]) if music else None,
             'ready': len(cams) + (1 if ext else 0) >= 2,
             'note': None if len(cams) + (1 if ext else 0) >= 2 else 'precisa de pelo menos 2 fontes (câmeras e/ou gravador)'}
 

@@ -444,17 +444,48 @@ def quality(path: str, start: float, end: float) -> dict:
 
 
 @mcp.tool()
-def annotate(path: str, start: float, end: float, text: str, tags: list[str] = [], rating: int = None) -> list:
-    """Write what you SAW into the clip's decupagem log (persists across sessions; exported as markers in XML).
-    e.g. text='close das mãos amassando massa, luz lateral', tags=['broll','close','maos'], rating=4."""
+def annotate(path: str, start: float, end: float, text: str, tags: list[str] = [], rating: int = None, replace: bool = False) -> list:
+    """Write what you SAW into the clip's decupagem log (persists across sessions and re-indexing; exported as markers
+    in XML; the clip's .md is regenerated from it). e.g. text='close das mãos amassando massa, luz lateral',
+    tags=['broll','close','maos'], rating=4. replace=True rewrites: lines overlapping [start, end] are removed first —
+    use it to correct a description instead of adding a second line. To put names on people across many clips at
+    once, use relabel_logs (no need to rewrite each line)."""
     idx = _idx(path)
-    log = core.annotate(idx, start, end, text, tags, rating)
+    log = core.annotate(idx, start, end, text, tags, rating, replace=replace)
     try:
         sidecar.write_clip_md(idx)
         sidecar.write_folder_md(os.path.dirname(idx['info']['path']))
     except Exception:
         pass
     return log
+
+
+@mcp.tool()
+def relabel_logs(mapping: dict, folder: str = None, paths: list[str] = None) -> dict:
+    """Replace phrases in the decupagem logs of every clip of a folder (texts and tags, case-insensitive), e.g. put the
+    confirmed names in: {"violonista de jaqueta vermelha": "Rayo", "guitarrista de camisa xadrez": "Izzy"}. Longest
+    phrases first; the .md files are regenerated. No model calls — prefer this to rewriting lines one by one."""
+    from claudio import indexer
+    files = [core.local_path(p) for p in (paths or [])] or indexer.list_videos(folder)
+    changed = {}
+    for f in files:
+        try:
+            idx = core.build_index(f)
+        except Exception:
+            continue
+        n = core.relabel_log(idx, mapping)
+        if n:
+            changed[os.path.basename(f)] = n
+            try:
+                sidecar.write_clip_md(idx)
+            except Exception:
+                pass
+    for d in {os.path.dirname(f) for f in files}:
+        try:
+            sidecar.write_folder_md(d)
+        except Exception:
+            pass
+    return {'clips_changed': len(changed), 'lines_changed': sum(changed.values()), 'by_clip': changed}
 
 
 @mcp.tool()
@@ -560,8 +591,11 @@ def read_project(project: str) -> dict:
 
 @mcp.tool()
 async def sync_multicam(cameras: dict, ctx: Context, external_audio: list[str] = None, out_xml: str = None,
-                        fps: str = None, correct_drift: bool = True, labels: dict = None) -> dict:
+                        fps: str = None, correct_drift: bool = True, labels: dict = None, music: bool = False) -> dict:
     """PluralEyes-style multicam sync from the clips' own audio — no timecode needed.
+    music=True for a MUSIC VIDEO: external_audio is the guide track, every take (full song or parts, played back on
+    set) is aligned against it, overlapping takes are stacked on their own tracks, and takes that fit two places of the
+    song equally (a repeated chorus) come back with also_fits_at_s — ask the editor which one. No drift correction.
     cameras: {"CAM A": "E:\\\\Show\\\\01 HRCS", "CAM B": "E:\\\\Show\\\\02 BÊ"} (folder or list of files per camera).
     external_audio: recorder files/folders (board mix, lav recorders) — used as the reference clock when given.
     Places every clip on one timeline (graph of audio matches + transcript fallback), measures the recorder's clock
@@ -574,7 +608,7 @@ async def sync_multicam(cameras: dict, ctx: Context, external_audio: list[str] =
     def prog(stage, f):
         state.update(stage=stage, f=f)
     loop = asyncio.get_running_loop()
-    task = loop.run_in_executor(None, lambda: multicam.sync_cameras(cameras, external_audio, fps, correct_drift, prog))
+    task = loop.run_in_executor(None, lambda: multicam.sync_cameras(cameras, external_audio, fps, correct_drift, prog, music=music))
     while not task.done():
         msg = ('lendo áudio dos clipes' if state['stage'].startswith('audio') else 'alinhando') + f" {int(state['f'] * 100)}%" \
               + (f" · {state['stage'][6:]}" if state['stage'].startswith('audio ') else '')
