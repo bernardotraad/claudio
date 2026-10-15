@@ -315,6 +315,24 @@ const LOCAL = {
     progScan = 0;
   }),
   multicam: () => multicamPlan(),
+  describe: () => localJob('descrevendo os planos', async () => {
+    await readContext();
+    const sel = [...new Set((ctx.selection || []).map((c) => c.media).filter(Boolean))];
+    const r = await runLocal('describe', sel.length ? { paths: sel } : { folder: rawFolder() });
+    if (!r.ok) return add('local err', r.error);
+    const ex = (r.results || []).filter((x) => x.sample && x.sample.length).slice(0, 3)
+      .map((x) => `- **${x.clip}** ${dur(x.sample[0].s)}–${dur(x.sample[0].e)}: ${x.sample[0].text}`).join('\n');
+    const d = add('local', `**${r.clips} clipe(s)** descritos em **${r.stretches} trechos** (${sel.length ? 'os selecionados na timeline' : 'a pasta toda'}), ` +
+      'gravados no `.md` de cada clipe (seção 👁 Cenas, marcados como auto). Descrições feitas por você ou pela IA continuam lá.\n\n' + ex +
+      ((r.errors || []).length ? `\n\nCom erro: ${r.errors.slice(0, 5).join('; ')}` : '') +
+      '\n\nÉ uma primeira passada automática (tipo de plano, lugar, objetos, quem aparece, o que é falado). Para um clipe importante, selecione-o e peça a descrição com IA.');
+    if (sel.length) {
+      const b = document.createElement('button'); b.textContent = 'Descrever os selecionados com IA';
+      b.onclick = async () => { b.disabled = true; await readContext();
+        send(`Para cada clipe selecionado (${sel.map((p) => path.basename(p)).join(', ')}): contact_sheet e annotate com o que aparece em cada trecho (enquadramento, ação, pessoas, lugar, qualidade de uso), substituindo as descrições automáticas. Seja conciso.`); };
+      d.appendChild(b);
+    }
+  }),
   stereo: () => {
     const d = add('local', 'Áudio que sai de um lado só (lapela ou um microfone em L ou R) passa a sair dos dois. Quer também **nivelar as falas** (cada clipe com fala no mesmo volume, até +12 dB)? O resultado vem numa sequência nova.', false);
     for (const [txt, norm] of [['Só deixar estéreo', false], ['Estéreo + nivelar falas', true]]) {

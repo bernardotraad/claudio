@@ -762,6 +762,18 @@ async def find_shot(query: str, ctx: Context, folder: str = None, paths: list[st
 
 
 @mcp.tool()
+def describe_shots(folder: str = None, paths: list[str] = None) -> dict:
+    """First-pass description of what is seen in every stretch of the clips, WITHOUT spending model calls: framing,
+    place, objects, day/night (CLIP on the visual-search embeddings), who appears (confirmed names) and what is said,
+    written into each clip's log/.md tagged 'auto'. Your own annotate entries are kept. Use it before logging by eye:
+    then look (contact_sheet) only where it matters and annotate to replace the auto lines."""
+    from claudio import describe, indexer
+    files = [core.local_path(p) for p in (paths or [])] or indexer.list_videos(folder)
+    res = describe.describe(files)
+    return {'clips': len(res), 'stretches': sum(r.get('stretches', 0) for r in res), 'results': res[:30]}
+
+
+@mcp.tool()
 def stereo_fix(nle_xml: str, normalize: bool = False, out_xml: str = None) -> dict:
     """Audio that plays on ONE side only (a lav or a single mic recorded on L or R) → plays on BOTH sides. Reads the
     editor's sequence (FCP7 XML), measures L and R of every audio clip over the part used, and where one side is

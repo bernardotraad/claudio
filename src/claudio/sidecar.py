@@ -81,7 +81,7 @@ def render_md(idx, sheet_rel=None, sync=None):
                         [(l.get('tc_in', _tc(clk, l['s'])), f"{l['s']:.1f}", f"{l['e']:.1f}", l['text'], ', '.join(l.get('tags', [])),
                           '★' * int(l['rating']) if l.get('rating') else '') for l in log]))
     else:
-        L.append('_Ainda não descrito. Para descrever: `contact_sheet` no clipe e `annotate` com o que aparece em cada trecho._\n')
+        L.append('_Ainda não descrito. No painel: **Descrever planos** (sem IA), ou `contact_sheet` + `annotate` com a IA._\n')
     # slate / takes
     if idx.get('speech'):
         sl = core.slate(idx)

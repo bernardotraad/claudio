@@ -7,6 +7,7 @@
   stereo      {"nle_xml", "normalize"?}            one-sided audio → both sides (+ speech levelled)
   flatten     {"nle_xml"}                          nested sequences → clips straight on the tracks
   qc          {"nle_xml", "platform"?}             timeline + audio QC (loudness, ducking)
+  describe    {"folder" | "paths"}                what is seen in each stretch → clip logs (no AI)
   multicam_plan {"folder"}                        cameras/recorders from the folders + colours (no AI)
   sync        {"cameras", "external_audio"?, "out_xml"?, "labels"?}   multicam sync (PluralEyes-style)
 
@@ -102,7 +103,15 @@ def _multicam_plan(a):
             'note': None if len(cams) + (1 if ext else 0) >= 2 else 'precisa de pelo menos 2 fontes (câmeras e/ou gravador)'}
 
 
-ACTIONS = {'multicam_plan': _multicam_plan, 'status': _status, 'index': _index, 'stereo': _stereo, 'flatten': _flatten, 'qc': _qc, 'sync': _sync}
+def _describe(a):
+    from claudio import core, describe, indexer
+    paths = [core.local_path(p) for p in a.get('paths') or []] or indexer.list_videos(a['folder'])
+    res = describe.describe(paths)
+    return {'clips': len(res), 'stretches': sum(r.get('stretches', 0) for r in res),
+            'errors': [f"{r['clip']}: {r['error']}" for r in res if r.get('error')], 'results': res[:40]}
+
+
+ACTIONS = {'describe': _describe, 'multicam_plan': _multicam_plan, 'status': _status, 'index': _index, 'stereo': _stereo, 'flatten': _flatten, 'qc': _qc, 'sync': _sync}
 
 
 def main():
