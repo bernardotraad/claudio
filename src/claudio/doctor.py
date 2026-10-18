@@ -82,7 +82,8 @@ def check():
 
 def main():
     if '--fix-browser' in sys.argv:
-        subprocess.run([sys.executable, '-m', 'playwright', 'install', 'chromium'])
+        # headless shell only: overlays and captions launch Chromium headless, and the full browser is +366 MB unused
+        subprocess.run([sys.executable, '-m', 'playwright', 'install', '--only-shell', 'chromium'])
     rows = check()
     for st, what, detail in rows:
         print(f'{st} {what}' + (f'\n     → {detail}' if detail and st != OK else (f' — {detail}' if detail else '')))
