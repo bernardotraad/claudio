@@ -718,6 +718,15 @@ CRITIQUE = ('gaguejei', 'engoli', 'buguei', 'errei', 'desculpa', 'denovo', 'mais
             'deixaeurepetir', 'faltou', 'saiuerrado', 'falei errado'.replace(' ', ''))
 
 
+APPROVAL = ('ficoubom', 'ficouotimo', 'ficouperfeito', 'ficoulindo', 'ficoushow', 'excelente', 'perfeito', 'otimo', 'show',
+            'boa', 'issoai', 'mandoubem', 'arrasou', 'gostei', 'perfect', 'great', 'nice')
+
+
+def _is_approval(ws):
+    flat = ''.join(norm(w['w']) for w in ws)
+    return any(a in flat for a in APPROVAL) and not any(c in flat for c in CRITIQUE)
+
+
 def _is_critique(ws):
     flat = ''.join(norm(w['w']) for w in ws)
     return any(c in flat for c in CRITIQUE)
@@ -742,7 +751,23 @@ def utterances(words, gap=0.7):
                 split.append(cur); cur = []
         if cur:
             split.append(cur)
-    raw = split
+    # a restart in the same breath ("Clique no link. Como é que foi? Clique no link abaixo e venha…"): the line's
+    # opening words come back later — keep from the last restart on (the part before becomes its own, short piece)
+    restarted = []
+    for u in split:
+        toks = [norm(w['w']) for w in u]
+        cut = None
+        if len(u) >= 8:
+            for j in range(3, len(u) - 2):
+                for k in range(0, j - 2):
+                    if toks[k:k + 3] == toks[j:j + 3] and all(toks[k:k + 3]) and not set(toks[k:k + 3]) <= CREW:
+                        cut = j
+                        break
+            if cut and cut >= 3:
+                restarted += [u[:cut], u[cut:]]
+                continue
+        restarted.append(u)
+    raw = restarted
     out = []
     for u in raw:
         k = 0
@@ -766,6 +791,23 @@ def utterances(words, gap=0.7):
     for i in range(len(out) - 1):
         if not out[i]['chatter'] and out[i + 1]['s'] - out[i]['e'] < 3.0 and _is_critique(out[i + 1]['words']):
             out[i]['self_critique_after'] = True
+    # …and the earlier part of the same attempt (a line said in two breaths, then "deixa eu fazer mais um")
+    for i in range(len(out) - 1, 0, -1):
+        if out[i]['self_critique_after'] and not out[i - 1]['chatter'] and out[i]['s'] - out[i - 1]['e'] < 1.0:
+            out[i - 1]['self_critique_after'] = True
+    # the crew / speaker approving right after ("ficou bom", "excelente", "perfeito")
+    for i, u in enumerate(out):
+        u['approved_after'] = False
+        if u['chatter']:
+            continue
+        for v in out[i + 1:i + 3]:
+            if v['s'] - u['e'] > 3.0:
+                break
+            if _is_approval(v['words']):
+                u['approved_after'] = True
+                break
+            if not v['chatter']:
+                break
     return out
 
 
@@ -1076,26 +1118,53 @@ def takes_report(idx, gap=0.7, prefer='last'):
             t = toks[k]
             matched = sum(bl.size for bl in sm(cons, t).get_matching_blocks())
             coverage = matched / max(len(cons), 1)
+            precision = matched / max(len(t), 1)      # how much of this take is the line (vs chatter glued to it)
             extra = max(0, len(t) - matched)
             q = range_quality(idx, u['s'], u['e'])
             score = (3.0 * coverage + 1.2 * u['conf'] - 0.4 * u['fillers'] - 0.15 * extra
-                     - 2.5 * u['self_critique_after'] + 0.6 * min(q.get('sharpness', 1), 1)
+                     - 2.5 * u['self_critique_after'] + 1.0 * u.get('approved_after', False) + 0.6 * min(q.get('sharpness', 1), 1)
                      - 0.5 * (q.get('motion') in ('shaky', 'chaotic')) - 0.02 * q.get('clipped_highlights_pct', 0)
                      + (0.6 * k / max(len(g) - 1, 1) if prefer == 'last' else 0))
             cands.append({'take': k + 1, 's': u['s'], 'e': u['e'], 'text': u['text'], 'words': u['n'],
-                          'coverage': round(coverage, 2), 'complete': coverage >= 0.9, 'extra_words': extra,
+                          'coverage': round(coverage, 2), 'precision': round(precision, 2), 'complete': coverage >= 0.9, 'extra_words': extra,
                           'asr_conf': u['conf'], 'fillers': u['fillers'], 'self_critique_after': u['self_critique_after'],
+                          'approved_after': u.get('approved_after', False),
                           'picture': q, 'score': round(score, 2)})
-        best = max(cands, key=lambda c: c['score'])
+        by_score = best = max(cands, key=lambda c: c['score'])
+        check = None
         if prefer == 'last':        # the editor's rule: the LAST complete attempt the speaker didn't criticise
-            ok = [c for c in cands if c['coverage'] >= 0.7 and not c['self_critique_after']]   # rephrased last take still counts
-            if ok:
+            longest = max(c['words'] for c in cands)
+            # complete: covers most of the line (a rephrased last take still counts), or is the line said tighter —
+            # nearly all its words are the line's and it isn't a stub (the reference may carry chatter glued to it)
+            full = lambda c: c['coverage'] >= 0.7 or (c['precision'] >= 0.85 and c['words'] >= 0.55 * longest and c['words'] >= 5)
+            ok = [c for c in cands if full(c) and not c['self_critique_after']]
+            approved = [c for c in cands if c['approved_after'] and not c['self_critique_after']
+                        and (c['coverage'] >= 0.5 or (c['precision'] >= 0.8 and c['words'] >= 4))]
+            if approved and (not ok or approved[-1]['s'] >= ok[-1]['s']):
+                best = approved[-1]          # "ficou bom" right after it: the crew settled on this one
+            elif ok:
                 best = ok[-1]
+            # right ~90% of the time (a good take is where they stop): when an earlier one measures clearly better, say so
+            if by_score is not best and by_score['score'] - best['score'] >= 0.8:
+                why = []
+                if by_score['coverage'] - best['coverage'] >= 0.15:
+                    why.append('mais completa')
+                if best['fillers'] > by_score['fillers']:
+                    why.append('menos hesitações')
+                if (best.get('picture') or {}).get('motion') in ('shaky', 'chaotic') and (by_score.get('picture') or {}).get('motion') not in ('shaky', 'chaotic'):
+                    why.append('imagem mais estável')
+                if by_score['asr_conf'] - best['asr_conf'] >= 0.08:
+                    why.append('dicção mais clara')
+                check = {'take': by_score['take'], 's': by_score['s'], 'e': by_score['e'],
+                         'why': ', '.join(why) or 'nota geral maior', 'score_gap': round(by_score['score'] - best['score'], 2)}
         groups.append({'group': gi + 1, 'attempts': len(g), 'line': ' '.join(cons), 'best_take': best['take'],
-                       'best': {'s': best['s'], 'e': best['e']}, 'candidates': cands})
+                       'best': {'s': best['s'], 'e': best['e']}, 'candidates': cands,
+                       **({'check': check} if check else {})})
     groups.sort(key=lambda g: g['candidates'][0]['s'])
     return {'groups': groups, 'utterances': len(U), 'chatter_ignored': sum(u['chatter'] for u in U),
-            'how_to_verify': 'timeline_strip the best take (and a close runner-up); a take the speaker criticised is out'}
+            'how_to_verify': 'best = the last complete take the speaker did not criticise (right ~90% of the time); where a '
+                             'group has "check", an earlier take measures clearly better — look at both (timeline_strip) '
+                             'and tell the editor; a take the speaker criticised is out'}
 
 
 # ───────────────────────────── b-roll (no speech) ─────────────────────────────
