@@ -992,19 +992,34 @@ def caption_style_preview(nle_xml: str, aspect: str = '9x16', accent: str = '#4e
 @mcp.tool()
 async def caption_overlay(nle_xml: str, out_folder: str, ctx: Context, style: str = 'social', aspect: str = '9x16',
                           accent: str = '#4ea1ff', corrected: dict = None, uppercase: bool = None, max_words: int = None,
-                          position: str = 'bottom', fix: dict = None, codec: str = 'png') -> dict:
+                          position: str = 'bottom', fix: dict = None, codec: str = 'png', client: str = None,
+                          dynamic: bool = None) -> dict:
     """STEP 3 of captions: render the chosen style over the whole edit as it is NOW (export the sequence as FCP7 XML
     first), with the approved grammar corrections (`corrected` from caption_sentences, timings kept word by word) →
     one transparent .mov the length of the edit (PNG in MOV; codec='prores' for ProRes 4444), to lay on the top video
     track at 0.
-    style: social · bold · clean · karaoke · box · minimal. position: bottom · center · top. fix: spelling {"Enki": "INC"}."""
+    style: social · bold · clean · karaoke · box · minimal · marca. position: bottom · center · top. fix: spelling {"Enki": "INC"}.
+    style='marca' = the client's own caption look (box, font, colours, position) from its profile's caption_look
+    (`client`, or found from the job's path); dynamic=True = the social cut of it (words land as spoken, keywords pop)."""
     import asyncio
     from claudio import motion
+    look = None
+    if style == 'marca' or client:
+        from claudio import clients, run
+        prof = clients.load(client) if client else run.client_for(nle_xml)
+        look = dict((prof or {}).get('caption_look') or {})
+        if look:
+            style = 'marca'
+            if dynamic is not None:
+                look['dynamic'] = bool(dynamic)
+        elif style == 'marca':
+            return {'error': 'perfil do cliente sem caption_look: salve com save_client_profile(caption_look={...})'}
     st = {'f': 0.0}
     loop = asyncio.get_running_loop()
     task = loop.run_in_executor(None, lambda: motion.caption_overlay(nle_xml, out_folder, aspect, accent, uppercase, max_words, fix,
                                                                      progress=lambda f: st.update(f=f), style=style,
-                                                                     corrected=corrected, position=position, codec=codec))
+                                                                     corrected=corrected, position=position, codec=codec,
+                                                                     look=look))
     while not task.done():
         try:
             await ctx.report_progress(st['f'] * 100, 100, f'renderizando legendas ({style}) {int(st["f"] * 100)}%')
