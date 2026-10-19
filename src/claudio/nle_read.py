@@ -46,7 +46,7 @@ def _items(seq, byid, byuid):
         grp = _ref(sec if sec is not None else tg, byid, byuid)
         if grp is None:
             continue
-        kind = 'V' if 'Video' in grp.tag else 'A'
+        kind = 'V' if 'Video' in grp.tag else 'A' if 'Audio' in grp.tag else 'C'      # C = caption (data) tracks
         for ti, tr in enumerate(grp.iter('Track')):
             track = _ref(tr, byid, byuid)
             if track is None:
@@ -56,8 +56,9 @@ def _items(seq, byid, byuid):
                 if item is None:
                     continue
                 st, en = item.find('.//Start'), item.find('.//End')
-                if st is None or en is None:
-                    continue
+                if en is None:
+                    continue                      # Premiere omits <Start> for items at 0: those are real items
+                st_t = int(st.text) if st is not None else 0
                 name, cin, cout = None, None, None
                 sub = _ref(item.find('.//SubClip'), byid, byuid)
                 if sub is not None:
@@ -69,10 +70,10 @@ def _items(seq, byid, byuid):
                         ip, op = clip.find('.//InPoint'), clip.find('.//OutPoint')
                         cin = int(ip.text) / TICKS if ip is not None else None
                         cout = int(op.text) / TICKS if op is not None else None
-                rows.append({'track': f'{kind}{ti + 1}', 'start': round(int(st.text) / TICKS, 3), 'end': round(int(en.text) / TICKS, 3),
+                rows.append({'track': f'{kind}{ti + 1}', 'start': round(st_t / TICKS, 3), 'end': round(int(en.text) / TICKS, 3),
                              'clip': name, 'src_in': round(cin, 3) if cin is not None else None,
                              'src_out': round(cout, 3) if cout is not None else None})
-    return sorted(rows, key=lambda r: (r['track'][0] != 'V', int(r['track'][1:]), r['start']))
+    return sorted(rows, key=lambda r: ('VAC'.index(r['track'][0]), int(r['track'][1:]), r['start']))
 
 
 def premiere_sequences(prproj):
@@ -106,14 +107,18 @@ def edit_patterns(prproj, name):
     v = [r for r in rows if r['track'].startswith('V') and r['clip'] not in GRAPHIC]
     caps = [r for r in rows if r['clip'] in ('Graphic', 'SyntheticCaption')]
     v1 = [r for r in v if r['track'] == 'V1']
-    upper = [r for r in v if r['track'] != 'V1']
+    still = lambda r: os.path.splitext(r['clip'] or '')[1].lower() in ('.png', '.jpg', '.jpeg', '.psd', '.tif', '.tiff')
+    adjust = [r for r in v if r['track'] != 'V1' and r['clip'] == 'Adjustment Layer']
+    logos = [r for r in v if r['track'] != 'V1' and still(r)]
+    upper = [r for r in v if r['track'] != 'V1' and r['clip'] != 'Adjustment Layer' and not still(r)]       # b-roll
     lens = [r['end'] - r['start'] for r in v1]
     ulens = [r['end'] - r['start'] for r in upper]
     covered = sum(ulens)
     audio = [r for r in rows if r['track'].startswith('A') and r['clip'] not in GRAPHIC]
     music = sorted({r['clip'] for r in audio if r['clip'] and os.path.splitext(r['clip'])[1].lower() in ('.wav', '.mp3', '.aif', '.aiff', '.m4a')})
     last = max(v1, key=lambda r: r['end']) if v1 else None
-    cap_lens = [r['end'] - r['start'] for r in caps if r['track'].startswith('V')]
+    cap_lens = [r['end'] - r['start'] for r in caps if r['track'].startswith('C')] or \
+               [r['end'] - r['start'] for r in caps if r['track'].startswith('V')]
     return {
         'sequence': name, 'duration_s': round(dur, 2),
         'spine_V1': {'shots': len(v1), 'median_len_s': round(statistics.median(lens), 2) if lens else None,
@@ -122,6 +127,8 @@ def edit_patterns(prproj, name):
                          'coverage_pct_of_duration': round(100 * covered / dur, 1) if dur else 0,
                          'clips': [r['clip'] for r in upper]},
         'captions': {'blocks': len(cap_lens), 'median_len_s': round(statistics.median(cap_lens), 2) if cap_lens else None},
+        'adjustment_layers': [(round(r['start'], 2), round(r['end'], 2), r['track']) for r in adjust],
+        'stills_overlays': sorted({r['clip'] for r in logos}),
         'ends_with': last['clip'] if last else None,
         'music': music,
         'starts_at_s': round(min(r['start'] for r in rows), 2),

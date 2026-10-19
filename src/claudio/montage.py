@@ -377,8 +377,38 @@ def _level_at(m, t_music):
     return 'mid'
 
 
+def split_on_pauses(path, s_in, s_out, max_pause=0.45, pad=0.12, lang='pt'):
+    """Pieces of [s_in, s_out) with every silence between words longer than max_pause cut out (pad kept on each side):
+    the "remove long breaths" pass. Returns [(in, out), …]; one piece when there is nothing to cut."""
+    idx = core.build_index(path, lang)
+    ws = [w for w in core.load_words(idx) if w['e'] > s_in and w['s'] < s_out]
+    if len(ws) < 2:
+        return [(s_in, s_out)]
+    pieces, a = [], s_in
+    for w0, w1 in zip(ws, ws[1:]):
+        if w1['s'] - w0['e'] > max_pause:
+            pieces.append((a, min(s_out, w0['e'] + pad)))
+            a = max(s_in, w1['s'] - pad)
+    pieces.append((a, s_out))
+    return [(round(x, 3), round(y, 3)) for x, y in pieces if y - x > 0.2]
+
+
 def fit_edit(edit, lang='pt'):
-    """Resolve an edit spec into a frame-accurate timeline. Returns the fitted edit (shots with tl/src frames) and warnings."""
+    """Resolve an edit spec into a frame-accurate timeline. Returns the fitted edit (shots with tl/src frames) and warnings.
+    Shot option trim_pauses=<seconds>: cut silences longer than that inside the shot (jump cuts — cover them with
+    b-roll). Overlay runs take layer=2,3,4… (video track); stills=[{path, from, to, layer}] lay images (a logo) over a
+    span. Empty layers in between stay as empty tracks (e.g. V3 left for the editor's adjustment layers)."""
+    if any(sh.get('trim_pauses') for sh in edit['shots']):
+        shots = []
+        for sh in edit['shots']:
+            if sh.get('trim_pauses') and 'in' in sh and 'out' in sh:
+                parts = split_on_pauses(sh['path'], float(sh['in']), float(sh['out']), float(sh['trim_pauses']), lang=lang)
+                for k, (a, b) in enumerate(parts):
+                    shots.append({**{x: y for x, y in sh.items() if x != 'trim_pauses'}, 'in': a, 'out': b,
+                                  'label': (sh.get('label') or '') + (f' ({k + 1}/{len(parts)})' if len(parts) > 1 else '')})
+            else:
+                shots.append(sh)
+        edit = {**edit, 'shots': shots}
     aspect = edit.get('aspect', '16:9')
     assert aspect in ASPECTS, f'aspect must be one of {list(ASPECTS)}'
     first = core.light_index(edit['shots'][0]['path'], lang)
@@ -518,7 +548,7 @@ def fit_edit(edit, lang='pt'):
             if gr == 'auto':
                 gr = auto_grade(idx, src_in, src_in + (end - pos) / F)
             c = {**c, 'reframe_x': rx, 'reframe_y': ry, 'grade': gr}
-            ovs.append({**c, 'run': r_i + 1, 'n': f'{r_i + 1}.{c_i + 1}', 'clip': info['name'], 'nle_path': info['nle_path'],
+            ovs.append({**c, 'run': r_i + 1, 'layer': int(run.get('layer', 2)), 'n': f'{r_i + 1}.{c_i + 1}', 'clip': info['name'], 'nle_path': info['nle_path'],
                         'src_in': round(src_in, 4), 'src_out': round(src_in + (end - pos) / F, 4),
                         'tl_in_f': pos, 'tl_out_f': end, 'tl_in': round(pos / F, 3), 'tl_out': round(end / F, 3),
                         'beats_len': round((end - pos) / beat_f, 2) if m else None, 'audio': c.get('audio', 'mute'),
@@ -532,7 +562,13 @@ def fit_edit(edit, lang='pt'):
         if mu['start'] + total > mend + 0.05:
             warns.append(f'cut is {total:.1f}s but the music stretch is {mend - mu["start"]:.1f}s — add music or remove shots')
         mu['used_end'] = round(mu['start'] + total, 3)
-    return {**edit, 'fps': f'{fps.numerator}/{fps.denominator}', 'duration': round(total, 3), 'shots': out, 'overlays': ovs,
+    stills = []
+    for st in edit.get('stills', []):
+        a = int(round(float(st.get('from', 0)) * F)); b = min(t, int(round(float(st.get('to', total)) * F)))
+        if b - a > 0:
+            stills.append({'path': core.local_path(st['path']), 'layer': int(st.get('layer', 5)), 'tl_in_f': a, 'tl_out_f': b,
+                           'tl_in': round(a / F, 3), 'tl_out': round(b / F, 3), 'label': st.get('label')})
+    return {**edit, 'fps': f'{fps.numerator}/{fps.denominator}', 'duration': round(total, 3), 'shots': out, 'overlays': ovs, 'stills': stills,
             'bpm': m['bpm'] if m else None, 'warnings': warns}
 
 
@@ -870,7 +906,7 @@ def export_edit_fcp7(fit, out_path, lang='pt'):
         for ch_ in range(1, ach + 1):
             aitems[ch_].append(f'<clipitem id="c{n}-a{ch_}">{common}<file id="{files[p]}"/><sourcetrack><mediatype>audio</mediatype>'
                                f'<trackindex>{ch_}</trackindex></sourcetrack>{level(db)}{links}</clipitem>')
-    v2 = []
+    layers = {}
     for o in fit.get('overlays', []):
         idx = core.light_index(o['path'], lang); info = idx['info']
         cin = int(round(o['src_in'] * F)); cout = cin + (o['tl_out_f'] - o['tl_in_f'])
@@ -883,9 +919,28 @@ def export_edit_fcp7(fit, out_path, lang='pt'):
                   f'<parameter><parameterid>scale</parameterid><name>Scale</name><valuemin>0</valuemin><valuemax>1000</valuemax><value>{scale:.2f}</value></parameter>'
                   f'<parameter><parameterid>center</parameterid><name>Center</name><value><horiz>{offx:.4f}</horiz><vert>{offy:.4f}</vert></value></parameter>'
                   f'</effect></filter>')
-        v2.append(f'<clipitem id="b{str(o["n"]).replace(".", "_")}"><name>{E(o.get("label") or info["name"])}</name>'
+        layers.setdefault(int(o.get('layer', 2)), []).append(f'<clipitem id="b{str(o["n"]).replace(".", "_")}"><name>{E(o.get("label") or info["name"])}</name>'
                   f'<duration>{int(info["duration"] * F)}</duration>{rate}<start>{o["tl_in_f"]}</start><end>{o["tl_out_f"]}</end>'
                   f'<in>{cin}</in><out>{cout}</out>{file_el(info["path"], info)}{motion}</clipitem>')
+    for k, st in enumerate(fit.get('stills', [])):           # images (logo) over a span
+        from PIL import Image as _I
+        try:
+            iw, ih = _I.open(st['path']).size
+        except Exception:
+            iw, ih = W, H
+        L = st['tl_out_f'] - st['tl_in_f']
+        if st['path'] not in files:
+            files[st['path']] = f'file-{len(files) + 1}'
+            fel = (f'<file id="{files[st["path"]]}"><name>{E(os.path.basename(st["path"]))}</name><pathurl>{E(core.file_url(st["path"]))}</pathurl>'
+                   f'{rate}<duration>{L}</duration><media><video><samplecharacteristics>{rate}<width>{iw}</width><height>{ih}</height>'
+                   f'</samplecharacteristics></video></media></file>')
+        else:
+            fel = f'<file id="{files[st["path"]]}"/>'
+        layers.setdefault(int(st['layer']), []).append(
+            f'<clipitem id="still-{k}"><name>{E(st.get("label") or os.path.basename(st["path"]))}</name><duration>{L}</duration>{rate}'
+            f'<start>{st["tl_in_f"]}</start><end>{st["tl_out_f"]}</end><in>0</in><out>{L}</out>{fel}</clipitem>')
+    v2 = [x for v in layers.values() for x in v]
+    upper = ''.join(f'<track>{"".join(layers.get(k, []))}</track>' for k in range(2, max(layers) + 1)) if layers else ''
     mu = fit.get('music')
     if mu and mu.get('path'):
         mp = core.local_path(mu['path'])
@@ -904,7 +959,7 @@ def export_edit_fcp7(fit, out_path, lang='pt'):
            f'<timecode>{rate}<string>01:00:00:00</string><frame>{round(F) * 3600}</frame><displayformat>NDF</displayformat></timecode>'
            f'<media><video><format><samplecharacteristics>{rate}<width>{W}</width><height>{H}</height>'
            f'<pixelaspectratio>square</pixelaspectratio></samplecharacteristics></format><track>{"".join(vitems)}</track>'
-           + (f'<track>{"".join(v2)}</track>' if v2 else '') +
+           + upper +
            f'</video><audio>{tracks}</audio></media></sequence></xmeml>\n')
     open(out_path, 'w', encoding='utf-8').write(xml)
     return {'path': out_path, 'nle_path': core.nle_path(out_path), 'shots': len(fit['shots']), 'broll': len(v2), 'duration_sec': fit['duration'],
