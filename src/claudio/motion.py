@@ -190,13 +190,14 @@ def _work_dir(name):
     return d
 
 
-def render_overlay(code, name, out_dir, ar='9x16', fps='30000/1001', start=0.0, end=None, progress=lambda *_: None, codec='png'):
+def render_overlay(code, name, out_dir, ar='9x16', fps='30000/1001', start=0.0, end=None, progress=lambda *_: None, codec='png',
+                   fonts_css=None):
     """Build the HTML from the skill core + `code`, render it with alpha, write a .mov with alpha into out_dir.
     codec='png' (default: fast, small) or 'prores' (ProRes 4444, slow at 4K; for pipelines that require ProRes)."""
     out_dir = core.local_path(out_dir)
     os.makedirs(out_dir, exist_ok=True)
     src = os.path.join(out_dir, '_src', name)
-    html = build_html(code, src)
+    html = build_html(code, src, fonts_css)
     dur = end
     if dur is None:
         m = re.search(r'const\s+DUR\s*=\s*([0-9.]+)', code)
@@ -266,15 +267,16 @@ def captions_srt(nle_xml, out_path, max_words=4, max_chars=24, fix=None, correct
 
 
 def caption_overlay(nle_xml, out_dir, ar='9x16', accent='#4ea1ff', uppercase=None, max_words=None, fix=None, progress=lambda *_: None,
-                    style='social', corrected=None, position='bottom', codec='png'):
+                    style='social', corrected=None, position='bottom', codec='png', look=None):
     """Captions over the whole edit in one of STYLES, with the approved grammar corrections, transparent background →
     alpha .mov to lay at 0 on a NEW empty video track above every track that has clips (create it); never overwrite or insert onto a track that already has anything (adjustment layers, titles, B-roll) — list the tracks with the Premiere MCP first."""
     tw = corrected_timeline_words(nle_xml, corrected, fix)
     W = tw['words']
-    code = caption_code(W, style, accent, uppercase, max_words, position, max(tw['duration'], (W[-1]['e'] + 1) if W else 1))
+    code = caption_code(W, style, accent, uppercase, max_words, position, max(tw['duration'], (W[-1]['e'] + 1) if W else 1), look)
     name = f'legendas_{style}_' + re.sub(r'[^A-Za-z0-9]+', '_', tw['timeline'] or 'timeline')[:40]
     fps = tw['fps']
-    r = render_overlay(code, name, out_dir, ar, fps, 0.0, None, progress, codec)
+    r = render_overlay(code, name, out_dir, ar, fps, 0.0, None, progress, codec,
+                       fonts_css=brand_fonts_css(look or {}) if style == 'marca' else None)
     r.update(words=len(W), timeline=tw['timeline'], style=style, corrections_applied=tw.get('corrections_applied', 0),
              learned_vocabulary=tw.get('learned_vocabulary', []))
     return r
@@ -498,6 +500,83 @@ STYLES = {
 }
 
 
+STYLES['marca'] = ('A legenda da marca do cliente, medida nos vídeos que ele já publicou (fonte, cor da caixa, tamanho, '
+                   'margens, posição e animação de entrada), vinda do perfil: caption_look')
+
+# what a brand caption looks like — overridden by the client's profile (caption_look); sizes are px at 1080 wide
+BRAND_DEFAULT = {'font': 'Inter', 'font_file': None, 'size': 80, 'color': '#ffffff', 'bg': '#111111', 'pad_x': 19, 'pad_y': 19,
+                 'radius': 0, 'y': 0.578, 'max_words': 5, 'max_chars': 20, 'gap': 0.1, 'line_height': 0.9, 'stroke': 0,
+                 'pop': {'dur': 0.1, 'scale': 0.95, 'rise': 15, 'opacity': 0.2},
+                 # dynamic=True: words appear as spoken, keywords flip colours with a bigger bounce, springy entry
+                 'dynamic': False, 'emphasis_bg': '#ffffff', 'emphasis_color': None}
+# words worth a punch on screen: money, numbers, percent, the brand and a few hooks of real-estate talk
+EMPHASIS = re.compile(r"(R\$|\d|%|^mil$|^mil[,.]|^INC$|^aluguel|^entrada|^subs[ií]dio|^decorado|^gr[aá]tis|^primeiro$)", re.I)
+
+
+def mark_emphasis(words, extra=()):
+    ex = {e.lower() for e in extra}
+    out = []
+    for w in words:
+        t = w['w'].strip()
+        out.append({**w, 'em': bool(EMPHASIS.search(t)) or t.strip('.,!?').lower() in ex})
+    return out
+
+
+def brand_fonts_css(look):
+    """@font-face for the brand font from a local file (Windows/WSL paths fine), so the headless browser draws it."""
+    f = look.get('font_file')
+    if not f:
+        return None
+    lp = core.local_path(f)
+    if not os.path.exists(lp):
+        return None
+    cache = os.path.join(core.CACHE, 'fonts')
+    os.makedirs(cache, exist_ok=True)
+    dst = os.path.join(cache, os.path.basename(lp))
+    if not os.path.exists(dst):
+        shutil.copyfile(lp, dst)                    # out of /mnt: faster and stable for the renderer
+    import pathlib
+    return f"@font-face{{font-family:'{look['font']}';src:url('{pathlib.Path(dst).as_uri()}');}}"
+
+
+BRAND_DYNAMIC_JS = r"""
+// brand caption, social cut: same box/font/colours, but words land one by one as they are spoken and the one box
+// grows with them; a keyword (price, number, brand) gets the inverse chip with a bigger bounce; springy in, quick out
+const _C=Captions(stage,WORDS,{max:L.max_words,maxChars:L.max_chars}); _C.box.style.display='none';
+const CH=_C.chunks;
+const WIN=CH.map((c,k)=>{const nx=CH[k+1]?WORDS[CH[k+1][0]].s:1e9, l=c[c.length-1];
+  return [WORDS[c[0]].s-.04, Math.min(nx-.02-L.gap, Math.max(WORDS[l].e+.25, WORDS[l].s+.4))];});
+const k1080=W/1080, FS=L.size*k1080, PX=L.pad_x*k1080, PY=L.pad_y*k1080;
+const box=div(stage,'el','');box.dataset.role='caption';
+Object.assign(box.style,{left:(W/2)+'px',top:(H*L.y)+'px',transform:'translate(-50%,-50%)',display:'flex',alignItems:'center',
+  justifyContent:'center',whiteSpace:'nowrap',background:L.bg,padding:`${PY}px ${PX}px`,borderRadius:(L.radius*k1080)+'px',opacity:0,
+  fontFamily:`'${L.font}', Inter, sans-serif`,fontWeight:500,fontSize:FS+'px',lineHeight:L.line_height,color:L.color});
+const mkSpan=(w,j)=>{const s=document.createElement('span');s.textContent=w.w;
+  Object.assign(s.style,{display:'inline-block',marginLeft:j?(.26*FS)+'px':'0',transformOrigin:'50% 70%',position:'relative'});
+  if(L.stroke){s.style.webkitTextStroke=(L.stroke*k1080)+'px currentColor';s.style.paintOrder='stroke fill';}
+  if(w.em)Object.assign(s.style,{padding:`${PY*.55}px ${PX*.55}px`,margin:`${-PY*.55}px ${-PX*.25}px ${-PY*.55}px ${j?(.26*FS-PX*.25):-PX*.25}px`});
+  return s;};
+const EL=CH.map(c=>c.map((i,j)=>mkSpan(WORDS[i],j)));
+const spring=x=>x>=1?1:1-Math.cos(x*Math.PI*1.25)*Math.exp(-x*4.2);       // 0→1 with one overshoot
+let shown=-1;
+function seek(t){const k=WIN.findIndex(([a,b])=>t>=a&&t<b);
+  if(k!==shown){box.replaceChildren(...(k<0?[]:EL[k]));shown=k;}
+  if(k<0){box.style.opacity=0;return;}
+  const [a,b]=WIN[k];
+  const pin=spring(seg(t,a,a+.3)), out=seg(t,b-.07,b);
+  box.style.opacity=clamp(seg(t,a,a+.06))*(1-out);
+  box.style.transform=`translate(-50%,-50%) translateY(${(1-pin)*20*k1080}px) scale(${(.88+.12*pin)*(1-.08*out)})`;
+  CH[k].forEach((i,j)=>{const w=WORDS[i],sp=EL[k][j],on=t>=w.s-.04||j===0;
+    sp.style.display=on?'inline-block':'none';
+    const p=spring(seg(t,w.s-.04,w.s+.26));
+    if(w.em){const hot=t>=w.s-.04;
+      sp.style.background=hot?L.emphasis_bg:'transparent';sp.style.color=hot?(L.emphasis_color||L.bg):L.color;
+      sp.style.transform=`scale(${hot?.7+.3*p+.06*Math.max(0,1-seg(t,w.s,w.s+.5)):1}) rotate(${hot?-3*(1-seg(t,w.s,w.s+.45)):0}deg)`;}
+    else {sp.style.transform=`translateY(${(1-p)*12*k1080}px) scale(${.85+.15*p})`;sp.style.opacity=clamp(.3+p);}});}
+"""
+
+
+
 def recommend_style(aspect, profile_captions=None):
     pref = (profile_captions or '').lower()
     if 'caixa alta' in pref or 'uppercase' in pref:
@@ -507,8 +586,39 @@ def recommend_style(aspect, profile_captions=None):
     return 'social'
 
 
-def caption_code(WORDS, style='social', accent='#4ea1ff', uppercase=None, max_words=None, position='bottom', dur=None):
+def caption_code(WORDS, style='social', accent='#4ea1ff', uppercase=None, max_words=None, position='bottom', dur=None, look=None):
     style = style if style in STYLES else 'social'
+    if style == 'marca':
+        L = {**BRAND_DEFAULT, **(look or {}), 'pop': {**BRAND_DEFAULT['pop'], **((look or {}).get('pop') or {})}}
+        D = dur or ((WORDS[-1]['e'] + 1) if WORDS else 1)
+        if L.get('dynamic'):
+            WORDS = mark_emphasis(WORDS, L.get('emphasis_words') or ())
+            return (f"const DUR={D:.3f};\nconst WORDS={json.dumps(WORDS, ensure_ascii=False)};\n"
+                    f"const L={json.dumps({k: v for k, v in L.items() if k != 'font_file'}, ensure_ascii=False)};\n" + BRAND_DYNAMIC_JS)
+        return (f"const DUR={D:.3f};\nconst WORDS={json.dumps(WORDS, ensure_ascii=False)};\n"
+                f"const L={json.dumps({k: v for k, v in L.items() if k != 'font_file'}, ensure_ascii=False)};\n" + r"""
+// brand caption: one block per chunk in a solid box, centred at L.y of the height, a short pop on entry, a hard cut
+// on exit and a small gap before the next block — measured on the client's published videos
+const _C=Captions(stage,WORDS,{max:L.max_words,maxChars:L.max_chars}); _C.box.style.display='none';
+const CH=_C.chunks;
+const WIN=CH.map((c,k)=>{const nx=CH[k+1]?WORDS[CH[k+1][0]].s:1e9, l=c[c.length-1];
+  return [WORDS[c[0]].s-.02, Math.min(nx-.02-L.gap, Math.max(WORDS[l].e+.25, WORDS[l].s+.4))];});
+const k1080=W/1080;
+const box=div(stage,'el','');box.dataset.role='caption';
+Object.assign(box.style,{left:(W/2)+'px',top:(H*L.y)+'px',transform:'translate(-50%,-50%)',whiteSpace:'nowrap',
+  fontFamily:`'${L.font}', Inter, sans-serif`,fontWeight:500,fontSize:(L.size*k1080)+'px',lineHeight:L.line_height,
+  color:L.color,background:L.bg,padding:`${L.pad_y*k1080}px ${L.pad_x*k1080}px`,borderRadius:(L.radius*k1080)+'px',opacity:0});
+if(L.stroke){box.style.webkitTextStroke=(L.stroke*k1080)+'px '+L.color;box.style.paintOrder='stroke fill';}   // Premiere's faux bold
+const txt=CH.map(c=>c.map(i=>WORDS[i].w).join(' '));
+let shown=-1;
+function seek(t){const k=WIN.findIndex(([a,b])=>t>=a&&t<b);
+  if(k!==shown){box.textContent=k<0?'':txt[k];shown=k;box.style.fontSize=(L.size*k1080)+'px';
+    for(let f=L.size*k1080;k>=0&&box.offsetWidth>W*.92&&f>L.size*k1080*.6;f-=2)box.style.fontSize=f+'px';}
+  if(k<0){box.style.opacity=0;return;}
+  const p=E.o3(seg(t,WIN[k][0],WIN[k][0]+L.pop.dur));
+  box.style.opacity=L.pop.opacity+(1-L.pop.opacity)*p;
+  box.style.transform=`translate(-50%,-50%) translateY(${(1-p)*L.pop.rise*k1080}px) scale(${L.pop.scale+(1-L.pop.scale)*p})`;}
+""")
     up = (style == 'bold') if uppercase is None else uppercase
     W = [{**w, 'w': w['w'].upper() if up else w['w']} for w in WORDS]
     mx = max_words or {'bold': 3, 'minimal': 7, 'karaoke': 5}.get(style, 4)
