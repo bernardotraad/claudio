@@ -311,7 +311,8 @@ const LOCAL = {
   }),
   index: () => localJob('indexação', async () => {
     const r = await runLocal('index', { folder: rawFolder() });
-    add('local', r.ok ? (r.started ? `Indexação iniciada em segundo plano: ${r.files} vídeos em \`${rawFolder()}\`. A barra embaixo mostra o progresso; pode fechar o painel.` : `Já está indexando: ${r.line}`) : r.error);
+    const pf = r.profile && r.profile.client ? `\n\nPerfil **${r.profile.client}** aplicado: ` + [r.profile.vocabulary ? 'vocabulário' : '', r.profile.rotation ? `brutos girados ${r.profile.rotation}° (gravados na vertical)` : ''].filter(Boolean).join(' · ') + '.' : '';
+    add('local', r.ok ? (r.started ? `Indexação iniciada em segundo plano: ${r.files} vídeos em \`${rawFolder()}\`. A barra embaixo mostra o progresso (primeiro ela lê a duração de cada vídeo, uns segundos por arquivo); pode fechar o painel.` : `Já está indexando: ${r.line}`) + pf : r.error);
     progScan = 0;
   }),
   multicam: () => multicamPlan(),

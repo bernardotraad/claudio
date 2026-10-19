@@ -22,18 +22,46 @@ def _status(a):
     return {'jobs': [{'folder': j['folder'], 'line': indexer.progress_line(j), 'state': j['state']} for j in jobs if j]}
 
 
+def client_for(folder):
+    """The client profile whose name appears in the job's path ("…\\2026-10-19 INC CORRETORES 9\\BRUTOS" → INC)."""
+    from claudio import clients, core
+    import re as _re
+    path = core.local_path(folder).lower()
+    try:
+        names = [os.path.splitext(f)[0] for f in os.listdir(clients.clients_dir()) if f.endswith('.md') and f != 'README.md']
+    except OSError:
+        return None
+    for n in sorted(names, key=len, reverse=True):
+        if _re.search(r'(^|[^a-z0-9])' + _re.escape(n.lower()) + r'([^a-z0-9]|$)', path):
+            return clients.load(n)
+    return None
+
+
 def _index(a):
-    from claudio import indexer, motion
+    from claudio import core, indexer, motion
     voc = a.get('vocabulary')
+    prof = client_for(a['folder'])
+    applied = {}
+    if prof:                                       # the client's profile: vocabulary, and footage shot sideways
+        applied['client'] = prof.get('name')
+        if prof.get('vocabulary'):
+            voc = ', '.join(x for x in [voc, prof['vocabulary']] if x)
+            applied['vocabulary'] = True
+        if prof.get('rotation'):
+            vids = indexer.list_videos(a['folder'])
+            for f in vids:
+                if not core.get_rotation(f):
+                    core.set_rotation(f, int(prof['rotation']))
+            applied['rotation'] = int(prof['rotation'])
     learned = motion.unapplied_vocabulary(a['folder'])
     if learned:
         voc = ', '.join(([voc] if voc else []) + motion.folder_vocabulary(a['folder']))
         motion.mark_vocabulary_applied(a['folder'])
     j = indexer.read_job(a['folder'])
     if j and j.get('state') == 'running':
-        return {'started': False, 'line': indexer.progress_line(j)}
+        return {'started': False, 'line': indexer.progress_line(j), 'profile': applied}
     indexer.launch_detached(a['folder'], voc, a.get('language', 'pt'))
-    return {'started': True, 'files': len(indexer.list_videos(a['folder']))}
+    return {'started': True, 'files': len(indexer.list_videos(a['folder'])), 'profile': applied}
 
 
 def _stereo(a):

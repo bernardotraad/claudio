@@ -59,6 +59,8 @@ def all_jobs(max_age_h=24):
 def progress_line(j):
     if not j:
         return 'nenhuma indexação'
+    if j.get('stage') == 'preparing' and j.get('line'):
+        return j['line']
     s = f"{int(j.get('fraction', 0) * 100)}% · {j.get('files_done', 0)}/{j.get('files_total', 0)} clipes"
     if j.get('state') == 'running' and j.get('current'):
         s += f" · agora: {j['current']} ({STAGE_PT.get(j.get('stage'), j.get('stage') or '')} {int((j.get('stage_progress') or 0) * 100)}%)"
@@ -107,11 +109,27 @@ def run(folder, vocabulary=None, lang='pt'):
     jp = job_path(folder)
     files = list_videos(folder)
     durs = {}
-    for f in files:
+
+    def early(k):                    # reading every file's length takes ~2–3 s each over /mnt: show that it started
+        pub = {'folder': core.nle_path(folder), 'pid': os.getpid(), 'state': 'running', 'started': time.time(),
+               'updated': time.time(), 'files_total': len(files), 'files_done': 0, 'fraction': 0.0, 'errors': [],
+               'current': None, 'stage': 'preparing',
+               'line': f'preparando: lendo {k} de {len(files)} vídeos (duração, câmera)'}
+        try:
+            json.dump(pub, open(jp + '.tmp', 'w'), ensure_ascii=False); os.replace(jp + '.tmp', jp)
+            pd = core.data_dir(folder)
+            json.dump(pub, open(os.path.join(pd, 'progress.json.tmp'), 'w'), ensure_ascii=False)
+            os.replace(os.path.join(pd, 'progress.json.tmp'), os.path.join(pd, 'progress.json'))
+        except OSError:
+            pass
+    early(0)
+    for k, f in enumerate(files):
         try:
             durs[f] = core.light_index(f)['info']['duration']
         except Exception:
             durs[f] = 0.0
+        if k % 3 == 2:
+            early(k + 1)
     todo = [f for f in files if not os.path.exists(os.path.join(core.cache_dir(f), 'index.json')) or vocabulary]
     j = {'folder': core.nle_path(folder), 'pid': os.getpid(), 'state': 'running', 'started': time.time(), 'updated': time.time(),
          'files_total': len(todo), 'files_done': 0, 'total_s': sum(durs[f] for f in todo), 'done_s': 0.0, 'errors': [],
