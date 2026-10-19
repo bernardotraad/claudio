@@ -42,3 +42,15 @@ def test_names_survive_a_rerun(tmp_path, monkeypatch):
     assert P.name(folder, {'P2': 'Caio'}, fake_people(folder)) == {'P2': 'Caio'}
     again = fake_people(folder)
     assert again['faces'][1]['name'] == 'Caio' and again['faces'][0]['name'] is None
+
+
+def test_readme_link_keeps_layout(tmp_path, monkeypatch):
+    d = tmp_path / 'trabalho' / 'clientes'
+    d.mkdir(parents=True)
+    (tmp_path / 'trabalho' / 'README.md').write_text('# T\n\nVoltar ao [[index]].\n', encoding='utf-8')
+    from claudio import clients
+    monkeypatch.setattr(clients, 'vault_dir', lambda: str(tmp_path))
+    clients._link_in_readme(str(d), 'inc', 'INC')
+    clients._link_in_readme(str(d), 'acme', 'Acme')
+    t = (d / 'README.md').read_text(encoding='utf-8')
+    assert '- [[trabalho/clientes/inc|INC]]\n- [[trabalho/clientes/acme|Acme]]\n\nVoltar a' in t

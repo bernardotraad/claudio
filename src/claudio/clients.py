@@ -60,7 +60,14 @@ def _link_in_readme(d, slug_, name):
     if link in txt:
         return
     line = f'- [[trabalho/clientes/{slug_}|{name}]]\n'
-    txt = txt.replace('## Clientes\n\n', '## Clientes\n\n' + line, 1) if '## Clientes\n\n' in txt else txt + line
+    if '## Clientes\n\n' in txt:
+        head, rest = txt.split('## Clientes\n\n', 1)
+        items = rest.split('\n\n', 1)
+        lst = items[0] if items[0].startswith('- ') else ''
+        tail = items[1] if lst and len(items) > 1 else (rest if not lst else '')
+        txt = head + '## Clientes\n\n' + (lst + '\n' if lst else '') + line + '\n' + tail
+    else:
+        txt = txt + line
     txt = re.sub(r'^atualizado: .*$', f'atualizado: {datetime.date.today().isoformat()}', txt, count=1, flags=re.M)
     open(rp, 'w', encoding='utf-8').write(txt)
 

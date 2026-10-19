@@ -381,7 +381,11 @@ def load_thumbs(d, info):
     a = np.fromfile(p, np.uint8)
     n = len(a) // (w * h * 3)
     a = a[:n * w * h * 3].reshape(n, h, w, 3)
-    return [k * THUMB_STEP for k in range(n)], [Image.fromarray(x) for x in a]
+    ims = [Image.fromarray(x) for x in a]
+    rot = get_rotation(info['path']) if info.get('path') else 0     # footage shot sideways: show it upright
+    if rot:
+        ims = [im.rotate(-rot, expand=True) for im in ims]
+    return [k * THUMB_STEP for k in range(n)], ims
 
 
 def _analyze_keyframes(path, d, info, qw, qh, progress):

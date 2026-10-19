@@ -78,7 +78,9 @@ def faces_clip(path, force=False):
     import cv2
     path = core.local_path(path)
     d = core.cache_dir(path)
-    p = os.path.join(d, f'faces_v{VERSION}.npz')
+    rot = core.get_rotation(path)
+    tag = f'faces_v{VERSION}' + (f'_r{rot}' if rot else '')        # per orientation (sideways footage)
+    p = os.path.join(d, f'{tag}.npz')
     if os.path.exists(p) and not force:
         z = np.load(p, allow_pickle=True)
         return {'faces': list(z['faces']), 'with_faces': z['with_faces'].tolist()}
@@ -109,7 +111,7 @@ def faces_clip(path, force=False):
     with ThreadPoolExecutor(3) as ex:
         big = list(ex.map(lambda t: core.grab(path, t, 960, keyframe=True), pick))
     rec, faces = _rec(), []
-    crops_dir = os.path.join(d, f'faces_v{VERSION}')
+    crops_dir = os.path.join(d, tag)
     os.makedirs(crops_dir, exist_ok=True)
     for t, im in zip(pick, big):
         a = cv2.cvtColor(np.asarray(im.convert('RGB')), cv2.COLOR_RGB2BGR)

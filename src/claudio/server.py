@@ -875,7 +875,7 @@ def client_profile(name: str) -> dict:
     from claudio import clients
     p = clients.load(name)
     return {'profile': p, 'folder': core.nle_path(clients.clients_dir()),
-            'known_clients': sorted(os.path.splitext(f)[0] for f in os.listdir(clients.clients_dir()) if f.endswith('.md'))}
+            'known_clients': sorted(os.path.splitext(f)[0] for f in os.listdir(clients.clients_dir()) if f.endswith('.md') and f != 'README.md')}
 
 
 @mcp.tool()

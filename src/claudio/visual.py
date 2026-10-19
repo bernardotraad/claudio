@@ -114,7 +114,8 @@ def _ppm(raw):
 def embed_clip(path, force=False):
     """Cached image embeddings of a clip: {'times': [...], 'emb': (n, 512) float16}."""
     path = core.local_path(path)
-    p = os.path.join(core.cache_dir(path), f'clip_v{VERSION}.npz')
+    rot = core.get_rotation(path)
+    p = os.path.join(core.cache_dir(path), f'clip_v{VERSION}' + (f'_r{rot}' if rot else '') + '.npz')   # per orientation
     if os.path.exists(p) and not force:
         z = np.load(p)
         return {'times': z['times'].tolist(), 'emb': z['emb'].astype(np.float32)}
@@ -125,7 +126,9 @@ def embed_clip(path, force=False):
 
 
 def is_embedded(path):
-    return os.path.exists(os.path.join(core.cache_dir(core.local_path(path)), f'clip_v{VERSION}.npz'))
+    lp = core.local_path(path)
+    rot = core.get_rotation(lp)
+    return os.path.exists(os.path.join(core.cache_dir(lp), f'clip_v{VERSION}' + (f'_r{rot}' if rot else '') + '.npz'))
 
 
 def search(paths, query, top=8, min_gap=6.0):
