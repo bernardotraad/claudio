@@ -54,3 +54,17 @@ def test_readme_link_keeps_layout(tmp_path, monkeypatch):
     clients._link_in_readme(str(d), 'acme', 'Acme')
     t = (d / 'README.md').read_text(encoding='utf-8')
     assert '- [[trabalho/clientes/inc|INC]]\n- [[trabalho/clientes/acme|Acme]]\n\nVoltar a' in t
+
+
+def test_slate_names(monkeypatch):
+    texts = {
+        'a': 'Ó, áudio foi, câmera rodando. Atenção, vídeo Robson. Take 1. Só um momento, Robson. Você que paga aluguel',
+        'b': 'câmera rodando, tá, Pedro? Take 1. Vamos lá. Leonardo, take 1. Só um momento. Deixa eu dar uma passada',
+        'c': 'Atenção, João Gabriel, take 1. João Gabriel, olhando lá na câmera, tá?',
+        'd': 'é, então, Estela, take one. Tá valendo agora',
+    }
+    monkeypatch.setattr(P.core, 'build_index', lambda p: p)
+    monkeypatch.setattr(P.core, 'load_words', lambda p: [{'w': w} for w in texts[p].split()])
+    assert set(P.slate_names('a')) == {'Robson'}
+    assert P.slate_names('b') == ['Leonardo']                       # "tá, Pedro?" asks the crew
+    assert 'João Gabriel' in P.slate_names('c') and P.slate_names('d') == ['Estela']

@@ -166,6 +166,38 @@ def voices_clip(path, force=False):
     return segs
 
 
+# ───────────────────────────── names from the spoken slate ─────────────────────────────
+import re as _re
+_NAME = r"([A-ZÁÉÍÓÚÂÊÔÃÕÇ][a-záéíóúâêôãõçü]+(?:\s+[A-ZÁÉÍÓÚÂÊÔÃÕÇ][a-záéíóúâêôãõçü]+)?)"
+_TAKE = r"(?i:take)\s+(?i:\d+|um|one|dois|two|tr[eê]s)"
+_SEP = r"[,.!]?\s+"        # not "?": "tá, Pedro? Take 1" asks the crew; the slate is "Leonardo, take 1"
+SLATE_PATTERNS = [
+    _re.compile(r"(?i:aten[cç][aã]o|v[ií]deo)" + _SEP + r"(?:(?i:v[ií]deo)\s+)?" + _NAME + _SEP + _TAKE),  # "Atenção, vídeo Robson. Take 1"
+    _re.compile(_NAME + _SEP + _TAKE),                                                              # "Estela, take one" / "Pedro? Take 1"
+    _re.compile(_TAKE + _SEP + _NAME),                                                              # "take 1, João"
+    _re.compile(r"(?i:s[oó] um (?:momento|minutinho|instante))" + _SEP + _NAME),                    # "Só um momento, Kelly"
+]
+NOT_NAMES = {'Atenção', 'Vídeo', 'Video', 'Take', 'Então', 'Câmera', 'Camera', 'Só', 'Beleza', 'Valendo', 'Agora', 'Gente',
+             'Olhando', 'Calma', 'Pessoal', 'Rapidinho', 'Ok', 'Ação', 'Vai', 'Pode', 'Isso', 'Tá', 'Aqui', 'Som', 'Áudio', 'Vamos',
+             'Bora', 'Deixa', 'Espera', 'Peraí', 'Primeiro', 'Segundo', 'Último', 'Outro', 'Mais'}
+
+
+def slate_names(path):
+    """Names called in the spoken slate of a clip ("Atenção, vídeo Robson, take 1", "take 1, João", "só um momento,
+    Kelly"): who this clip is of."""
+    try:
+        txt = ' '.join(w['w'] for w in core.load_words(core.build_index(path)))
+    except Exception:
+        return []
+    out = []
+    for pat in SLATE_PATTERNS:
+        for m in pat.finditer(txt):
+            nm = ' '.join(x for x in m.group(1).split() if x not in NOT_NAMES)
+            if nm and nm.split()[0] not in NOT_NAMES:
+                out.append(nm)
+    return out
+
+
 # ───────────────────────────── across the folder ─────────────────────────────
 def _cluster(E, thr):
     """Average-linkage agglomerative clustering on cosine similarity. Returns a label per row."""
@@ -248,6 +280,14 @@ def people(folder, progress=lambda *_: None, paths=None):
                    'clips': [{'clip': os.path.basename(f), 'path': f, 'nle_path': core.nle_path(f),
                               'times': sorted({round(float(x[key]), 1) for x in xs})} for f, xs in clips.items()],
                    'members': mem}
+            if kind == 'faces' and not name:          # who the slate calls in this person's clips
+                from collections import Counter
+                votes = Counter(n for f in clips for n in slate_names(f))
+                if votes:
+                    top, k = votes.most_common(1)[0]
+                    full = [n for n in votes if n.startswith(top) and len(n) > len(top)]   # "João" → "João Gabriel"
+                    row['suggested_name'] = max(full, key=lambda n: votes[n]) if full and votes[max(full, key=lambda n: votes[n])] >= k / 2 else top
+                    row['slate_votes'] = dict(votes.most_common(3))
             if kind == 'voices':
                 row['seconds'] = round(sum(x['e'] - x['s'] for _, x in mem), 1)
                 row['quotes'] = [f"{os.path.basename(f)} {x['s']:.1f}s: “{x['text'][:90]}”"
@@ -293,7 +333,7 @@ def board(res, per=8):
     img = Image.new('RGB', (150 + S * per, S * len(rows)), (22, 21, 20))
     dr = ImageDraw.Draw(img)
     for y, r in enumerate(rows):
-        dr.text((8, y * S + 30), f"{r['id']}  {r['name'] or '?'}", fill=(240, 230, 210))
+        dr.text((8, y * S + 30), f"{r['id']}  {r['name'] or (r.get('suggested_name', '?') + ' ?')}", fill=(240, 230, 210))
         dr.text((8, y * S + 50), f"{r['count']} rostos · {len(r['clips'])} clipes", fill=(160, 150, 140))
         mem = r['members']
         step = max(1, len(mem) // per)

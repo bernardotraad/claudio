@@ -726,8 +726,9 @@ async def _people(folder, ctx):
 async def people(folder: str, ctx: Context) -> list:
     """WHO is in the footage: every face and every voice of the folder's clips, clustered so the same person gets one id
     in all clips — P1, P2… (faces, by screen time) and V1, V2… (voices, by talk time) — with clips, times and sample
-    quotes. Returns a board of the face clusters to LOOK at. Show it to the editor and ask who is who (use the names the
-    overview found as hints), then save with name_people. Likeness, not identity: never assert a name the editor
+    quotes. Returns a board of the face clusters to LOOK at. Each face cluster may carry suggested_name: the name called
+    in the spoken slate of its clips ("Atenção, vídeo Robson, take 1", "take 1, João") — usually right; show it to the
+    editor to confirm, then save with name_people. Without a slate, use the names the overview found as hints. Likeness, not identity: never assert a name the editor
     didn't confirm. The first run on a folder takes a few seconds per clip (cached afterwards)."""
     from claudio import people as P
     res = await _people(folder, ctx)
