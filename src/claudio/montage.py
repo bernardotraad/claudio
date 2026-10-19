@@ -973,6 +973,17 @@ def project_dir(project):
     return p
 
 
+def sequence_name(fit, v):
+    """What the editor sees in the bin: the edit's own name ("INC — Estela"), with the version when it has none."""
+    name = (fit.get('name') or '').strip() or 'Cláudio — montagem'
+    return name if re.search(r'\bv\d+\b', name, re.I) else f'{name} v{v}'
+
+
+def safe_filename(name):
+    """A sequence name as a Windows-safe file name (Premiere names the imported bin after the file)."""
+    return re.sub(r'\s+', ' ', re.sub(r'[<>:"/\\|?*\x00-\x1f]', '-', name)).strip(' .') or 'montagem'
+
+
 def next_version(p):
     vs = [int(m.group(1)) for f in os.listdir(p) if (m := re.match(r'edit_v(\d+)\.json$', f))]
     return max(vs, default=0) + 1

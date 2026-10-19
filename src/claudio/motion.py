@@ -38,7 +38,21 @@ def _core_html():
     head = head.replace(':root{--bg:#F7F7F5;', ':root{--bg:transparent;')
     head = head.replace('html,body{margin:0;padding:0;background:var(--bg);overflow:hidden}',
                         'html,body{margin:0;padding:0;background:transparent!important;overflow:hidden}')
+    # captions from a reviewed .srt: each cue is one block, on screen exactly from its in to its out
+    for a, b in _CUE_PATCH:
+        if a not in head:
+            raise RuntimeError('motion-designer timeline.html changed: Captions() no longer matches the SRT cue patch')
+        head = head.replace(a, b, 1)
     return head
+
+
+_CUE_PATCH = [
+    ('  const next=i=>WORDS[i+1]?WORDS[i+1].s:1e9;\n',
+     '  if(window.CUES){chunks.length=0;for(const c of CUES){const a=[];for(let i=c[0];i<=c[1];i++)a.push(i);chunks.push(a);}}\n'
+     '  const next=i=>WORDS[i+1]?WORDS[i+1].s:1e9;\n'),
+    ('  const els=chunks.map(c=>c.map(i=>{const sp=',
+     '  if(window.CUES)CUES.forEach((c,k)=>{win[k]=[c[2]-.001,c[3]];});\n  const els=chunks.map(c=>c.map(i=>{const sp='),
+]
 
 
 BOOT = """
@@ -266,19 +280,93 @@ def captions_srt(nle_xml, out_path, max_words=4, max_chars=24, fix=None, correct
     return {'srt': core.nle_path(out_path), 'blocks': len(chunks), 'words': len(W), 'timeline': tw['timeline']}
 
 
+def parse_srt(path):
+    """[(in, out, text)] of an .srt (Premiere's caption export included: BOM, CRLF, 2-line cues, <i>/<b> tags)."""
+    raw = open(core.local_path(path), encoding='utf-8-sig', errors='replace').read().replace('\r\n', '\n').replace('\r', '\n')
+    t = lambda h, m, s_, ms: int(h) * 3600 + int(m) * 60 + int(s_) + int(ms.ljust(3, '0')[:3]) / 1000
+    cues = []
+    for block in re.split(r'\n\s*\n', raw.strip()):
+        lines = block.strip().split('\n')
+        for k, ln in enumerate(lines):
+            m = re.match(r'\s*(\d+):(\d+):(\d+)[,.](\d+)\s*-->\s*(\d+):(\d+):(\d+)[,.](\d+)', ln)
+            if m:
+                text = ' '.join(re.sub(r'<[^>]+>|\{\\[^}]*\}', '', x).strip() for x in lines[k + 1:])
+                text = re.sub(r'\s+', ' ', text).strip()
+                if text:
+                    cues.append((t(*m.groups()[:4]), t(*m.groups()[4:]), text))
+                break
+    return sorted(cues)
+
+
+def srt_timeline_words(nle_xml, srt, fix=None, remember=True):
+    """The edit's words from an .srt the editor reviewed in the NLE: the text and each block's in/out are the editor's,
+    word by word timing inside a block comes from the transcript when the words still match (else spread by length).
+    Words the editor changed are learned as vocabulary for the source clip, like approved corrections."""
+    tw = timeline_words(nle_xml)
+    base = tw['words']
+    words, cues, learned = [], [], []
+    tl = None
+    for a, b, text in parse_srt(srt):
+        b = max(b, a + 0.2)
+        span = [w for w in base if a - 0.15 <= (w['s'] + w['e']) / 2 <= b + 0.15]
+        toks = text.split()
+        if span:
+            rt = _retime(span, text)
+            off = a - rt[0]['s']
+            rt = [{**w, 's': w['s'] + off, 'e': w['e'] + off} for w in rt]
+            if rt[-1]['e'] > b:                                     # block shortened by the editor: squeeze into it
+                k = (b - a) / max(rt[-1]['e'] - a, 1e-3)
+                rt = [{**w, 's': a + (w['s'] - a) * k, 'e': a + (w['e'] - a) * k} for w in rt]
+        else:
+            tot = sum(len(x) + 1 for x in toks); acc = 0; rt = []
+            for x in toks:
+                s0 = a + (b - a) * acc / tot; acc += len(x) + 1
+                rt.append({'w': x, 's': s0, 'e': a + (b - a) * acc / tot})
+        for j, w in enumerate(rt):
+            w['s'] = round(min(max(w['s'], a, rt[j - 1]['s'] if j else a), b - 0.01), 3)
+            w['e'] = round(min(max(w['e'], w['s'] + 0.01), b), 3)
+        rt[0]['s'] = round(a, 3)
+        cues.append([len(words), len(words) + len(rt) - 1, round(a, 3), round(b, 3)])
+        words += rt
+        spoken = ' '.join(w['w'] for w in span)
+        if remember and span and core.norm(spoken.replace(' ', '')) != core.norm(text.replace(' ', '')):
+            tl = tl or nle_read_fcp7(nle_xml)
+            it = next((i for i in tl['items'] if i['track'] == 'A1' and i['path'] and i['tl_in'] - 0.01 <= a <= i['tl_out']), None)
+            terms = learned_terms(spoken, text)
+            if it and terms:
+                try:
+                    _learn(it['path'], terms)
+                except OSError:
+                    pass
+                learned += terms
+    for w in words:
+        for x, y in (fix or {}).items():
+            w['w'] = re.sub(re.escape(x), y, w['w'], flags=re.I)
+    return {**tw, 'words': words, 'cues': cues, 'srt_blocks': len(cues), 'learned_vocabulary': sorted(set(learned))}
+
+
+def nle_read_fcp7(nle_xml):
+    from claudio import nle_read
+    return nle_read.read_fcp7(nle_xml)
+
+
 def caption_overlay(nle_xml, out_dir, ar='9x16', accent='#4ea1ff', uppercase=None, max_words=None, fix=None, progress=lambda *_: None,
-                    style='social', corrected=None, position='bottom', codec='png', look=None):
+                    style='social', corrected=None, position='bottom', codec='png', look=None, srt=None):
     """Captions over the whole edit in one of STYLES, with the approved grammar corrections, transparent background →
-    alpha .mov to lay at 0 on a NEW empty video track above every track that has clips (create it); never overwrite or insert onto a track that already has anything (adjustment layers, titles, B-roll) — list the tracks with the Premiere MCP first."""
-    tw = corrected_timeline_words(nle_xml, corrected, fix)
+    alpha .mov to lay at 0 on a NEW empty video track above every track that has clips (create it); never overwrite or insert onto a track that already has anything (adjustment layers, titles, B-roll) — list the tracks with the Premiere MCP first.
+    srt: an .srt the editor reviewed in the NLE — its text and block timings win over the transcript (corrected is ignored)."""
+    tw = srt_timeline_words(nle_xml, srt, fix) if srt else corrected_timeline_words(nle_xml, corrected, fix)
     W = tw['words']
-    code = caption_code(W, style, accent, uppercase, max_words, position, max(tw['duration'], (W[-1]['e'] + 1) if W else 1), look)
+    code = caption_code(W, style, accent, uppercase, max_words, position, max(tw['duration'], (W[-1]['e'] + 1) if W else 1), look,
+                        cues=tw.get('cues'))
     name = f'legendas_{style}_' + re.sub(r'[^A-Za-z0-9]+', '_', tw['timeline'] or 'timeline')[:40]
     fps = tw['fps']
     r = render_overlay(code, name, out_dir, ar, fps, 0.0, None, progress, codec,
                        fonts_css=brand_fonts_css(look or {}) if style == 'marca' else None)
     r.update(words=len(W), timeline=tw['timeline'], style=style, corrections_applied=tw.get('corrections_applied', 0),
              learned_vocabulary=tw.get('learned_vocabulary', []))
+    if srt:
+        r.update(from_srt=core.nle_path(core.local_path(srt)), srt_blocks=tw['srt_blocks'])
     return r
 
 
@@ -586,7 +674,16 @@ def recommend_style(aspect, profile_captions=None):
     return 'social'
 
 
-def caption_code(WORDS, style='social', accent='#4ea1ff', uppercase=None, max_words=None, position='bottom', dur=None, look=None):
+def caption_code(WORDS, style='social', accent='#4ea1ff', uppercase=None, max_words=None, position='bottom', dur=None, look=None,
+                 cues=None):
+    code = _caption_code(WORDS, style, accent, uppercase, max_words, position, dur, look)
+    if not cues:
+        return code
+    return (f"const CUES={json.dumps(cues)};window.CUES=CUES;\n" + code +
+            "\nif(typeof WIN!=='undefined')CUES.forEach((c,k)=>{WIN[k]=[c[2]-.001,c[3]];});\n")
+
+
+def _caption_code(WORDS, style='social', accent='#4ea1ff', uppercase=None, max_words=None, position='bottom', dur=None, look=None):
     style = style if style in STYLES else 'social'
     if style == 'marca':
         L = {**BRAND_DEFAULT, **(look or {}), 'pop': {**BRAND_DEFAULT['pop'], **((look or {}).get('pop') or {})}}

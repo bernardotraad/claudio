@@ -993,11 +993,16 @@ def caption_style_preview(nle_xml: str, aspect: str = '9x16', accent: str = '#4e
 async def caption_overlay(nle_xml: str, out_folder: str, ctx: Context, style: str = 'social', aspect: str = '9x16',
                           accent: str = '#4ea1ff', corrected: dict = None, uppercase: bool = None, max_words: int = None,
                           position: str = 'bottom', fix: dict = None, codec: str = 'png', client: str = None,
-                          dynamic: bool = None) -> dict:
-    """STEP 3 of captions: render the chosen style over the whole edit as it is NOW (export the sequence as FCP7 XML
-    first), with the approved grammar corrections (`corrected` from caption_sentences, timings kept word by word) →
-    one transparent .mov the length of the edit (PNG in MOV; codec='prores' for ProRes 4444), to lay on the top video
-    track at 0.
+                          dynamic: bool = None, srt: str = None) -> dict:
+    """STEP 4 of captions: render the chosen style over the whole edit as it is NOW (export the sequence as FCP7 XML
+    first) → one transparent .mov the length of the edit (PNG in MOV; codec='prores' for ProRes 4444), to lay on the
+    top video track at 0.
+    srt = the .srt the editor REVIEWED in Premiere (STEP 3: captions_srt → caption track → they fix words and timing →
+    export the track to .srt). Then that file is the truth: every block appears exactly from its in to its out with the
+    editor's text (word pops inside a block follow the transcript); `corrected` is ignored. Without srt: the approved
+    grammar corrections (`corrected` from caption_sentences), timings word by word from the transcript.
+    When the editor says the captions were reviewed / corrected in Premiere, ask for (or find in #legendas) the exported
+    .srt and use it — never re-derive from the transcript.
     style: social · bold · clean · karaoke · box · minimal · marca. position: bottom · center · top. fix: spelling {"Enki": "INC"}.
     style='marca' = the client's own caption look (box, font, colours, position) from its profile's caption_look
     (`client`, or found from the job's path); dynamic=True = the social cut of it (words land as spoken, keywords pop)."""
@@ -1019,7 +1024,7 @@ async def caption_overlay(nle_xml: str, out_folder: str, ctx: Context, style: st
     task = loop.run_in_executor(None, lambda: motion.caption_overlay(nle_xml, out_folder, aspect, accent, uppercase, max_words, fix,
                                                                      progress=lambda f: st.update(f=f), style=style,
                                                                      corrected=corrected, position=position, codec=codec,
-                                                                     look=look))
+                                                                     look=look, srt=srt))
     while not task.done():
         try:
             await ctx.report_progress(st['f'] * 100, 100, f'renderizando legendas ({style}) {int(st["f"] * 100)}%')
@@ -1031,8 +1036,12 @@ async def caption_overlay(nle_xml: str, out_folder: str, ctx: Context, style: st
 
 @mcp.tool()
 def captions_srt(nle_xml: str, out_srt: str, corrected: dict = None, max_words: int = 4, max_chars: int = 24, fix: dict = None) -> dict:
-    """Editable captions (.srt) of the edit with the approved grammar corrections: Premiere — import as a caption track;
-    Resolve — import subtitle. Same chunking as the styled overlay."""
+    """STEP 3 of captions — the REVIEW round, before any overlay: editable captions (.srt) of the edit with the approved
+    grammar corrections. Put it in Premiere as a caption track (Premiere MCP create_caption_track, or the editor drags
+    the .srt onto the sequence; Resolve: import subtitle), then STOP and let the editor fix words and timing there.
+    When they are done they export the track (Text panel › Captions › ··· › Export to SRT file, or File › Export ›
+    Captions) to #legendas, e.g. <name>_revisada.srt, and caption_overlay(srt=that file) renders exactly it.
+    Same chunking as the styled overlay."""
     from claudio import motion
     return motion.captions_srt(nle_xml, out_srt, max_words, max_chars, fix, corrected)
 
@@ -1141,10 +1150,14 @@ def export_edit(project: str, out_path: str = None, version: int = None) -> dict
     """Export an edit version as FCP7 XML for finishing: V1 spine, V2 b-roll (with Basic Motion scale/centre for the
     reframe), A1/A2 production audio with per-shot levels, A3/A4 music. Premiere: do NOT import the .xml through the Premiere MCP (importFiles on an FCP XML crashes Premiere) — give the editor the path and ask them to import it (File › Import / Ctrl+I);
     Resolve: import_timeline_from_file(xml). Captions/titles are not in the XML (re-create them in the NLE or burn
-    from the render)."""
+    from the render).
+    The sequence and the .xml are named after edit["name"] (+ " vN" when the name has no version), so ALWAYS give the
+    edit a name that tells it apart in the bin — client — person/subject (e.g. "INC — Estela", "INC — Robson"); never
+    leave it generic when a job has several people."""
     p = montage.project_dir(project)
     v, fit = montage.load_fit(p, version)
-    out = core.local_path(out_path) if out_path else os.path.join(p, f'edit_v{v}.xml')
+    fit = {**fit, 'name': montage.sequence_name(fit, v)}
+    out = core.local_path(out_path) if out_path else os.path.join(p, montage.safe_filename(fit['name']) + '.xml')
     return montage.export_edit_fcp7(fit, out)
 
 
