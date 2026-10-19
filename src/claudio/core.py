@@ -714,7 +714,8 @@ CREW = {'acao', 'action', 'tres', 'dois', 'um', 'uma', '1', '2', '3', 'camera', 
         'beleza', 'ta', 'foi', 'som', 'ok', 'show', 'boa', 'pera', 'perai', 'espera', 'isso', 'valendo', 'gravou', 'rolando'}
 CRITIQUE = ('gaguejei', 'engoli', 'buguei', 'errei', 'desculpa', 'denovo', 'maisum', 'maisuma', 'perdi', 'naoficou',
             'ficouruim', 'travei', 'esqueci', 'perai', 'peraai', 'troquei', 'falelerrado', 'stumbled', 'sorry', 'again',
-            'onemore', 'mybad', 'messedup')
+            'onemore', 'mybad', 'messedup', 'perdao', 'ficouestranho', 'ficoumal', 'naoficoubom', 'repete', 'vourepetir',
+            'deixaeurepetir', 'faltou', 'saiuerrado', 'falei errado'.replace(' ', ''))
 
 
 def _is_critique(ws):
@@ -1066,7 +1067,9 @@ def takes_report(idx, gap=0.7, prefer='last'):
     groups = []
     for gi, g in enumerate(G):
         toks = [_toks(U[i]) for i in g]
-        cons = max(toks, key=lambda a: sum(sm(a, b).ratio() for b in toks)) if len(toks) > 1 else toks[0]
+        # the line as meant: the attempt that shares the most words with the others (a false start is a prefix of the
+        # full line, so the full line wins; by ratio the short one could, and the complete take then looked "too long")
+        cons = max(toks, key=lambda a: sum(sum(bl.size for bl in sm(a, b).get_matching_blocks()) for b in toks)) if len(toks) > 1 else toks[0]
         cands = []
         for k, i in enumerate(g):
             u = U[i]
@@ -1084,6 +1087,10 @@ def takes_report(idx, gap=0.7, prefer='last'):
                           'asr_conf': u['conf'], 'fillers': u['fillers'], 'self_critique_after': u['self_critique_after'],
                           'picture': q, 'score': round(score, 2)})
         best = max(cands, key=lambda c: c['score'])
+        if prefer == 'last':        # the editor's rule: the LAST complete attempt the speaker didn't criticise
+            ok = [c for c in cands if c['coverage'] >= 0.7 and not c['self_critique_after']]   # rephrased last take still counts
+            if ok:
+                best = ok[-1]
         groups.append({'group': gi + 1, 'attempts': len(g), 'line': ' '.join(cons), 'best_take': best['take'],
                        'best': {'s': best['s'], 'e': best['e']}, 'candidates': cands})
     groups.sort(key=lambda g: g['candidates'][0]['s'])
