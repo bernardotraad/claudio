@@ -308,12 +308,17 @@ function claudioCmd() {
   } catch (e) {}
   return { cmd: path.join(os.homedir(), '.local', 'bin', 'claudio-run'), pre: [] };
 }
+// apps opened from the Dock/Finder get a minimal PATH on macOS: add where claude, node, uv tools and ffmpeg live
+function childEnv() {
+  const extra = process.platform === 'win32' ? [] : [path.join(os.homedir(), '.local', 'bin'), '/opt/homebrew/bin', '/usr/local/bin'];
+  return Object.assign({}, process.env, { PATH: [...extra, process.env.PATH || ''].join(path.delimiter) });
+}
 function runLocal(action, args) {
   return new Promise((res) => {
     const c = claudioCmd();
     const b64 = 'b64:' + Buffer.from(JSON.stringify(args || {}), 'utf8').toString('base64');
     let out = '';
-    const p = cp.spawn(c.cmd, [...c.pre, action, b64], { windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
+    const p = cp.spawn(c.cmd, [...c.pre, action, b64], { windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'], env: childEnv() });
     p.stdout.on('data', (d) => { out += d.toString(); });
     p.on('close', () => { try { res(JSON.parse(out.trim().split('\n').pop())); } catch (e) { res({ ok: false, error: out.slice(-400) || 'sem resposta' }); } });
     p.on('error', (e) => res({ ok: false, error: String(e) }));
@@ -574,10 +579,7 @@ async function send(text) {
   $('#status').textContent = 'pensando…';
   let cur = null, buf = '';
   // stdin closed: otherwise claude -p waits 3 s for piped input ("no stdin data received")
-  // apps opened from the Dock/Finder get a minimal PATH on macOS: add where claude, node, uv tools and ffmpeg live
-  const extra = process.platform === 'win32' ? [] : [path.join(os.homedir(), '.local', 'bin'), '/opt/homebrew/bin', '/usr/local/bin'];
-  const env = Object.assign({}, process.env, { PATH: [...extra, process.env.PATH || ''].join(path.delimiter) });
-  child = cp.spawn(claudeExe(), args, { cwd: jobFolder(), windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'], env });
+  child = cp.spawn(claudeExe(), args, { cwd: jobFolder(), windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'], env: childEnv() });
   child.stdout.on('data', (chunk) => {
     buf += chunk.toString();
     let i;

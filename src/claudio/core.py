@@ -124,6 +124,11 @@ VIDEO_EXT = {'.mp4', '.mov', '.mxf', '.mkv', '.avi', '.m4v', '.mts', '.m2ts', '.
 # ───────────────────────────── paths / platform ─────────────────────────────
 import platform, sys
 IS_MAC = sys.platform == 'darwin'
+if IS_MAC:
+    # an app opened from the Dock (Premiere, Claude Desktop) hands its children a minimal PATH without Homebrew:
+    # ffmpeg/ffprobe would not be found, here and in every subprocess (background indexer, claudio-run)
+    _p = os.environ.get('PATH', '').split(os.pathsep)
+    os.environ['PATH'] = os.pathsep.join([d for d in ('/opt/homebrew/bin', '/usr/local/bin') if d not in _p] + _p)
 IS_WIN = os.name == 'nt'
 IS_WSL = sys.platform.startswith('linux') and 'microsoft' in platform.uname().release.lower()
 DISTRO = os.environ.get('WSL_DISTRO_NAME', 'Ubuntu')
