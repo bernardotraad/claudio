@@ -17,6 +17,11 @@ html,body{margin:0;padding:0;background:var(--bg);overflow:hidden}
 </head><body><div id="stage"></div><script>
 const Q=new URLSearchParams(location.search);const stage=document.getElementById('stage');
 function div(p,cls,txt){const e=document.createElement('div');e.className=cls;e.textContent=txt||'';p.appendChild(e);return e;}
+// the two lines of the real Captions() that motion._CUE_PATCH hooks into (reviewed .srt cues)
+function Captions(p,WORDS){const chunks=[],win=[];
+  const next=i=>WORDS[i+1]?WORDS[i+1].s:1e9;
+  const els=chunks.map(c=>c.map(i=>{const sp=document.createElement('span');return sp;}));
+  return {els,win,next};}
 // ================================================================= TIMELINE
 """
 

@@ -1061,7 +1061,7 @@ def caption_mogrt(nle_xml: str, style: str = 'social', srt: str = None, correcte
     Do it LAST: an FCP XML round trip (clean_speech, add_sfx, flatten, stereo…) cannot carry a MOGRT's text, so those
     tools leave MOGRT captions out of the sequence they write (listed in `dropped`) — apply the captions again there.
     Templates live in D:\\Documentos\\claudio-ae\\templates (built once per style × format, no protected region:
-    Premiere would squeeze the comp into the clip).
+    Premiere would squeeze the comp into the clip)."""
     from claudio import clients, mogrt, run
     look = None
     if style == 'marca' or client:
