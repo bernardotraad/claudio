@@ -96,3 +96,68 @@ function claudioBackup(id, path) {
         return '{"ok":false,"error":' + q(e.toString()) + '}';
     }
 }
+
+// ── caption MOGRTs: one clip per block on a NEW top video track, Texto/Tempos written (no AI) ──────────────────────
+var CLAUDIO_TPS = 254016000000;
+function claudioMgtParam(comp, name) {
+    for (var i = 0; i < comp.properties.numItems; i++) {
+        if (comp.properties[i].displayName === name) return comp.properties[i];
+    }
+    return null;
+}
+function claudioMgtWrite(prop, text) {
+    var before = prop.getValue(), next = text;
+    // a text control holds JSON with the visible string in "textEditValue": change only that
+    if (typeof before === 'string' && /"textEditValue"\s*:\s*"/.test(before)) {
+        var enc = '"' + String(text).replace(/\\/g, '\\\\').replace(/"/g, '\\"') + '"';
+        next = before.replace(/"textEditValue"\s*:\s*"(?:[^"\\]|\\.)*"/, function () { return '"textEditValue":' + enc; });
+        // the style run must cover the new text: with the template's old length Premiere drops the text (nothing shows)
+        next = next.replace(/"fontTextRunLength"\s*:\s*\[[^\]]*\]/, '"fontTextRunLength":[' + String(text).length + ']')
+                   .replace(/"capPropTextRunCount"\s*:\s*\d+/, '"capPropTextRunCount":1');
+        var keep1 = function (key) {                                  // one run → one value per style array
+            next = next.replace(new RegExp('"' + key + '"\\s*:\\s*\\[([^\\],]*)(,[^\\]]*)?\\]'), '"' + key + '":[$1]');
+        };
+        keep1('fontEditValue'); keep1('fontFSAllCapsValue'); keep1('fontFSBoldValue'); keep1('fontFSItalicValue');
+        keep1('fontFSSmallCapsValue'); keep1('fontSizeEditValue');
+    }
+    prop.setValue(next, true);
+}
+function claudioPlaceMogrts(planPath) {
+    try {
+        var f = new File(planPath);
+        if (!f.exists) return '{"ok":false,"error":' + q('plano não encontrado: ' + planPath) + '}';
+        $.evalFile(f);
+        var P = CLAUDIO_PLAN;
+        var seq = app.project.activeSequence;
+        if (!seq) return '{"ok":false,"error":"abra a sequência na timeline"}';
+        if (!new File(P.mogrt).exists) return '{"ok":false,"error":' + q('MOGRT não encontrado: ' + P.mogrt) + '}';
+        // a new empty video track on top: captions never go onto a track that already has something
+        var n0 = seq.videoTracks.numTracks;
+        app.enableQE();
+        qe.project.getActiveSequence().addTracks(1, n0, 0);
+        var vi = seq.videoTracks.numTracks - 1;
+        if (vi < n0) return '{"ok":false,"error":"não consegui criar a trilha de vídeo nova"}';
+        try { seq.videoTracks[vi].name = 'Legendas ' + P.style; } catch (eN) {}
+        var placed = 0, errs = [];
+        for (var i = 0; i < P.blocks.length; i++) {
+            var b = P.blocks[i];
+            try {
+                var clip = seq.importMGT(P.mogrt, String(Math.round(b.start * CLAUDIO_TPS)), vi, 0);
+                if (!clip) { errs.push((i + 1) + ': importMGT falhou'); continue; }
+                var end = new Time(); end.ticks = String(Math.round(b.end * CLAUDIO_TPS));
+                try { clip.end = end; } catch (eE) { errs.push((i + 1) + ': duração ' + eE); }
+                var mgt = clip.getMGTComponent();
+                var pt = mgt ? claudioMgtParam(mgt, P.texto) : null, pm = mgt ? claudioMgtParam(mgt, P.tempos) : null;
+                if (!pt || !pm) { errs.push((i + 1) + ': controles Texto/Tempos não encontrados'); continue; }
+                claudioMgtWrite(pt, b.text);
+                claudioMgtWrite(pm, b.tempos);
+                try { clip.name = b.text; } catch (eNm) {}
+                placed++;
+            } catch (eB) { errs.push((i + 1) + ': ' + eB); }
+        }
+        return '{"ok":' + (placed > 0 ? 'true' : 'false') + ',"placed":' + placed + ',"blocks":' + P.blocks.length +
+               ',"track":"V' + (vi + 1) + '","errors":[' + (function () { var o = []; for (var k = 0; k < errs.length && k < 20; k++) o.push(q(errs[k])); return o.join(','); })() + ']}';
+    } catch (e) {
+        return '{"ok":false,"error":' + q(e.toString()) + '}';
+    }
+}

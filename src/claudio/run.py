@@ -10,6 +10,10 @@
   describe    {"folder" | "paths"}                what is seen in each stretch → clip logs (no AI)
   multicam_plan {"folder"}                        cameras/recorders from the folders + colours (no AI)
   sync        {"cameras", "external_audio"?, "out_xml"?, "labels"?}   multicam sync (PluralEyes-style)
+  clean       {"nle_xml", "max_pause"?, "fillers"?}  pauses + hesitations out of an edited sequence (new sequence)
+  sfx         {"nle_xml", "whoosh"?, "pops"?, "sfx_dir"?}  whoosh into b-roll, pop on caption keywords (new audio track)
+  mogrt       {"nle_xml", "style", "srt"?, "job"?}    caption MOGRTs: template (After Effects) + placement plan
+  mogrt_styles {"job"?}                            the styles on offer (+ the client's brand one) and the .srt found
 
 Paths can be Windows paths (D:\\...) — they are translated on WSL — and come back as the editor's paths.
 """
@@ -151,7 +155,74 @@ def _describe(a):
             'errors': [f"{r['clip']}: {r['error']}" for r in res if r.get('error')], 'results': res[:40]}
 
 
-ACTIONS = {'describe': _describe, 'multicam_plan': _multicam_plan, 'status': _status, 'index': _index, 'stereo': _stereo, 'flatten': _flatten, 'qc': _qc, 'sync': _sync}
+def _out_xml(a, suffix):
+    """Where a new sequence from the panel goes: next to the job's project (#projeto), never inside claudio_backups
+    (the panel keeps only the last 30 files there), named after the sequence."""
+    from claudio import core, nle_read
+    if a.get('out_xml'):
+        return core.local_path(a['out_xml'])
+    src = core.local_path(a['nle_xml'])
+    d = os.path.dirname(src)
+    if os.path.basename(d).lower() == 'claudio_backups':
+        d = os.path.dirname(d)
+    name = nle_read.read_fcp7(src)['name'] or os.path.splitext(os.path.basename(src))[0]
+    import re as _re
+    return os.path.join(d, _re.sub(r'[\\/:*?"<>|]', '-', f'{name} ({suffix})') + '.xml')
+
+
+def _clean(a):
+    from claudio import cleanup
+    return cleanup.clean_speech(a['nle_xml'], _out_xml(a, 'limpo'), float(a.get('max_pause', 0.45)), bool(a.get('fillers', True)),
+                                a.get('extra_fillers') or ())
+
+
+def _sfx(a):
+    from claudio import sfx
+    prof = client_for(a.get('job') or a['nle_xml']) or {}
+    return sfx.add_sfx(a['nle_xml'], _out_xml(a, 'com SFX'), bool(a.get('whoosh', True)), bool(a.get('pops', True)),
+                       a.get('sfx_dir') or prof.get('sfx_dir'), extra_keywords=(prof.get('caption_look') or {}).get('emphasis_words') or ())
+
+
+def _srt_in(job):
+    """The caption file to use: the newest *revisada*.srt in the job's #legendas, else the newest .srt there."""
+    from claudio import core
+    if not job:
+        return None
+    best = []
+    for dp, dn, fn in os.walk(core.local_path(job)):
+        dn[:] = [d for d in dn if not d.startswith(('_', '.')) and d.lower() not in ('brutos', 'proxy', 'proxies')]
+        if os.path.relpath(dp, core.local_path(job)).count(os.sep) > 2:
+            dn[:] = []
+        for f in fn:
+            if f.lower().endswith('.srt'):
+                p = os.path.join(dp, f)
+                best.append(('revisad' in f.lower(), os.path.getmtime(p), p))
+    return max(best)[2] if best else None
+
+
+def _mogrt_styles(a):
+    from claudio import core, motion
+    prof = client_for(a.get('job') or '') or {}
+    styles = list(motion.STYLES) if prof.get('caption_look') else [s for s in motion.STYLES if s != 'marca']
+    srt = _srt_in(a.get('job'))
+    return {'styles': styles, 'client': prof.get('name'), 'recommended': 'marca' if prof.get('caption_look') else None,
+            'srt': core.nle_path(srt) if srt else None}
+
+
+def _mogrt(a):
+    from claudio import core, mogrt
+    prof = client_for(a.get('job') or a['nle_xml']) or {}
+    srt = a.get('srt')
+    if srt == 'auto':
+        srt = _srt_in(a.get('job'))
+    out = a.get('out_dir') or (os.path.join(core.local_path(a['job']), '#legendas') if a.get('job') else None)
+    if out:
+        os.makedirs(core.local_path(out), exist_ok=True)
+    return mogrt.caption_mogrt(a['nle_xml'], a.get('style', 'social'), a.get('aspect'), a.get('accent', '#4ea1ff'), srt,
+                               a.get('corrected'), a.get('fix'), prof.get('caption_look'), a.get('position', 'bottom'), out)
+
+
+ACTIONS = {'clean': _clean, 'sfx': _sfx, 'mogrt': _mogrt, 'mogrt_styles': _mogrt_styles, 'describe': _describe, 'multicam_plan': _multicam_plan, 'status': _status, 'index': _index, 'stereo': _stereo, 'flatten': _flatten, 'qc': _qc, 'sync': _sync}
 
 
 def main():

@@ -99,8 +99,9 @@ def test_tool_images_shown(page):
 def test_local_buttons_and_model(page):
     pg, _ = page
     loc = pg.evaluate("[...document.querySelectorAll('#quick button.loc')].map(b=>b.dataset.q)")
-    assert set(loc) == {'index', 'qc', 'stereo', 'flatten', 'status', 'multicam', 'describe'}
-    assert pg.evaluate("Object.keys(LOCAL).sort().join(',')") == 'describe,flatten,index,multicam,qc,status,stereo'
+    assert set(loc) == {'index', 'qc', 'stereo', 'flatten', 'status', 'multicam', 'describe', 'clean', 'sfx', 'captions_mogrt'}
+    assert pg.evaluate("Object.keys(LOCAL).sort().join(',')") == 'captions_mogrt,clean,describe,flatten,index,multicam,qc,sfx,status,stereo'
+    assert set(pg.evaluate("[...document.querySelectorAll('#quick button:not(.loc)')].map(b=>b.dataset.q)")) <= set(pg.evaluate("Object.keys(QUICK)"))
     assert pg.evaluate("document.querySelector('#model').value") == 'sonnet'
     pg.evaluate("add('local','**3 clipe(s)** com áudio de um lado só',false)")
     assert 'sem IA' in pg.evaluate("[...document.querySelectorAll('.msg.local .hd b')].pop().textContent")

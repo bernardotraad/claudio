@@ -44,7 +44,7 @@ claudio-run = "claudio.run:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-claudio = ["panel_premiere/*", "panel_premiere/CSXS/*"]
+claudio = ["panel_premiere/*", "panel_premiere/CSXS/*", "ae/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

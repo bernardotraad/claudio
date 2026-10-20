@@ -144,6 +144,7 @@ from fractions import Fraction as _Fr
 def _path_from_url(u):
     u = _up.unquote(u or '')
     u = _re.sub(r'^file://(localhost)?', '', u)
+    u = _re.sub(r'^/*wsl(\.localhost|\$)/[^/]+(?=/)', '', u, flags=_re.I)      # a file on the WSL disk, as Windows names it
     if _re.match(r'^/[A-Za-z]:', u):
         u = u[1:]
     return core.local_path(u)
@@ -327,23 +328,16 @@ def _expand(seq, lo, hi, shift, seqs, ctx, inst=''):
                 fe = c.find('file')
                 fid = fe.get('id') if fe is not None else None
                 full = ctx['files'].get(fid)
+                if full is not None and _re.search(r'\.(aegraphic|prgraphic|mogrt)$', full.findtext('pathurl') or '', _re.I):
+                    # a MOGRT (caption/title) loses its text in FCP XML ("Graphic Parameters not translated"): left out
+                    ctx['dropped'].append(f'{c.findtext("name")} (legenda/título MOGRT, {a + shift:.2f}–{b + shift:.2f} s: '
+                                          'o XML não leva o texto — aplique as legendas MOGRT depois, na sequência nova)')
+                    continue
                 if full is None or full.findtext('pathurl') is None:
                     ctx['dropped'].append(f'{c.findtext("name")} ({kind}, {a + shift:.2f}–{b + shift:.2f} s: '
                                           + ('gerado no Premiere, ex.: adjustment layer' if fid else 'sem mídia') + ')')
                     continue
-                cc = copy.deepcopy(c)
-                i0, o0 = int(c.findtext('in') or 0), int(c.findtext('out') or 0)
-                fa, fb = (wa - a) / (b - a), (wb - a) / (b - a)
-                cc.find('in').text = str(int(round(i0 + fa * (o0 - i0))))
-                cc.find('out').text = str(int(round(i0 + fb * (o0 - i0))))
-                ti, to = cc.find('pproTicksIn'), cc.find('pproTicksOut')
-                if ti is not None and to is not None and ti.text and to.text:
-                    t0, t1 = int(ti.text), int(to.text)
-                    ti.text, to.text = str(int(round(t0 + fa * (t1 - t0)))), str(int(round(t0 + fb * (t1 - t0))))
-                if inst:                                    # ids stay unique when one nest is used twice
-                    cc.set('id', f'{c.get("id")}-{abs(hash(inst)) % 10 ** 8}')
-                    for lk in cc.findall('link/linkclipref'):
-                        lk.text = f'{lk.text}-{abs(hash(inst)) % 10 ** 8}'
+                cc = trim_clip(c, a, b, wa, wb, abs(hash(inst)) % 10 ** 8 if inst else None)   # unique ids when a nest is used twice
                 mine[0][1].append((cc, wa + shift, wb + shift))
             layers.extend(mine)
         out[kind] = layers
@@ -373,11 +367,40 @@ def flatten_fcp7(xml_path, out_path, name=None):
     """Write a NEW sequence with the clips of every nested sequence straight on its tracks (see flat_timeline): the
     editor can grade take by take under the adjustment layer without opening nests."""
     root, top, layers, ctx = flat_timeline(xml_path)
+    res = write_layers(root, top, layers, ctx, out_path, name or f'{top.findtext("name")} (sem aninhadas)', 'sequence-flat')
+    res['nests_expanded'] = sorted(n_ for _, n_ in ctx['nests'])
+    return res
+
+
+def trim_clip(c, a, b, wa, wb, uid=None):
+    """A copy of clip item `c` (playing a→b s on the timeline) cut down to the part that plays wa→wb: source in/out
+    (and Premiere ticks) moved by the same fraction. uid makes the copy's id (and its links) unique."""
+    cc = copy.deepcopy(c)
+    i0, o0 = int(c.findtext('in') or 0), int(c.findtext('out') or 0)
+    fa, fb = (wa - a) / (b - a), (wb - a) / (b - a)
+    cc.find('in').text = str(int(round(i0 + fa * (o0 - i0))))
+    cc.find('out').text = str(int(round(i0 + fb * (o0 - i0))))
+    ti, to = cc.find('pproTicksIn'), cc.find('pproTicksOut')
+    if ti is not None and to is not None and ti.text and to.text:
+        t0, t1 = int(ti.text), int(to.text)
+        ti.text, to.text = str(int(round(t0 + fa * (t1 - t0)))), str(int(round(t0 + fb * (t1 - t0))))
+    if uid is not None:
+        cc.set('id', f'{c.get("id")}-{uid}')
+        for lk in cc.findall('link/linkclipref'):
+            lk.text = f'{lk.text}-{uid}'
+    return cc
+
+
+def write_layers(root, top, layers, ctx, out_path, name, seq_id='sequence-claudio', duration=None, extra_tracks=None):
+    """Write `layers` ({kind: [(track template, [(clipitem, start s, end s)])]}, as flat_timeline returns them, after
+    any cutting/moving) as ONE new sequence in its own FCP7 XML. extra_tracks: {kind: [raw <track> xml strings]}
+    appended above the others (new audio for SFX, …). Links to clips that no longer exist are dropped."""
     F = _rate(top)
     seq = copy.deepcopy(top)
-    seq.set('id', 'sequence-flat')
-    seq.find('name').text = name or f'{top.findtext("name")} (sem aninhadas)'
+    seq.set('id', seq_id)
+    seq.find('name').text = name
     seen, ids = set(), set()
+    end_f = 0
     for kind in ('video', 'audio'):
         holder = seq.find(f'media/{kind}')
         if holder is None:
@@ -391,6 +414,7 @@ def flatten_fcp7(xml_path, out_path, name=None):
             for cc, s, e in sorted(items, key=lambda x: x[1]):
                 cc.find('start').text = str(int(round(s * F)))
                 cc.find('end').text = str(int(round(e * F)))
+                end_f = max(end_f, int(round(e * F)))
                 fe = cc.find('file')
                 fid = fe.get('id')
                 if fid not in seen:                          # the first use of a file carries its full description
@@ -405,16 +429,25 @@ def flatten_fcp7(xml_path, out_path, name=None):
                 ids.add(cc.get('id'))
                 t.append(cc)
             holder.append(t)
+        for raw in (extra_tracks or {}).get(kind, []):
+            el = ET.fromstring(raw)
+            for c in el.iter('clipitem'):
+                ids.add(c.get('id'))
+                end_f = max(end_f, int(c.findtext('end') or 0))
+            holder.append(el)
     for c in seq.iter('clipitem'):                           # links to clips that were trimmed away
         for lk in list(c.findall('link')):
             if lk.findtext('linkclipref') not in ids:
                 c.remove(lk)
+    if seq.find('duration') is not None:
+        seq.find('duration').text = str(int(round(duration * F)) if duration is not None else end_f)
     proj = ET.Element('xmeml', {'version': root.get('version', '4')})
     proj.append(seq)
     out_path = core.local_path(out_path)
+    os.makedirs(os.path.dirname(out_path) or '.', exist_ok=True)
     ET.ElementTree(proj).write(out_path, encoding='UTF-8', xml_declaration=True)
     n = {k: sum(len(its) for _, its in layers.get(k, [])) for k in ('video', 'audio')}
-    return {'path': out_path, 'nle_path': core.nle_path(out_path), 'sequence': seq.findtext('name'),
-            'nests_expanded': sorted(n_ for _, n_ in ctx['nests']), 'clips_video': n['video'], 'clips_audio': n['audio'],
+    return {'path': out_path, 'nle_path': core.nle_path(out_path), 'sequence': name,
+            'clips_video': n['video'], 'clips_audio': n['audio'],
             'tracks_video': sum(1 for _, i in layers.get('video', []) if i), 'tracks_audio': sum(1 for _, i in layers.get('audio', []) if i),
             'dropped': ctx['dropped']}

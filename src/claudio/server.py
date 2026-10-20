@@ -1047,6 +1047,89 @@ def captions_srt(nle_xml: str, out_srt: str, corrected: dict = None, max_words: 
 
 
 @mcp.tool()
+def caption_mogrt(nle_xml: str, style: str = 'social', srt: str = None, corrected: dict = None, fix: dict = None,
+                  client: str = None, accent: str = '#4ea1ff', position: str = 'bottom', aspect: str = None,
+                  out_dir: str = None) -> dict:
+    """Captions as EDITABLE Motion Graphics Templates instead of a rendered .mov: the same styles as caption_overlay
+    (social · bold · clean · karaoke · box · minimal · marca, the client's look incl. its dynamic cut), one .mogrt clip
+    per caption block on a NEW top video track. The editor then fixes a word (Essential Graphics › Texto) or trims a
+    clip right in Premiere — no re-render. Builds the template in After Effects the first time (≈1 min, cached), then
+    writes a placement plan (<name>.claudio-mogrt.jsx): tell the editor to click "Aplicar legendas (MOGRT)" in the
+    Cláudio panel (it appears under your message when you write the plan path). Prefer srt = the .srt reviewed in
+    Premiere (blocks and timings are theirs); else `corrected` from caption_sentences. Same steps as caption_overlay
+    before it (sentences → grammar → style choice).
+    Do it LAST: an FCP XML round trip (clean_speech, add_sfx, flatten, stereo…) cannot carry a MOGRT's text, so those
+    tools leave MOGRT captions out of the sequence they write (listed in `dropped`) — apply the captions again there.
+    Templates live in D:\\Documentos\\claudio-ae\\templates (built once per style × format, no protected region:
+    Premiere would squeeze the comp into the clip).
+    from claudio import clients, mogrt, run
+    look = None
+    if style == 'marca' or client:
+        prof = clients.load(client) if client else run.client_for(nle_xml)
+        look = (prof or {}).get('caption_look')
+    return mogrt.caption_mogrt(nle_xml, style, aspect, accent, srt, corrected, fix, look, position, out_dir)
+
+
+@mcp.tool()
+def clean_speech(nle_xml: str, out_xml: str = None, max_pause: float = 0.45, fillers: bool = True,
+                 extra_fillers: list = None, keep_tracks: list = None, dialogue_track: str = 'A1') -> dict:
+    """Tighten a sequence the editor already cut: pauses longer than max_pause between words and hesitation sounds
+    ("ãh", "hum", a drawn-out "é…") come out, rippled across every track so picture, b-roll and speech stay in sync;
+    music beds (audio-only files that are not the dialogue) keep playing untouched. Writes a NEW sequence
+    "<name> (limpo)" next to the XML and lists every cut. Whisper often leaves hesitations out of the transcript, so
+    the pauses are the reliable part. Give the editor the XML path (the panel shows the import button)."""
+    from claudio import cleanup
+    return cleanup.clean_speech(nle_xml, out_xml, max_pause, fillers, extra_fillers or (), keep_tracks, dialogue_track)
+
+
+@mcp.tool()
+def auto_cut_multicam(nle_xml: str, cameras: dict, mics: dict, out_xml: str = None, min_hold: float = 2.0,
+                      max_hold: float = 12.0, margin_db: float = 6.0) -> dict:
+    """Podcast / interview / panel: cut a SYNCED multicam sequence (sync_multicam's, or the editor's own) by who is
+    speaking, from each person's mic. cameras = {"V1": ["Ana"], "V2": ["Robson"], "V3": []} (a camera with nobody or
+    several people = the wide / two-shot); mics = {"Ana": "A3", "Robson": "A5"} (the track of each person's mic —
+    read_project / the panel context lists them; ask the editor when unsure). The wide on crosstalk and long pauses,
+    a cutaway every max_hold s of one person talking, never a shot shorter than min_hold. NEW sequence: the cut on a
+    new top video track, the camera tracks below DISABLED (alternates one click away), audio untouched."""
+    from claudio import autocut
+    return autocut.auto_cut(nle_xml, cameras, mics, out_xml, min_hold, max_hold, margin_db)
+
+
+@mcp.tool()
+def add_sfx(nle_xml: str, out_xml: str = None, whoosh: bool = True, pops: bool = True, sfx_dir: str = None,
+            srt: str = None) -> dict:
+    """Sound design for social cuts: a whoosh landing on every b-roll entry and a light pop when a caption keyword
+    (price, number, brand, the same ones the dynamic captions highlight) is spoken — on a NEW audio track of a copy
+    of the sequence ("<name> (com SFX)"), at −20 / −24 dB, so it is easy to mute or delete. sfx_dir: the editor's own
+    sounds (whoosh*.wav, pop*.wav), else built-in ones. srt: the reviewed captions, so pops follow the final words."""
+    from claudio import motion, sfx
+    words = motion.srt_timeline_words(nle_xml, srt, remember=False)['words'] if srt else None
+    return sfx.add_sfx(nle_xml, out_xml, whoosh, pops, sfx_dir, words)
+
+
+@mcp.tool()
+def event_recap(project: str, footage: str, music: str, duration: float = 45, aspect: str = '9:16', pace: str = 'fast',
+                music_start: float = None, name: str = None, end_card: str = None, audio: str = 'mute',
+                faces: bool = True) -> dict:
+    """Aftermovie / event recap: from a folder of event footage (indexed first with index_folder) and a song, pick the
+    best moments of the night — steady and sharp, loud (crowd, chorus, applause), with people, little talking — the
+    strongest as the hook, the rest in the order they happened with no angle twice in a row, cut on the beat and
+    fitted to `duration`. Saved as the next edit version of `project` (like build_edit). Then edit_storyboard and LOOK:
+    swap any moment that is not right (build_edit with the edited shots), then export_edit. music_start: a downbeat
+    (music_windows); default = the best stretch of that length. audio: 'mute' (music only) or 'ambient'."""
+    from claudio import recap
+    edit, info, fit = recap.recap_edit(footage, music, duration, aspect, pace, music_start, name, end_card, audio, faces)
+    if fit is None:
+        return edit
+    p = montage.project_dir(project)
+    v = montage.next_version(p)
+    fit['version'] = v
+    _json.dump(fit, open(os.path.join(p, f'edit_v{v}.json'), 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
+    return {'version': v, 'duration': fit['duration'], 'bpm': fit.get('bpm'), 'warnings': fit['warnings'],
+            'timeline': montage.timeline_table(fit), **info, 'edit': edit}
+
+
+@mcp.tool()
 def narration(text: str, out_folder: str, engine: str = 'elevenlabs', voice: str = None, budget: int = None) -> dict:
     """Narration for the edit with the motion-designer skill: engine='elevenlabs' (one continuous take, word timings,
     cached; voice = ElevenLabs voice_id; hard credit budget, default = text length + 10 % — tell the user the cost

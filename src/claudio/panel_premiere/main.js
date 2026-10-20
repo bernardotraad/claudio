@@ -162,7 +162,34 @@ function add(cls, text, keep = true, t = Date.now()) {
 // XML paths in Claude's answer get an "Importar no Premiere" button: one file per click, project saved first,
 // Premiere's own dialogs shown. (Importing XML through the Premiere MCP crashed Premiere.)
 const XML_RE = process.platform === 'win32' ? /[A-Za-z]:\\[^\n"`*<>|]*?\.xml\b/g : /\/[^\n"`*<>|]*?\.xml\b/g;
+const PLAN_RE = process.platform === 'win32' ? /[A-Za-z]:\\[^\n"`*<>|]*?\.claudio-mogrt\.jsx\b/g : /\/[^\n"`*<>|]*?\.claudio-mogrt\.jsx\b/g;
+function mogrtButtons(d, text) {
+  const seen = new Set();
+  for (const m of text.match(PLAN_RE) || []) {
+    const p = m.trim();
+    if (seen.has(p) || !fs.existsSync(p)) continue;
+    seen.add(p);
+    const b = document.createElement('button');
+    b.className = 'import';
+    b.textContent = 'Aplicar legendas (MOGRT) na sequência ativa';
+    b.onclick = () => placeMogrts(p, b);
+    d.appendChild(document.createElement('br'));
+    d.appendChild(b);
+  }
+}
+async function placeMogrts(p, b) {
+  if (b) { b.disabled = true; b.textContent = 'colocando as legendas…'; }
+  let r = {};
+  try { r = JSON.parse(await evalHost('claudioPlaceMogrts(' + JSON.stringify(p) + ')')); } catch (e) { r = { ok: false, error: String(e) }; }
+  const msg = r.ok ? `**${r.placed} de ${r.blocks} legendas** na trilha nova **${r.track}**, cada uma um MOGRT: selecione e mude o texto em Gráficos essenciais › Texto, ou corte o clipe para mudar o tempo.`
+    + ((r.errors || []).length ? `\n\nNão entraram: ${r.errors.join('; ')}` : '')
+    : `Não coloquei as legendas: ${r.error || (r.errors || []).join('; ')}`;
+  if (b) b.textContent = r.ok ? `legendas colocadas (${r.placed}) em ${r.track}` : 'falhou — veja a mensagem';
+  add(r.ok ? 'local' : 'local err', msg);
+  return r;
+}
 function importButtons(d, text) {
+  mogrtButtons(d, text);
   const seen = new Set();
   for (const m of text.match(XML_RE) || []) {
     const p = m.trim();
@@ -204,6 +231,9 @@ const QUICK = {
   captions: () => `Legendas da sequência ativa ("${ctx.sequence || ''}", ${ctx.frame_size || ''}). Use o XML da sequência ativa que o painel já exportou (está no contexto) e siga os passos: 1) caption_sentences e corrija SÓ a gramática (concordância, regência, crase, pontuação), sem mudar as palavras do falante nem nomes de marca — me mostre a tabela fala → legenda; 2) caption_style_preview (aspect conforme o frame da sequência; se houver perfil do cliente, passe client) e me pergunte qual estilo; 3) com a minha escolha, gere SÓ o .srt (captions_srt) em "${path.join(jobFolder(), '#legendas')}" com o nome da sequência e coloque-o na sequência como trilha de legenda (Premiere MCP create_caption_track; se não der, me diga o caminho para eu arrastar). NÃO gere o overlay ainda: eu reviso palavras e tempo no Premiere, exporto a trilha como .srt (painel Texto › Legendas › ··· › Exportar para arquivo SRT) em #legendas e aperto "Overlay da legenda revisada". Termine dizendo o estilo escolhido e o nome sugerido do arquivo revisado (<nome>_revisada.srt).`,
   captions_final: () => `A legenda da sequência ativa ("${ctx.sequence || ''}", ${ctx.frame_size || ''}) foi revisada por mim no Premiere. Pegue o .srt revisado mais recente de "${path.join(jobFolder(), '#legendas')}" (o que eu exportei do Premiere, normalmente *_revisada.srt — se houver dúvida entre arquivos, me pergunte) e gere o overlay com caption_overlay(srt=esse arquivo), usando o XML da sequência ativa do contexto e o estilo escolhido antes nesta conversa (se não souber, pergunte). Não refaça correções do transcript: o texto e os tempos do .srt são os meus. Saída em "${path.join(jobFolder(), '#legendas')}". Depois importe o .mov em 0 s numa trilha de vídeo NOVA, acima de todas as que têm clipes (crie a trilha; as trilhas já estão no contexto), e desligue a visibilidade da trilha de legenda (captions) para não duplicar.`,
   multicam: () => `Multicâmera deste trabalho, no lugar do PluralEyes. 1) Liste as pastas de "${jobFolder()}" (material de câmera e áudio; ignore #projeto e proxies) e proponha o mapeamento: cada pasta de câmera vira uma câmera com nome curto (ex.: "CAM A — A7III"), e gravadores externos (Zoom, mesa, lapela) vão em external_audio. Proponha uma cor de label do Premiere por câmera e uma para o áudio externo (Cerulean, Mango, Forest, Magenta, Yellow, Violet, Teal, Rose, Caribbean…) numa tabela câmera → pasta → nº de clipes → cor, e ME PERGUNTE antes de rodar. 2) Com o meu ok, rode sync_multicam (correct_drift true, labels com as cores, out_xml "${path.join(jobFolder(), '#projeto', 'claudio_sync.xml')}"). 3) Resuma: clipes posicionados, os aproximados (sem áudio em comum, posicionados pelo relógio da câmera) e o drift do gravador. 4) Confira com multicam_monitor em 2 ou 3 momentos em que todas as câmeras estão rodando e me diga se algo parece fora de sincronia. 5) Escreva o caminho completo do XML (o painel mostra o botão de importar; não importe pelo MCP do Premiere) e explique o próximo passo: a "Synced Sequence" chega com V1..Vn por câmera e cada câmera (vídeo, áudio e bin) na sua cor; dali eu corto direto ou crio uma Multi-Camera Source Sequence.`,
+  recap: () => `Recap / aftermovie deste evento. 1) Confira se o material de "${rawFolder()}" está indexado (index_status; se não, index_folder e espere). 2) Me pergunte, numa chamada só: duração (15 · 30 · 45 · 60 s), formato (9:16 · 16:9 · 4:5), ritmo (rápido · médio · hype) e a música (uma da pasta do trabalho, um arquivo meu, ou opções do Storyblocks pelo mood). 3) Com as respostas, rode event_recap (project "${path.join(jobFolder(), '#projeto')}", footage "${rawFolder()}", name com o nome do evento) e depois edit_storyboard — OLHE e troque o que não estiver bom (planos fora de foco, repetidos, sem gente) com build_edit. 4) export_edit e escreva o caminho do XML (o painel mostra o botão de importar). Resuma em 3–5 linhas o que entrou e por quê.`,
+  autocut: () => `Corte automático da multicâmera da sequência ativa ("${ctx.sequence || ''}") por quem está falando. O XML e as trilhas estão no contexto. 1) Proponha numa tabela: cada trilha de vídeo → quem ela enquadra (ou "aberto" para o plano geral) e cada pessoa → a trilha de áudio do microfone dela (olhe os nomes dos clipes; se precisar, contact_sheet de um frame de cada câmera) e ME PERGUNTE antes de rodar. 2) Com o meu ok, rode auto_cut_multicam (min_hold 2 s; max_hold 12 s). 3) Me diga quanto tempo ficou em cada câmera e quantos cortes, e escreva o caminho do XML (o painel mostra o botão de importar). As câmeras originais ficam embaixo, desativadas.`,
+  captions_mogrt: () => `Legenda em MOGRT editável da sequência ativa ("${ctx.sequence || ''}", ${ctx.frame_size || ''}). Use o .srt revisado mais recente de "${path.join(jobFolder(), '#legendas')}" se houver (senão faça os passos de caption_sentences e me mostre as correções), o estilo escolhido nesta conversa (se não souber, caption_style_preview e me pergunte) e rode caption_mogrt (out_dir "${path.join(jobFolder(), '#legendas')}"). Escreva o caminho completo do plano .claudio-mogrt.jsx — o painel mostra o botão "Aplicar legendas (MOGRT)".`,
   vault: () => `Registre este trabalho no vault (conector Vault), seguindo as regras do CLAUDE.md do vault (leia-o com read_note antes): 1) nota do trabalho com cliente, data, pasta "${jobFolder()}", material (câmeras, horas, cor/log, áudio), decisões de montagem desta conversa, versões entregues e onde estão os arquivos (.md da decupagem, XMLs, perfil do cliente); 2) entrada no diário de hoje (append_diary) com um resumo de 2–4 linhas e link pra nota; 3) se o cliente tiver página, linke. Não grave senhas nem dados sensíveis. No fim me diga o que foi escrito.`,
 };
 
@@ -306,6 +336,38 @@ async function localJob(label, fn) {
 let localBusy = false;
 const dur = (s) => clock(+s);
 const LOCAL = {
+  clean: () => localJob('limpando as falas', async () => {
+    const x = await exportActive(); if (!x) return;
+    const r = await runLocal('clean', { nle_xml: x });
+    if (!r.ok || r.error) return add('local err', r.error || 'falhou');
+    const fl = (r.fillers_cut || []).map((f) => `"${f.word}" em ${dur(f.at)}`);
+    const m = add('local', `**${r.pauses_cut} pausa(s)** e **${fl.length} vício(s)** a menos: ${dur(r.before_s)} → **${dur(r.after_s)}** (−${r.removed_s.toFixed(1)} s).` +
+      (fl.length ? `\n\nVícios: ${fl.slice(0, 12).join(', ')}` : '') +
+      ((r.music_tracks_kept || []).length ? `\n\nMúsica sem cortes: ${r.music_tracks_kept.join(', ')}.` : '') +
+      (r.note ? `\n\n_${r.note}_` : '') + droppedLine(r) + `\n\nSequência nova: **${r.sequence}** · XML: \`${r.nle_path}\``);
+    importButtons(m, r.nle_path);
+  }),
+  sfx: () => localJob('sonorizando', async () => {
+    const x = await exportActive(); if (!x) return;
+    const r = await runLocal('sfx', { nle_xml: x, job: jobFolder() });
+    if (!r.ok || r.error) return add('local err', r.error || 'falhou');
+    const m = add('local', `**${r.whooshes} whoosh** nas entradas de b-roll e **${r.pops} pop** nas palavras-chave, na trilha nova **${r.sfx_track}** (${r.levels_db.whoosh} / ${r.levels_db.pop} dB).` +
+      `\n\nSons: \`${path.dirname(r.sounds.whoosh[0])}\` — troque por outros pondo whoosh*.wav / pop*.wav numa pasta (sfx_dir do perfil do cliente).` +
+      droppedLine(r) + `\n\nSequência nova: **${r.sequence}** · XML: \`${r.nle_path}\``);
+    importButtons(m, r.nle_path);
+  }),
+  captions_mogrt: () => localJob('legenda MOGRT: estilos', async () => {
+    const st = await runLocal('mogrt_styles', { job: jobFolder() });
+    if (!st.ok) return add('local err', st.error);
+    const d = add('local', `**Legenda em MOGRT** (editável no Premiere, sem render). ` +
+      (st.srt ? `Vou usar a legenda \`${path.basename(st.srt.replace(/\\/g, '/'))}\` (blocos e tempos dela).` : 'Não achei .srt revisado em #legendas: uso a transcrição com as correções já aprovadas.') +
+      ` Qual estilo?` + (st.recommended ? ` (recomendado: **${st.recommended}**, o do cliente ${st.client})` : ''), false);
+    for (const s of st.styles) {
+      const b = document.createElement('button'); b.textContent = s + (s === st.recommended ? ' ★' : '');
+      b.onclick = () => { d.querySelectorAll('button').forEach((x) => (x.disabled = true)); mogrtRun(s, st.srt); };
+      d.appendChild(b);
+    }
+  }),
   status: () => localJob('status', async () => {
     const r = await runLocal('status', { folder: rawFolder() });
     add('local', r.ok ? (r.jobs.length ? r.jobs.map((j) => `**${path.basename(j.folder.replace(/\\/g, '/'))}**: ${j.line}`).join('\n') : 'Nenhuma indexação nesta pasta.') : r.error);
@@ -362,6 +424,22 @@ const LOCAL = {
       ((a.ducking || []).length ? '\n\n| começa | termina | abaixar a música |\n|---|---|---|\n' + a.ducking.map((d) => `| \`${d.tc}\` | ${dur(d.end)} | ${d.lower_music_by_db} dB |`).join('\n') : ''));
   }),
 };
+function droppedLine(r) {
+  const d = r.dropped || [];
+  if (!d.length) return '';
+  const mg = d.filter((x) => /MOGRT/.test(x));
+  return (mg.length ? `\n\n**${mg.length} legenda(s) MOGRT ficaram de fora** (o XML não leva o texto delas): aplique as legendas de novo na sequência nova com o 06c.` : '') +
+    (d.length > mg.length ? `\n\nTambém ficou de fora: ${d.filter((x) => !/MOGRT/.test(x)).slice(0, 6).join('; ')}` : '');
+}
+async function mogrtRun(style, srt) {
+  await localJob('legenda MOGRT (o After Effects monta o modelo na 1ª vez, ~1 min)', async () => {
+    const x = await exportActive(); if (!x) return;
+    const r = await runLocal('mogrt', { nle_xml: x, style, srt: srt ? 'auto' : null, job: jobFolder() });
+    if (!r.ok || r.error) return add('local err', r.error || 'falhou');
+    const m = add('local', `Modelo **${style}** pronto (\`${path.basename(r.mogrt.replace(/\\/g, '/'))}\`), **${r.blocks} blocos**` + (r.from_srt ? ' do .srt revisado' : '') + '. Colocando na sequência…');
+    await placeMogrts(r.plan, null);
+  });
+}
 async function multicamPlan() {
   await localJob('multicâmera: lendo as pastas', async () => {
     const r = await runLocal('multicam_plan', { folder: jobFolder() });
