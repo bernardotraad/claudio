@@ -258,9 +258,9 @@ async function backup(snap) {
   const p = path.join(d, `${snap.name.replace(/[\\/:*?"<>|]/g, '_').slice(0, 60)} — antes ${stamp}.xml`);
   let ok = false;
   try { ok = JSON.parse(await evalHost('claudioBackup(' + JSON.stringify(snap.id) + ',' + JSON.stringify(p) + ')')).ok; } catch (e) {}
-  try {                                                     // keep the last 30
-    const old = fs.readdirSync(d).filter((f) => f.endsWith('.xml')).map((f) => path.join(d, f))
-      .sort((a, b) => fs.statSync(b).mtimeMs - fs.statSync(a).mtimeMs).slice(30);
+  try {                                                     // keep the last 30 (XML + trilhas.json)
+    const old = fs.readdirSync(d).filter((f) => f.endsWith('.xml') || f.endsWith(' — trilhas.json')).map((f) => path.join(d, f))
+      .sort((a, b) => fs.statSync(b).mtimeMs - fs.statSync(a).mtimeMs).slice(60);
     old.forEach((f) => fs.unlinkSync(f));
   } catch (e) {}
   return ok ? p : null;
@@ -512,12 +512,32 @@ async function stereoRun(normalize) {
 function tracksLine(snap) {
   if (!snap) return '';
   const fmt = (k) => snap.tracks.filter((t) => t.track[0] === k).map((t) => `${t.track}: ${t.clips.length || 'vazia'}`).join(' · ');
-  return `Trilhas (clipes por trilha): ${fmt('V')} | ${fmt('A')}\n`;
+  const mc = snap.tracks.some((t) => t.clips.some((c) => c.multicam));
+  return `Trilhas (clipes por trilha): ${fmt('V')} | ${fmt('A')}\n` +
+    (snap.json ? `Trilhas COMPLETAS lidas direto do Premiere (cada clipe: trilha, início/fim na timeline, entrada/saída na fonte, mídia; multicam marcados, com a sequência-fonte e as trilhas dela em multicam_sources): ${snap.json}\n` : '') +
+    (mc ? 'ATENÇÃO: esta sequência tem clipes MULTICAM, que o FCP XML não exporta (vêm vazios). Para ler cortes, posições e a música use o JSON acima (Read), não o XML; a câmera ativa de cada trecho não é exposta — se precisar, olhe um quadro com export_frame do MCP do Premiere.\n' : '');
+}
+// the full read of every track, saved next to the XML backup: works where the XML does not (multicam)
+async function saveTracks(snap, xmlPath) {
+  if (!snap || !xmlPath) return snap;
+  const out = { sequence: snap.name, id: snap.id, tracks: snap.tracks, multicam_sources: {} };
+  const names = new Set();
+  snap.tracks.forEach((t) => t.clips.forEach((c) => { if (c.multicam && c.source) names.add(c.source); }));
+  for (const n of names) {
+    try {
+      const id = await evalHost('claudioSeqIdByName(' + JSON.stringify(n) + ')');
+      const src = id ? await snapshot(id) : null;
+      if (src) out.multicam_sources[n] = { tracks: src.tracks.filter((t) => t.clips.length) };
+    } catch (e) {}
+  }
+  const p = xmlPath.replace(/\.xml$/i, '') + ' — trilhas.json';
+  try { fs.writeFileSync(p, JSON.stringify(out, null, 1)); snap.json = p; } catch (e) {}
+  return snap;
 }
 function contextBlock(snap, xml) {
   const sel = (ctx.selection || []).map((s) => `  - ${s.name} (${s.track_type}) timeline ${(+s.start_s).toFixed(2)}–${(+s.end_s).toFixed(2)}s, fonte ${(+s.in_s).toFixed(2)}–${(+s.out_s).toFixed(2)}s${s.media ? ' · ' + s.media : ''}`).join('\n');
   const warn = lastWarning; lastWarning = '';
-  return warn + `[Contexto do Premiere — painel Cláudio, o Editor]\nPasta do trabalho: ${jobFolder()}\nProjeto: ${ctx.project || '-'}\nSequência ativa: ${ctx.sequence || '-'} (${ctx.frame_size || '-'})\nPlayhead: ${ctx.playhead_s != null ? (+ctx.playhead_s).toFixed(2) + 's' : '-'}\n${tracksLine(snap)}${xml ? `XML da sequência ativa, exportado agora pelo painel: ${xml}\n` : ''}${sel ? 'Clipes selecionados:\n' + sel : 'Nenhum clipe selecionado.'}\nRegras: para LER a sequência (compare_with_nle, qc_timeline, caption_sentences, stereo_fix, flatten_timeline…) use o XML acima e as trilhas acima — não exporte nem liste pelo MCP do Premiere; use o MCP do Premiere só para MEXER no Premiere (importar mídia, criar trilha, colocar clipe, marcadores). O editor está no controle — proponha antes de mudar; nunca sobrescreva a sequência dele (crie uma nova); só renderize se ele pedir. Nunca aninhe sequências: os clipes montados vão direto nas trilhas de UMA sequência (o editor corrige a cor take a take); para juntar partes, monte uma sequência só ou rode flatten_timeline. Overlays, legendas e qualquer mídia nova entram SEMPRE numa trilha NOVA acima de todas as que têm clipes: nunca use overwrite/insert numa trilha ocupada (adjustment layer, títulos, b-roll) — liste as trilhas antes e, se não tiver certeza, pergunte. XML (.xml) nunca vai pelo import_media do Premiere (derruba o Premiere): escreva o caminho completo do XML na resposta — o painel mostra um botão \"Importar no Premiere\" — ou ele importa com Ctrl+I; mídia comum (.mov/.wav/.srt) pode ir pelo import_media. Memória: este chat é separado das outras sessões; o que importar para depois vai para o vault (conector Vault) e para os arquivos do claudio no disco — ofereça registrar no vault quando houver decisões.\n\n`;
+  return warn + `[Contexto do Premiere — painel Cláudio, o Editor]\nPasta do trabalho: ${jobFolder()}\nProjeto: ${ctx.project || '-'}\nSequência ativa: ${ctx.sequence || '-'} (${ctx.frame_size || '-'})\nPlayhead: ${ctx.playhead_s != null ? (+ctx.playhead_s).toFixed(2) + 's' : '-'}\n${tracksLine(snap)}${xml ? `XML da sequência ativa, exportado agora pelo painel: ${xml}\n` : ''}${sel ? 'Clipes selecionados:\n' + sel : 'Nenhum clipe selecionado.'}\nRegras: para LER a sequência (compare_with_nle, qc_timeline, caption_sentences, stereo_fix, flatten_timeline…) use o XML acima e as trilhas acima (o JSON das trilhas completas quando o XML vier incompleto, ex.: multicam) — não exporte nem liste pelo MCP do Premiere; use o MCP do Premiere só para MEXER no Premiere (importar mídia, criar trilha, colocar clipe, marcadores). O editor está no controle — proponha antes de mudar; nunca sobrescreva a sequência dele (crie uma nova); só renderize se ele pedir. Nunca aninhe sequências: os clipes montados vão direto nas trilhas de UMA sequência (o editor corrige a cor take a take); para juntar partes, monte uma sequência só ou rode flatten_timeline. Overlays, legendas e qualquer mídia nova entram SEMPRE numa trilha NOVA acima de todas as que têm clipes: nunca use overwrite/insert numa trilha ocupada (adjustment layer, títulos, b-roll) — liste as trilhas antes e, se não tiver certeza, pergunte. XML (.xml) nunca vai pelo import_media do Premiere (derruba o Premiere): escreva o caminho completo do XML na resposta — o painel mostra um botão \"Importar no Premiere\" — ou ele importa com Ctrl+I; mídia comum (.mov/.wav/.srt) pode ir pelo import_media. Memória: este chat é separado das outras sessões; o que importar para depois vai para o vault (conector Vault) e para os arquivos do claudio no disco — ofereça registrar no vault quando houver decisões.\n\n`;
 }
 
 // Only claudio + premiere-pro are loaded (the same registrations as ~/.claude.json): otherwise every message also
@@ -565,6 +585,7 @@ async function send(text) {
   add('user', text);
   const before = ctx.sequence ? await snapshot('') : null;
   const bk = before ? await backup(before) : null;
+  if (before && bk) await saveTracks(before, bk);
   const sid = localStorage.getItem(sessionKey);
   const model = ($('#model') && $('#model').value) || 'sonnet';
   const args = ['-p', contextBlock(before, bk) + text, '--output-format', 'stream-json', '--verbose', '--model', model,

@@ -71,10 +71,15 @@ function claudioSnapshot(id) {
             for (var t = 0; t < ts.numTracks; t++) {
                 var cl = [], c = ts[t].clips;
                 for (var j = 0; j < c.numItems; j++) {
-                    var it = c[j], m = '';
+                    var it = c[j], m = '', mc = false, src = '', en = true;
                     try { m = it.projectItem ? it.projectItem.getMediaPath() : ''; } catch (e1) {}
+                    // a multicam clip has no media path: say so, and name its source sequence (cameras + music live there)
+                    try { mc = !!(it.projectItem && it.projectItem.isMulticamClip && it.projectItem.isMulticamClip()); } catch (e2) {}
+                    try { if (!m && it.projectItem) src = it.projectItem.name; } catch (e3) {}
+                    try { en = !(it.disabled === true); } catch (e4) {}
                     cl.push('{"name":' + q(it.name) + ',"start":' + it.start.seconds + ',"end":' + it.end.seconds +
-                            ',"in":' + it.inPoint.seconds + ',"out":' + it.outPoint.seconds + ',"media":' + q(m) + '}');
+                            ',"in":' + it.inPoint.seconds + ',"out":' + it.outPoint.seconds + ',"media":' + q(m) +
+                            (mc ? ',"multicam":true' : '') + (src ? ',"source":' + q(src) : '') + (en ? '' : ',"enabled":false') + '}');
                 }
                 tr.push('{"track":"' + kinds[k][0] + (t + 1) + '","clips":[' + cl.join(',') + ']}');
             }
@@ -160,4 +165,14 @@ function claudioPlaceMogrts(planPath) {
     } catch (e) {
         return '{"ok":false,"error":' + q(e.toString()) + '}';
     }
+}
+
+
+// id of the sequence called `name` (a multicam clip's source sequence), '' when there is none
+function claudioSeqIdByName(name) {
+    try {
+        var p = app.project;
+        for (var i = 0; i < p.sequences.numSequences; i++) if (p.sequences[i].name == name) return String(p.sequences[i].sequenceID);
+    } catch (e) {}
+    return '';
 }

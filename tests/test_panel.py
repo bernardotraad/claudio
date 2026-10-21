@@ -129,3 +129,32 @@ def test_connectors_toggle(page):
     assert pg.evaluate("()=>mcpArgs('monta a abertura')") == []
     pg.click('#conn')
     assert pg.get_attribute('#conn', 'aria-pressed') == 'false'
+
+
+@needs_browser
+def test_multicam_tracks_reach_claude_as_json(page):
+    """Multicam clips come out of FCP XML empty: the panel saves its own full read (+ the multicam source sequence)
+    next to the backup and the context points Claude to it."""
+    pg, _ = page
+    r = pg.evaluate("""async ()=>{
+      const written = {};
+      const fs0 = require('fs').writeFileSync;
+      require('fs').writeFileSync = (p, d) => { written[p] = d; };
+      const eh = window.__adobe_cep__.evalScript;
+      window.__adobe_cep__.evalScript = (s, cb) => {
+        if (s.startsWith('claudioSeqIdByName')) return cb('src-1');
+        if (s.startsWith('claudioSnapshot("src-1")')) return cb(JSON.stringify({ok:true,id:'src-1',name:'MC fonte',tracks:[
+          {track:'V1',clips:[{name:'CAM A',start:0,end:200,in:0,out:200,media:'E:\\\\v\\\\A.mp4'}]},
+          {track:'A1',clips:[{name:'musica.wav',start:0,end:200,in:0,out:200,media:'E:\\\\m\\\\musica.wav'}]}]}));
+        return eh(s, cb);
+      };
+      const snap = {ok:true,id:'s1',name:'multicam valendo',tracks:[
+        {track:'V1',clips:[{name:'MC fonte',start:0,end:4.2,in:10,out:14.2,media:'',multicam:true,source:'MC fonte'}]},
+        {track:'V2',clips:[]}]};
+      await saveTracks(snap, 'E:\\\\job\\\\claudio_backups\\\\seq.xml');
+      window.__adobe_cep__.evalScript = eh; require('fs').writeFileSync = fs0;
+      return {json: snap.json, data: JSON.parse(written[snap.json]), ctx: contextBlock(snap, 'E:\\\\job\\\\claudio_backups\\\\seq.xml')};
+    }""")
+    assert r['json'] == 'E:\\job\\claudio_backups\\seq — trilhas.json'
+    assert r['data']['multicam_sources']['MC fonte']['tracks'][1]['clips'][0]['media'].endswith('musica.wav')
+    assert 'Trilhas COMPLETAS' in r['ctx'] and 'MULTICAM' in r['ctx'] and r['json'] in r['ctx']
