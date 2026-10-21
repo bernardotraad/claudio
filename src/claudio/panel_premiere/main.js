@@ -577,7 +577,7 @@ async function send(text) {
   if (sid) args.push('--resume', sid);
   $('#send').disabled = true; $('#stop').disabled = false; document.body.classList.add('busy');
   $('#status').textContent = 'pensando…';
-  let cur = null, buf = '';
+  let cur = null, buf = '', why = '', errTail = '';
   // stdin closed: otherwise claude -p waits 3 s for piped input ("no stdin data received")
   child = cp.spawn(claudeExe(), args, { cwd: jobFolder(), windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'], env: childEnv() });
   child.stdout.on('data', (chunk) => {
@@ -608,17 +608,30 @@ async function send(text) {
           }
         }
       }
+      // why it failed, in Claude's own words (expired login, unknown session…), for the message at the end
+      if (ev.type === 'assistant' && ev.error && ev.message && Array.isArray(ev.message.content)) {
+        why = ev.message.content.map((c) => c.text || '').join(' ').trim() || String(ev.error);
+      }
       if (ev.type === 'result') {
+        if (ev.is_error && typeof ev.result === 'string' && ev.result.trim()) why = ev.result.trim();
         if (ev.session_id) { localStorage.setItem(sessionKey, ev.session_id); saveHist(); }
         const s = ev.total_cost_usd != null ? ` · US$ ${ev.total_cost_usd.toFixed(2)}` : '';
         add('meta', `${ev.is_error ? 'erro' : 'pronto'} · ${(ev.duration_ms / 1000).toFixed(0)} s${s}`);
       }
     }
   });
-  child.stderr.on('data', (d) => { const t = d.toString().trim(); if (t) $('#status').textContent = t.slice(-160); });
+  child.stderr.on('data', (d) => { const t = d.toString().trim(); if (t) { errTail = (errTail + '\n' + t).slice(-600); $('#status').textContent = t.slice(-160); } });
   child.on('close', (code) => {
     child = null; $('#send').disabled = false; $('#stop').disabled = true; document.body.classList.remove('busy'); toolStart(null);
-    if (code && code !== 0) add('claude err', `O Claude Code terminou com código ${code}. Ele está instalado e logado no Windows? (${claudeExe()})`);
+    if (code && code !== 0) {
+      const txt = (why || errTail || '').trim();
+      if (/authenticat|oauth|log ?in|not logged|credential/i.test(txt))
+        add('claude err', `**O login do Claude Code no Windows venceu.** Abra um PowerShell, rode \`${claudeExe()}\`, digite \`/login\`, entre pelo navegador e saia com \`/exit\`. Depois mande a mensagem de novo.\n\n_${txt.slice(0, 200)}_`);
+      else if (/session|conversation/i.test(txt) && /not found|no conversation|invalid/i.test(txt))
+        add('claude err', `A conversa salva deste trabalho não abriu (${txt.slice(0, 160)}). Clique em **nova conversa** e mande de novo.`);
+      else
+        add('claude err', `O Claude Code terminou com código ${code}` + (txt ? `: ${txt.slice(0, 300)}` : `. Ele está instalado e logado no Windows? (${claudeExe()})`));
+    }
     $('#status').textContent = '';
     readContext();
     if (before) snapshot(before.id).then((after) => { const ch = changedClips(before, after); if (ch.length) warnChanges(ch, before, bk); });
