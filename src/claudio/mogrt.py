@@ -9,6 +9,7 @@ whose animators, box and keyword chips are expressions reading those two. The wh
 Premiere never time-stretches it. Then the panel (no AI) drops one clip per block on a NEW top video track and writes
 Texto/Tempos — from the reviewed .srt when there is one, so blocks and timings are the editor's."""
 import hashlib, json, os, re, subprocess, time
+from concurrent.futures import ThreadPoolExecutor
 
 from claudio import core, motion
 
@@ -265,13 +266,20 @@ def blocks(words, style='social', look=None, cues=None, max_words=None, dur=None
     code = motion.caption_code(W, st, '#ffffff', False, max_words, 'bottom', dur or ((W[-1]['e'] + 1) if W else 1), look, cues=cues)
     tmp = motion._work_dir('mogrt_blocks')
     html = motion.build_html(code, tmp)
-    with sync_playwright() as p:
-        b = p.chromium.launch()
-        pg = b.new_page(viewport={'width': 540, 'height': 960})
-        pg.goto('file://' + html + '?t=0')
-        pg.wait_for_function('window.ready===true', timeout=30000)
-        got = pg.evaluate('''() => ({ch: (typeof CH!=='undefined') ? CH : CAP.chunks, win: (typeof WIN!=='undefined') ? WIN : null})''')
-        b.close()
+
+    def read_page():
+        with sync_playwright() as p:
+            b = p.chromium.launch()
+            pg = b.new_page(viewport={'width': 540, 'height': 960})
+            pg.goto('file://' + html + '?t=0')
+            pg.wait_for_function('window.ready===true', timeout=30000)
+            got = pg.evaluate('''() => ({ch: (typeof CH!=='undefined') ? CH : CAP.chunks, win: (typeof WIN!=='undefined') ? WIN : null})''')
+            b.close()
+            return got
+    # in its own thread, like render_frames: the MCP tool runs inside the server's asyncio loop, where the sync
+    # Playwright API refuses to start ("Playwright Sync API inside the asyncio loop")
+    with ThreadPoolExecutor(1) as ex:
+        got = ex.submit(read_page).result()
     ch, win = got['ch'], got['win']
     if win is None:                                    # social: the skill's Captions() keeps its windows inside
         nxt = lambda i: W[i + 1]['s'] if i + 1 < len(W) else 1e9
