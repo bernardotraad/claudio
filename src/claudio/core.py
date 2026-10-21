@@ -741,9 +741,57 @@ def transcribe(d, lang, progress=lambda *_: None, duration=1, vocabulary=None, a
         w2, o2, i2 = run(False)
         if len(w2) > 1.5 * len(words):
             words, out, info, lyrics = w2, o2, i2, True
+    if lyrics:
+        out, words = fix_repeated_lines(out, words)
     words = apply_vocabulary(words if lyrics else fix_word_times(words), vocabulary)   # sung notes are long on purpose
     r = {'language': info.language, 'segments': _resegment(out, words) if vocabulary else out, 'words': words}
     return {**r, 'lyrics': True} if lyrics else r
+
+
+def fix_repeated_lines(segs, words, min_ratio=0.65):
+    """Lyrics: a chorus line repeats, so a line heard ONCE that is nearly a repeated one is that line misheard
+    ("Coisa da mais que eu tentei funcionar" → "Pois nada mais que eu tentei funcionou", 0.88). Real verses stay
+    under ~0.45 against the chorus. A line that is two chorus lines run together (longer than the match) is kept.
+    The words take the times of the ones they replace."""
+    import difflib
+    from collections import Counter
+    key = lambda t: ' '.join(norm(w) for w in t.split())
+    count = Counter(key(s['text']) for s in segs)
+    canon = {}
+    for s in segs:
+        if count[key(s['text'])] >= 2:
+            canon.setdefault(key(s['text']), s['text'])
+    if not canon:
+        return segs, words
+    words = list(words)
+    for s in segs:
+        k = key(s['text'])
+        if count[k] > 1:
+            continue
+        best = max(canon, key=lambda c: difflib.SequenceMatcher(None, k, c).ratio())
+        if difflib.SequenceMatcher(None, k, best).ratio() < min_ratio or len(k) > 1.25 * len(best):
+            continue
+        idx = [i for i, w in enumerate(words) if s['s'] - 0.05 <= w['s'] < s['e'] + 0.05]
+        old = [words[i] for i in idx]
+        new_t = canon[best].split()
+        sm = difflib.SequenceMatcher(None, [norm(w['w']) for w in old], [norm(w) for w in new_t])
+        fixed = []
+        for op, a0, a1, b0, b1 in sm.get_opcodes():
+            if op == 'equal':
+                fixed += [{**old[a0 + j], 'w': new_t[b0 + j]} for j in range(b1 - b0)]
+                continue
+            if b1 == b0:
+                continue                                        # a misheard extra word: dropped
+            t0 = old[a0]['s'] if a1 > a0 else (fixed[-1]['e'] if fixed else s['s'])
+            t1 = old[a1 - 1]['e'] if a1 > a0 else (old[a0]['s'] if a0 < len(old) else s['e'])
+            step = max(t1 - t0, 0) / (b1 - b0)
+            fixed += [{'w': new_t[b0 + j], 's': round(t0 + j * step, 3), 'e': round(t0 + (j + 1) * step, 3), 'p': 0.5,
+                       'fixed': True} for j in range(b1 - b0)]
+        if idx:
+            words[idx[0]:idx[-1] + 1] = fixed
+        s['text'] = canon[best]
+        s['fixed_from_repeat'] = True
+    return segs, words
 
 
 def clean_text(t):
