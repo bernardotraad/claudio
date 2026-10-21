@@ -56,6 +56,10 @@
   #quick { display:grid; grid-template-columns:repeat(auto-fill,minmax(98px,1fr)); gap:3px; padding:7px 12px 10px;
            border-bottom:1px solid var(--line); }
   body.binshut #quick { display:none; }
+  #quick h6 { grid-column:1/-1; margin:5px 0 0; display:flex; align-items:center; gap:6px; font:9px/1 var(--mono);
+              text-transform:uppercase; letter-spacing:1.6px; color:var(--c); opacity:.85; }
+  #quick h6:first-child { margin-top:0; }
+  #quick h6::after { content:""; flex:1; height:1px; background:var(--line); }
   body.binshut .binhead { padding-bottom:7px; border-bottom:1px solid var(--line); }
   #quick button { position:relative; text-align:left; background:var(--card); border:0; border-left:3px solid var(--c);
                   padding:5px 7px 5px 7px; border-radius:0 2px 2px 0; overflow:hidden; min-height:32px;
@@ -173,24 +177,29 @@
   </header>
   <div class="binhead" id="binhead"><span class="tw">▾</span>bin · ações<span class="legend" title="Rodam nesta máquina, sem usar a IA (sem crédito)">sem IA</span></div>
   <nav id="quick">
+    <h6 style="--c:var(--cerulean)">preparar</h6>
     <button data-q="index" class="loc" style="--c:var(--cerulean)"><i>01</i><span>Analisar material</span></button>
-    <button data-q="overview" style="--c:var(--violet)"><i>02</i><span>Visão geral</span></button>
-    <button data-q="selects" style="--c:var(--forest)"><i>03</i><span>Selects</span></button>
-    <button data-q="multicam" class="loc" style="--c:var(--mango)"><i>04</i><span>Multicam</span></button>
-    <button data-q="notes" style="--c:var(--yellow)"><i>05</i><span>Ler minhas notas</span></button>
-    <button data-q="captions" style="--c:var(--magenta)"><i>06</i><span>Legendas</span></button>
-    <button data-q="captions_final" style="--c:var(--magenta)" title="Depois de corrigir a legenda no Premiere e exportar o .srt para #legendas"><i>06b</i><span>Overlay da legenda revisada</span></button>
-    <button data-q="qc" class="loc" style="--c:var(--rose)"><i>07</i><span>QC antes de exportar</span></button>
-    <button data-q="stereo" class="loc" style="--c:var(--caribbean)"><i>08</i><span>Áudio estéreo</span></button>
-    <button data-q="flatten" class="loc" style="--c:var(--forest)"><i>09</i><span>Desaninhar</span></button>
-    <button data-q="status" class="loc" style="--c:var(--teal)"><i>10</i><span>Status</span></button>
-    <button data-q="describe" class="loc" style="--c:var(--violet)"><i>11</i><span>Descrever planos</span></button>
-    <button data-q="captions_mogrt" class="loc" style="--c:var(--magenta)" title="Uma legenda MOGRT por bloco, editável no Premiere (usa o .srt revisado de #legendas)"><i>06c</i><span>Legenda MOGRT</span></button>
-    <button data-q="clean" class="loc" style="--c:var(--cerulean)" title="Tira pausas e vícios da fala de uma sequência já montada (sequência nova)"><i>13</i><span>Limpar falas</span></button>
-    <button data-q="sfx" class="loc" style="--c:var(--caribbean)" title="Whoosh nas entradas de b-roll e pop nas palavras-chave (trilha de áudio nova)"><i>14</i><span>SFX nos cortes</span></button>
-    <button data-q="autocut" style="--c:var(--mango)" title="Corta a multicâmera sincronizada por quem está falando"><i>15</i><span>Corte por quem fala</span></button>
-    <button data-q="recap" style="--c:var(--rose)" title="Aftermovie do evento: melhores momentos no beat da música"><i>16</i><span>Recap de evento</span></button>
-    <button data-q="vault" style="--c:var(--lavender)"><i>12</i><span>Registrar no vault</span></button>
+    <button data-q="status" class="loc" style="--c:var(--cerulean)"><i>02</i><span>Status</span></button>
+    <button data-q="stereo" class="loc" style="--c:var(--cerulean)"><i>03</i><span>Áudio estéreo</span></button>
+    <button data-q="multicam" class="loc" style="--c:var(--cerulean)"><i>04</i><span>Multicam</span></button>
+    <h6 style="--c:var(--violet)">entender</h6>
+    <button data-q="overview" style="--c:var(--violet)"><i>05</i><span>Visão geral</span></button>
+    <button data-q="describe" class="loc" style="--c:var(--violet)"><i>06</i><span>Descrever planos</span></button>
+    <button data-q="notes" style="--c:var(--violet)"><i>07</i><span>Ler minhas notas</span></button>
+    <h6 style="--c:var(--forest)">montar</h6>
+    <button data-q="selects" style="--c:var(--forest)"><i>08</i><span>Selects</span></button>
+    <button data-q="autocut" style="--c:var(--forest)" title="Corta a multicâmera sincronizada por quem está falando"><i>09</i><span>Corte por quem fala</span></button>
+    <button data-q="recap" style="--c:var(--forest)" title="Aftermovie do evento: melhores momentos no beat da música"><i>10</i><span>Recap de evento</span></button>
+    <button data-q="clean" class="loc" style="--c:var(--forest)" title="Tira pausas e vícios da fala de uma sequência já montada (sequência nova)"><i>11</i><span>Limpar falas</span></button>
+    <button data-q="sfx" class="loc" style="--c:var(--forest)" title="Whoosh nas entradas de b-roll e pop nas palavras-chave (trilha de áudio nova)"><i>12</i><span>SFX nos cortes</span></button>
+    <button data-q="flatten" class="loc" style="--c:var(--forest)"><i>13</i><span>Desaninhar</span></button>
+    <h6 style="--c:var(--magenta)">legendar</h6>
+    <button data-q="captions" style="--c:var(--magenta)"><i>14</i><span>Legendas</span></button>
+    <button data-q="captions_final" style="--c:var(--magenta)" title="Depois de corrigir a legenda no Premiere e exportar o .srt para #legendas"><i>15</i><span>Overlay da legenda revisada</span></button>
+    <button data-q="captions_mogrt" class="loc" style="--c:var(--magenta)" title="Uma legenda MOGRT por bloco, editável no Premiere (usa o .srt revisado de #legendas)"><i>16</i><span>Legenda MOGRT</span></button>
+    <h6 style="--c:var(--rose)">entregar</h6>
+    <button data-q="qc" class="loc" style="--c:var(--rose)"><i>17</i><span>QC antes de exportar</span></button>
+    <button data-q="vault" style="--c:var(--rose)"><i>18</i><span>Registrar no vault</span></button>
   </nav>
   <div id="log"></div>
   <div id="prog"><div class="txt"></div><div class="bar"><div class="fill"></div></div></div>

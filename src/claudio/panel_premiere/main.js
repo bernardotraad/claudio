@@ -433,7 +433,7 @@ function droppedLine(r) {
   const d = r.dropped || [];
   if (!d.length) return '';
   const mg = d.filter((x) => /MOGRT/.test(x));
-  return (mg.length ? `\n\n**${mg.length} legenda(s) MOGRT ficaram de fora** (o XML não leva o texto delas): aplique as legendas de novo na sequência nova com o 06c.` : '') +
+  return (mg.length ? `\n\n**${mg.length} legenda(s) MOGRT ficaram de fora** (o XML não leva o texto delas): aplique as legendas de novo na sequência nova com o 16 (Legenda MOGRT).` : '') +
     (d.length > mg.length ? `\n\nTambém ficou de fora: ${d.filter((x) => !/MOGRT/.test(x)).slice(0, 6).join('; ')}` : '');
 }
 async function mogrtRun(style, srt) {
