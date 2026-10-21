@@ -50,6 +50,8 @@ def render_md(idx, sheet_rel=None, sync=None):
     info = idx['info']; clk = core.clock_of(info)
     L = []
     kind = 'fala' if idx.get('speech') and idx['speech']['n_words'] > max(8, info['duration'] / 6) else 'sem fala / ambiente'
+    if (idx.get('speech') or {}).get('lyrics'):
+        kind = 'música (letra transcrita)'
     L.append(f"# {info['name']}\n")
     L.append(f"> Índice gerado pelo **Cláudio, o Editor {VERSION}** em {datetime.date.today().isoformat()}. Tempos em segundos do arquivo e "
              f"timecode de origem. Seções marcadas como 👁 foram escritas depois de OLHAR as imagens; o resto é medido.\n")
@@ -153,9 +155,9 @@ def write_clip_md(idx, sheet=True, sync=None):
 
 
 def write_folder_md(folder, progress=None):
-    """_CLAUDIO.md: every video in the folder (indexed or not) in one table, with indexing progress on top."""
+    """_CLAUDIO.md: every video and audio file in the folder (indexed or not) in one table, with indexing progress on top."""
     folder = core.local_path(folder)
-    vids = sorted(f for f in os.listdir(folder) if os.path.splitext(f)[1].lower() in core.VIDEO_EXT and not f.startswith('._'))
+    vids = sorted(f for f in os.listdir(folder) if os.path.splitext(f)[1].lower() in core.MEDIA_EXT and not f.startswith('._'))
     rows, done, total_s = [], 0, 0.0
     for f in vids:
         p = os.path.join(folder, f)
@@ -177,7 +179,8 @@ def write_folder_md(folder, progress=None):
             first = said[0]['text'][:70] if said else ''
             mdn = os.path.basename(md_path(p))
             rows.append((f"[{f}]({mdn.replace(' ', '%20')})", _fmt_dur(info['duration']), info.get('start_tc') or '—',
-                         (col.get('profile') or '').replace('provável ', '~'), 'fala' if said and len(' '.join(s['text'] for s in said)) > 60 else '—',
+                         (col.get('profile') or '').replace('provável ', '~'),
+                         'música' if (idx.get('speech') or {}).get('lyrics') else 'fala' if said and len(' '.join(s['text'] for s in said)) > 60 else '—',
                          seen[:70] or '_(não descrito)_', first))
         else:
             rows.append((f, '—', '—', '—', '—', '_(não indexado)_', ''))

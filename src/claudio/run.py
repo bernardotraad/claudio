@@ -65,7 +65,7 @@ def _index(a):
     if j and j.get('state') == 'running':
         return {'started': False, 'line': indexer.progress_line(j), 'profile': applied}
     indexer.launch_detached(a['folder'], voc, a.get('language', 'pt'))
-    return {'started': True, 'files': len(indexer.list_videos(a['folder'])), 'profile': applied}
+    return {'started': True, 'files': len(indexer.list_media(a['folder'])), 'profile': applied}
 
 
 def _stereo(a):

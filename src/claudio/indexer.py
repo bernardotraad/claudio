@@ -104,17 +104,30 @@ def list_videos(folder):
     return out
 
 
+def list_media(folder):
+    """What "Analisar material" indexes: every video plus loose audio (songs, recorders, voice notes). Skips the
+    claudio_*/decupa_* folders the tools write (drift-corrected copies of the recorder)."""
+    root = core.local_path(folder)
+    out = []
+    for dp, dn, fn in os.walk(root):
+        dn[:] = [x for x in dn if x.lower() not in core.PROXY_DIRS
+                 and not x.startswith(('_claudio', '_decupa', '.', '#', 'claudio_', 'decupa_'))]
+        out += [os.path.join(dp, f) for f in sorted(fn) if os.path.splitext(f)[1].lower() in core.MEDIA_EXT
+                and not f.startswith('._') and not core.is_proxy(os.path.join(dp, f))]
+    return out
+
+
 def run(folder, vocabulary=None, lang='pt'):
     folder = core.local_path(folder)
     jp = job_path(folder)
-    files = list_videos(folder)
+    files = list_media(folder)
     durs = {}
 
     def early(k):                    # reading every file's length takes ~2–3 s each over /mnt: show that it started
         pub = {'folder': core.nle_path(folder), 'pid': os.getpid(), 'state': 'running', 'started': time.time(),
                'updated': time.time(), 'files_total': len(files), 'files_done': 0, 'fraction': 0.0, 'errors': [],
                'current': None, 'stage': 'preparing',
-               'line': f'preparando: lendo {k} de {len(files)} vídeos (duração, câmera)'}
+               'line': f'preparando: lendo {k} de {len(files)} arquivos (duração, câmera)'}
         try:
             json.dump(pub, open(jp + '.tmp', 'w'), ensure_ascii=False); os.replace(jp + '.tmp', jp)
             pd = core.data_dir(folder)

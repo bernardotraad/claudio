@@ -46,3 +46,26 @@ def test_data_dir_migrates_old_folder(tmp_path):
     md = (job / 'a.md').read_text(encoding='utf-8')
     assert '(_claudio/a.jpg)' in md and '<!-- claudio:auto:begin -->' in md and 'notas' in md
     assert not (job / '_DECUPA.md').exists()
+
+
+def test_decomposed_accents_are_found(tmp_path):
+    import unicodedata
+    nfd = lambda s: unicodedata.normalize('NFD', s)
+    d = tmp_path / nfd('Açúcar') / 'AUDIO'
+    d.mkdir(parents=True)
+    f = d / nfd('Antes Que Eu Enlouqueça.wav')           # stored as on a Mac: c + combining cedilla
+    f.write_bytes(b'')
+    typed = str(tmp_path / 'Açúcar' / 'AUDIO' / 'Antes Que Eu Enlouqueça.wav')
+    assert typed != str(f) and core.local_path(typed) == str(f)
+    assert core.local_path(str(tmp_path / 'nada.wav')) == str(tmp_path / 'nada.wav')   # missing stays as given
+
+
+def test_folder_index_takes_loose_audio(tmp_path):
+    from claudio import indexer
+    for p in ['VIDEOS/A001.MP4', 'AUDIO/musica.wav', 'AUDIO/zap.mpeg', 'AUDIO/claudio_drift_corrected/r_drift.wav',
+              'AUDIO/notas.md', 'VIDEOS/._A001.MP4']:
+        (tmp_path / p).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / p).write_bytes(b'')
+    got = sorted(os.path.relpath(p, tmp_path) for p in indexer.list_media(str(tmp_path)))
+    assert got == ['AUDIO/musica.wav', 'AUDIO/zap.mpeg', 'VIDEOS/A001.MP4']
+    assert [os.path.relpath(p, tmp_path) for p in indexer.list_videos(str(tmp_path))] == ['VIDEOS/A001.MP4']

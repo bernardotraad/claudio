@@ -24,8 +24,7 @@ from claudio import core
 
 SR = 8000
 ENV = 100                      # envelope rate (10 ms)
-AUDIO_EXT = {'.wav', '.mp3', '.m4a', '.aif', '.aiff', '.flac', '.bwf', '.ogg', '.aac', '.mpeg', '.mpga', '.opus', '.oga', '.wma',
-             '.m4b', '.caf'}   # .mpeg: WhatsApp voice/audio files
+AUDIO_EXT = core.AUDIO_EXT
 
 
 # ───────────────────────────── audio access (cached) ─────────────────────────────

@@ -119,6 +119,9 @@ def proxy_for(path):
 
 
 VIDEO_EXT = {'.mp4', '.mov', '.mxf', '.mkv', '.avi', '.m4v', '.mts', '.m2ts', '.webm', '.braw', '.crm', '.r3d', '.mpg'}
+AUDIO_EXT = {'.wav', '.mp3', '.m4a', '.aif', '.aiff', '.flac', '.bwf', '.ogg', '.aac', '.mpeg', '.mpga', '.opus', '.oga', '.wma',
+             '.m4b', '.caf'}   # .mpeg: WhatsApp voice/audio files
+MEDIA_EXT = VIDEO_EXT | AUDIO_EXT
 
 
 # ───────────────────────────── paths / platform ─────────────────────────────
@@ -141,10 +144,10 @@ def local_path(p):
     if IS_WSL:
         m = re.match(r'^\\\\wsl(?:\.localhost|\$)\\[^\\]+(\\.*)$', p, re.I)
         if m:
-            return m.group(1).replace('\\', '/')
+            return match_unicode(m.group(1).replace('\\', '/'))
         m = re.match(r'^([A-Za-z]):[\\/](.*)$', p)
         if m:
-            return f'/mnt/{m.group(1).lower()}/' + m.group(2).replace('\\', '/')
+            return match_unicode(f'/mnt/{m.group(1).lower()}/' + m.group(2).replace('\\', '/'))
     if p.startswith('file:'):
         p = urllib.parse.unquote(re.sub(r'^file:(//localhost(?=/)|//(?=/)|//(?=[A-Za-z]:)|//(?=wsl))?', '', p))
         m = re.match(r'^/*wsl(?:\.localhost|\$)/[^/]+(/.*)$', p, re.I)   # file://wsl.localhost/<distro>/… (a WSL file)
@@ -154,7 +157,31 @@ def local_path(p):
             return local_path(p.lstrip('/'))
         if IS_WIN and re.match(r'^/[A-Za-z]:', p):
             p = p[1:]
-    return os.path.abspath(os.path.expanduser(p))
+    return match_unicode(os.path.abspath(os.path.expanduser(p)))
+
+
+def match_unicode(p):
+    """The same name can be stored composed (ç) or decomposed (c + ◌̧, files from a Mac) and the filesystem compares
+    bytes: a path typed or handed over by the NLE then "does not exist". Resolve each missing part against the names
+    actually on disk, comparing them in NFC."""
+    if os.path.exists(p) or p.isascii():
+        return p
+    head, parts = p, []
+    while not os.path.exists(head):
+        head, tail = os.path.split(head)
+        if not tail:
+            return p
+        parts.append(tail)
+    for name in reversed(parts):
+        want = unicodedata.normalize('NFC', name)
+        try:
+            hit = next((x for x in os.listdir(head) if unicodedata.normalize('NFC', x) == want), None)
+        except OSError:
+            return p
+        if hit is None:
+            return p
+        head = os.path.join(head, hit)
+    return head
 
 
 def nle_path(p):
@@ -670,7 +697,7 @@ def fix_word_times(words):
     return words
 
 
-def transcribe(d, lang, progress=lambda *_: None, duration=1, vocabulary=None):
+def transcribe(d, lang, progress=lambda *_: None, duration=1, vocabulary=None, audio_only=False):
     audio = load_pcm(d)
     prompt = PROMPT_PT if (lang or '').startswith('pt') else None
     # vocabulary is NOT given to Whisper (in the prompt it gets hallucinated into the text; as hotwords it drops
@@ -688,19 +715,35 @@ def transcribe(d, lang, progress=lambda *_: None, duration=1, vocabulary=None):
         progress('speech', 1)
         words = apply_vocabulary(fix_word_times(words), vocabulary)
         return {'language': r.get('language', lang), 'segments': _resegment(out, words) if vocabulary else out, 'words': words}
-    segs, info = whisper().transcribe(
-        audio, language=lang or None, word_timestamps=True, vad_filter=True,
-        vad_parameters={'min_silence_duration_ms': 300},
-        condition_on_previous_text=False,   # keep repeated takes instead of "deduplicating" them
-        initial_prompt=prompt)
-    for s in segs:
-        ws = [{'w': w.word.strip(), 's': round(w.start, 3), 'e': round(w.end, 3), 'p': round(w.probability, 3)}
-              for w in (s.words or []) if w.word.strip()]
-        words.extend(ws)
-        out.append({'s': round(float(s.start), 2), 'e': round(float(s.end), 2), 'text': clean_text(s.text)})
-        progress('speech', s.end / max(duration, 1))
-    words = apply_vocabulary(fix_word_times(words), vocabulary)
-    return {'language': info.language, 'segments': _resegment(out, words) if vocabulary else out, 'words': words}
+
+    def run(vad):
+        words, out = [], []
+        segs, info = whisper().transcribe(
+            audio, language=lang or None, word_timestamps=True, vad_filter=vad,
+            vad_parameters={'min_silence_duration_ms': 300} if vad else None,
+            condition_on_previous_text=False,   # keep repeated takes instead of "deduplicating" them
+            initial_prompt=prompt if vad else None)
+        for s in segs:
+            if not vad and (s.no_speech_prob > 0.6 and s.avg_logprob < -1 or s.compression_ratio > 2.4):
+                continue                        # without the VAD Whisper also "hears" words in the instruments
+            ws = [{'w': w.word.strip(), 's': round(w.start, 3), 'e': round(w.end, 3), 'p': round(w.probability, 3)}
+                  for w in (s.words or []) if w.word.strip()]
+            words.extend(ws)
+            out.append({'s': round(float(s.start), 2), 'e': round(float(s.end), 2), 'text': clean_text(s.text)})
+            progress('speech', s.end / max(duration, 1))
+        return words, out, info
+
+    words, out, info = run(True)
+    lyrics = False
+    # a song: the VAD is trained on speech and drops singing over instruments (3:27 of song → 22 words). An audio
+    # file where it kept under half is transcribed again without it; the pass with more words wins.
+    if audio_only and sum(s['e'] - s['s'] for s in out) < 0.5 * duration:
+        w2, o2, i2 = run(False)
+        if len(w2) > 1.5 * len(words):
+            words, out, info, lyrics = w2, o2, i2, True
+    words = apply_vocabulary(words if lyrics else fix_word_times(words), vocabulary)   # sung notes are long on purpose
+    r = {'language': info.language, 'segments': _resegment(out, words) if vocabulary else out, 'words': words}
+    return {**r, 'lyrics': True} if lyrics else r
 
 
 def clean_text(t):
@@ -907,15 +950,16 @@ def build_index(path, lang='pt', progress=lambda *_: None, force=False, vocabula
     if info['has_video']:
         idx['picture'] = analyze_picture(src, d, sinfo, progress)
     sp = None
-    if idx['audio'] and idx['audio']['speech_ratio'] > 0.02:
-        sp = transcribe(d, lang, progress, info['duration'], None)
+    if idx['audio'] and (idx['audio']['speech_ratio'] > 0.02 or not info['has_video']):   # a song can measure ~0
+        sp = transcribe(d, lang, progress, info['duration'], None, audio_only=not info['has_video'])
         json.dump(sp['words'], open(os.path.join(d, 'words_raw.json'), 'w'), ensure_ascii=False)
         if vocabulary:
             sp['words'] = dedupe_vocab(apply_vocabulary([dict(w) for w in sp['words']], vocabulary))
             sp['segments'] = [{**s, 'text': clean_text(s['text'])} for s in _resegment(sp['segments'], sp['words'])]
         json.dump(sp['words'], open(os.path.join(d, 'words.json'), 'w'), ensure_ascii=False)
         idx['vocabulary'] = vocabulary
-    idx['speech'] = {'language': sp['language'], 'segments': sp['segments'], 'n_words': len(sp['words'])} if sp else None
+    idx['speech'] = {'language': sp['language'], 'segments': sp['segments'], 'n_words': len(sp['words']),
+                     **({'lyrics': True} if sp.get('lyrics') else {})} if sp else None
     idx['seconds_to_index'] = round(time.time() - t0, 1)
     json.dump(idx, open(ip, 'w'), ensure_ascii=False, indent=1)
     return idx

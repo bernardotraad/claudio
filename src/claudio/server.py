@@ -226,7 +226,7 @@ def set_rotation(degrees: int, paths: list[str] = None, folder: str = None) -> d
 
 @mcp.tool()
 async def index_folder(folder: str, ctx: Context, language: str = 'pt', vocabulary: str = None, wait_minutes: float = 10) -> dict:
-    """Index every video in a folder (card dump / VIDEOS / BRUTOS). Runs in its OWN background process — it keeps going
+    """Index every video and audio file in a folder (card dump / VIDEOS / BRUTOS / AUDIO). Runs in its OWN background process — it keeps going
     if this chat ends or the Premiere panel closes — and skips clips already indexed. Writes <clip>.md + contact sheet
     next to each video and keeps _CLAUDIO.md updated with the progress. Shows live progress here for up to wait_minutes,
     then returns; index_status(folder) reports it any time later.
@@ -238,7 +238,7 @@ async def index_folder(folder: str, ctx: Context, language: str = 'pt', vocabula
     import asyncio, subprocess as sp
     from claudio import indexer
     root = core.local_path(folder)
-    files = indexer.list_videos(root)
+    files = indexer.list_media(root)
     from claudio import motion
     new_terms = motion.unapplied_vocabulary(root)  # spellings the editor fixed in captions, not yet applied here
     if new_terms:
@@ -295,14 +295,14 @@ def index_status(folder: str = None) -> dict:
 
 @mcp.tool()
 def write_sidecars(folder: str) -> dict:
-    """(Re)write <clip>.md + contact sheets for every indexed video in a folder, and the folder's _CLAUDIO.md."""
+    """(Re)write <clip>.md + contact sheets for every indexed video/audio in a folder, and the folder's _CLAUDIO.md."""
     root = core.local_path(folder)
     out = []
     for dp, dn, fn in os.walk(root):
         dn[:] = [x for x in dn if x.lower() not in core.PROXY_DIRS and not x.startswith(('_claudio', '_decupa', '.'))]
         for f in sorted(fn):
             p = os.path.join(dp, f)
-            if os.path.splitext(f)[1].lower() in core.VIDEO_EXT and _is_indexed(p):
+            if os.path.splitext(f)[1].lower() in core.MEDIA_EXT and _is_indexed(p):
                 out.append(core.nle_path(sidecar.write_clip_md(core.build_index(p))))
         sidecar.write_folder_md(dp)
     return {'written': len(out), 'files': out[:50]}
@@ -330,7 +330,7 @@ def library(folder: str) -> list:
     for dp, _, fn in os.walk(root):
         for f in sorted(fn):
             p = os.path.join(dp, f)
-            if os.path.splitext(f)[1].lower() in core.VIDEO_EXT and _is_indexed(p):
+            if os.path.splitext(f)[1].lower() in core.MEDIA_EXT and _is_indexed(p):
                 idx = core.build_index(p)
                 s = _summary(idx)
                 out.append({'path': s['nle_path'], 'dur': round(s['duration'], 1), 'kind': s['kind'],
