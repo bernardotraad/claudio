@@ -55,6 +55,16 @@ card ─► ingest ─► logging (.md next to every clip) ─► overview + que
 Plus a **panel inside Premiere** (Window › Extensions › Cláudio, o Editor): a chat with Claude Code that knows the project (active
 sequence, playhead, selected clips), buttons for every step, and a progress bar.
 
+The buttons are grouped by stage of the job, one colour per group (● = runs with no AI, no credits):
+
+| Stage | Buttons |
+|---|---|
+| **Preparar** (prepare) | 01 Analisar material ● · 02 Status ● · 03 Áudio estéreo ● · 04 Multicam ● |
+| **Entender** (understand) | 05 Visão geral · 06 Descrever planos ● · 07 Ler minhas notas |
+| **Montar** (edit) | 08 Selects · 09 Corte por quem fala · 10 Recap de evento · 11 Limpar falas ● · 12 SFX nos cortes ● · 13 Desaninhar ● |
+| **Legendar** (caption) | 14 Legendas · 15 Overlay da legenda revisada · 16 Legenda MOGRT ● |
+| **Entregar** (deliver) | 17 QC antes de exportar ● · 18 Registrar no vault |
+
 ---
 
 ## Installation
@@ -384,8 +394,9 @@ The old `DECUPA_*` variables still work.
 Cláudio runs **on your machine**: transcription, picture, sync, visual search, faces, voices, captions and QC use no AI
 credits. What costs is the conversation with the model (Claude), and each message resends the history.
 
-- **"sem IA" buttons** (green dot in the panel): Analisar material, QC, Áudio estéreo, Desaninhar and Status run
-  straight in Cláudio through `claudio-run`, with no model at all.
+- **"sem IA" buttons** (green dot in the panel, ● in the table above): Analisar material, Status, Áudio estéreo,
+  Multicam, Descrever planos, Limpar falas, SFX nos cortes, Desaninhar, Legenda MOGRT and QC run straight in Cláudio
+  through `claudio-run`, with no model at all.
 - **Model picker** in the panel: Econômico (Haiku) for simple questions, Padrão (Sonnet) day to day, Máximo (Opus)
   only for hard editing calls.
 - **＋ new conversation** when the subject changes: a long conversation costs more on every message.

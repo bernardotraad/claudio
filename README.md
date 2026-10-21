@@ -55,6 +55,16 @@ cartão ─► ingest ─► decupagem (.md ao lado de cada clipe) ─► visão
 E também um **painel dentro do Premiere** (Janela › Extensões › Cláudio, o Editor): chat com o Claude Code com o contexto do
 projeto (sequência ativa, playhead, clipes selecionados), botões para cada etapa e barra de progresso.
 
+Os botões ficam agrupados pela etapa do trabalho, cada grupo com uma cor (● = roda sem IA, sem crédito):
+
+| Etapa | Botões |
+|---|---|
+| **Preparar** | 01 Analisar material ● · 02 Status ● · 03 Áudio estéreo ● · 04 Multicam ● |
+| **Entender** | 05 Visão geral · 06 Descrever planos ● · 07 Ler minhas notas |
+| **Montar** | 08 Selects · 09 Corte por quem fala · 10 Recap de evento · 11 Limpar falas ● · 12 SFX nos cortes ● · 13 Desaninhar ● |
+| **Legendar** | 14 Legendas · 15 Overlay da legenda revisada · 16 Legenda MOGRT ● |
+| **Entregar** | 17 QC antes de exportar ● · 18 Registrar no vault |
+
 ---
 
 ## Instalação
@@ -385,8 +395,9 @@ As variáveis antigas `DECUPA_*` continuam valendo.
 O Cláudio roda **na sua máquina**: transcrição, imagem, sync, busca visual, rostos, vozes, legendas e QC não usam
 crédito de IA. O que consome é a conversa com o modelo (Claude), e cada mensagem reenvia o histórico.
 
-- **Botões "sem IA"** (ponto verde no painel): Analisar material, QC, Áudio estéreo, Desaninhar e Status rodam direto
-  no Cláudio pelo `claudio-run`, sem modelo nenhum.
+- **Botões "sem IA"** (ponto verde no painel, ● na tabela acima): Analisar material, Status, Áudio estéreo, Multicam,
+  Descrever planos, Limpar falas, SFX nos cortes, Desaninhar, Legenda MOGRT e QC rodam direto no Cláudio pelo
+  `claudio-run`, sem modelo nenhum.
 - **Seletor de modelo** no painel: Econômico (Haiku) para perguntas simples, Padrão (Sonnet) para o dia a dia,
   Máximo (Opus) só para decisões difíceis de montagem.
 - **＋ nova conversa** quando mudar de assunto: conversa longa custa mais a cada mensagem.
