@@ -556,7 +556,12 @@ function mcpArgs(text) {
     if (!all.claudio || !all['premiere-pro']) return [];
     const f = path.join(os.tmpdir(), 'claudio-panel-mcp.json');
     fs.writeFileSync(f, JSON.stringify({ mcpServers: { claudio: all.claudio, 'premiere-pro': all['premiere-pro'] } }));
-    return ['--strict-mcp-config', '--mcp-config', f];
+    // without the connectors the AI must not try the vault (it wrote the notes out for me to paste): one line pointing
+    // to button 18, which runs with them and resumes this same conversation
+    return ['--strict-mcp-config', '--mcp-config', f, '--append-system-prompt',
+      'Nesta mensagem o conector Vault NÃO está carregado (economia de tokens do painel). Não tente registrar no vault nem ' +
+      'escreva o texto para colar: se houver decisão ou informação nova que valha registrar, termine com uma linha só ' +
+      'pedindo para apertar "18 Registrar no vault" — esse botão roda com o conector e continua esta mesma conversa.'];
   } catch (e) { return []; }
 }
 
