@@ -748,6 +748,42 @@ def transcribe(d, lang, progress=lambda *_: None, duration=1, vocabulary=None, a
     return {**r, 'lyrics': True} if lyrics else r
 
 
+def sung_timing(path, d, sp, progress=lambda *_: None):
+    """A song: word starts snapped to the isolated vocal (Whisper starts a sung line back in the instrumental, so the
+    caption came ~1 s early) and every word that begins a sung line marked line=True — captions are cut by line."""
+    try:
+        from claudio import vocals
+        env = vocals.envelope(path, d, lambda f: progress('vocals', f))
+        sp['words'], sp['snapped'] = vocals.snap_words(sp['words'], env)
+    except Exception as e:                          # no model / no network: the lyrics still come, with Whisper's times
+        sp['vocals_error'] = str(e)[:200]
+    sp['words'] = mark_lines(sp['words'])
+    sp['segments'] = [{'s': ln[0]['s'], 'e': ln[-1]['e'], 'text': ' '.join(w['w'] for w in ln)} for ln in lyric_lines(sp['words'])]
+    return sp
+
+
+def mark_lines(words, gap=1.0):
+    """line=True on the first word of each sung line: after a long pause in the voice (a held note or a breath inside
+    a line is shorter), after . ? !, or a capitalised word
+    mid-segment (Whisper writes lyrics one capitalised line after another: "…minha visão No fim ela partiu…")."""
+    out = []
+    for k, w in enumerate(words):
+        prev = words[k - 1] if k else None
+        cap = w['w'][:1].isupper() and not (len(w['w']) > 1 and w['w'].isupper())     # "TV" is not a new line
+        start = (prev is None or w['s'] - prev['e'] >= gap or re.search(r'[.?!]$', prev['w']) is not None or cap)
+        out.append({**w, 'line': True} if start else {k2: v for k2, v in w.items() if k2 != 'line'})
+    return out
+
+
+def lyric_lines(words):
+    lines = []
+    for w in words:
+        if w.get('line') or not lines:
+            lines.append([])
+        lines[-1].append(w)
+    return lines
+
+
 def fix_repeated_lines(segs, words, min_ratio=0.65):
     """Lyrics: a chorus line repeats, so a line heard ONCE that is nearly a repeated one is that line misheard
     ("Coisa da mais que eu tentei funcionar" → "Pois nada mais que eu tentei funcionou", 0.88). Real verses stay
@@ -771,7 +807,7 @@ def fix_repeated_lines(segs, words, min_ratio=0.65):
         best = max(canon, key=lambda c: difflib.SequenceMatcher(None, k, c).ratio())
         if difflib.SequenceMatcher(None, k, best).ratio() < min_ratio or len(k) > 1.25 * len(best):
             continue
-        idx = [i for i, w in enumerate(words) if s['s'] - 0.05 <= w['s'] < s['e'] + 0.05]
+        idx = [i for i, w in enumerate(words) if s['s'] - 0.05 <= w['s'] < s['e'] - 0.02]   # not the next line's 1st word
         old = [words[i] for i in idx]
         new_t = canon[best].split()
         sm = difflib.SequenceMatcher(None, [norm(w['w']) for w in old], [norm(w) for w in new_t])
@@ -1000,6 +1036,8 @@ def build_index(path, lang='pt', progress=lambda *_: None, force=False, vocabula
     sp = None
     if idx['audio'] and (idx['audio']['speech_ratio'] > 0.02 or not info['has_video']):   # a song can measure ~0
         sp = transcribe(d, lang, progress, info['duration'], None, audio_only=not info['has_video'])
+        if sp.get('lyrics'):
+            sp = sung_timing(path, d, sp, progress)
         json.dump(sp['words'], open(os.path.join(d, 'words_raw.json'), 'w'), ensure_ascii=False)
         if vocabulary:
             sp['words'] = dedupe_vocab(apply_vocabulary([dict(w) for w in sp['words']], vocabulary))

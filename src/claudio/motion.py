@@ -235,30 +235,75 @@ def render_overlay(code, name, out_dir, ar='9x16', fps='30000/1001', start=0.0, 
 # ───────────────────────────── captions synced to the EDIT ─────────────────────────────
 def timeline_words(nle_xml, tracks=('A1',)):
     """Words spoken in the edit, on the edit's clock: every audio clip on the given tracks contributes the words of its
-    source range, shifted to where the clip sits on the timeline."""
+    source range, shifted to where the clip sits on the timeline. An edit with no speech on them (a music video, a
+    visualizer) takes the lyrics of the song instead, from whatever audio track it is on; lyric words carry
+    lyrics=True and line=True on the first word of each sung line."""
     from claudio import nle_read
     tl = nle_read.read_fcp7(nle_xml)
-    words = []
-    for it in sorted([i for i in tl['items'] if i['track'] in tracks and i['path'] and i['enabled']], key=lambda i: i['tl_in']):
-        try:
-            idx = core.build_index(it['path'])
-        except Exception:
-            continue
-        for w in core.load_words(idx):
-            if w['s'] >= it['src_in'] - 0.02 and w['e'] <= it['src_out'] + 0.02:
-                words.append({'w': core.clean_text(w['w']), 's': round(it['tl_in'] + w['s'] - it['src_in'], 3),
-                              'e': round(it['tl_in'] + w['e'] - it['src_in'], 3)})
+
+    def collect(items, only_lyrics=False):
+        words = []
+        for it in sorted(items, key=lambda i: i['tl_in']):
+            try:
+                idx = core.build_index(it['path'])
+            except Exception:
+                continue
+            lyr = bool((idx.get('speech') or {}).get('lyrics'))
+            if only_lyrics and not lyr:
+                continue
+            for w in core.load_words(idx):
+                if w['s'] >= it['src_in'] - 0.02 and w['e'] <= it['src_out'] + 0.02:
+                    words.append({'w': core.clean_text(w['w']), 's': round(it['tl_in'] + w['s'] - it['src_in'], 3),
+                                  'e': round(it['tl_in'] + w['e'] - it['src_in'], 3),
+                                  **({'lyrics': True, 'line': True} if lyr and (w.get('line') or not words) else
+                                     {'lyrics': True} if lyr else {})})
+        return words
+    live = [i for i in tl['items'] if i['path'] and i['enabled']]
+    words = collect([i for i in live if i['track'] in tracks])
+    if not words:                                   # the same song on two tracks (L/R split) counts once
+        once = {(i['path'], i['tl_in'], i['src_in']): i for i in live if i['track'].startswith('A') and i['track'] not in tracks}
+        words = collect(list(once.values()), only_lyrics=True)
     words.sort(key=lambda w: w['s'])
     return {'timeline': tl['name'], 'duration': tl['duration'], 'fps': tl['fps'], 'words': words}
 
 
+def lyric_chunks(W, max_chars=38):
+    """A song's captions: one block per sung line (the lines marked at indexing), a line too long for the screen cut
+    in two at its biggest pause near the middle — never "nada Eu fiquei" across two lines."""
+    lines, out = [], []
+    for w in W:
+        if w.get('line') or not lines:
+            lines.append([])
+        lines[-1].append(w)
+
+    key = lambda ws: ' '.join(core.norm(w['w']) for w in ws)
+    known = {key(ln) for ln in lines if len(ln) > 1}
+
+    def cut(ln):
+        if len(' '.join(w['w'] for w in ln)) <= max_chars or len(ln) < 4:
+            return [ln]
+        n = len(ln)
+        # two lines Whisper ran together ("…da cabeça antes que eu enlouqueça"): cut where one side is a line the
+        # song sings elsewhere; else at the biggest pause near the middle, a comma helping
+        best = max(range(2, n - 1), key=lambda k: (ln[k]['s'] - ln[k - 1]['e']) - 0.02 * abs(k - n / 2)
+                   + (0.3 if re.search(r'[,;:]$', ln[k - 1]['w']) else 0)
+                   + (2 if key(ln[:k]) in known or key(ln[k:]) in known else 0))
+        return cut(ln[:best]) + cut(ln[best:])
+    for ln in lines:
+        out += cut(ln)
+    return [[{**c[0], 'w': c[0]['w'][:1].upper() + c[0]['w'][1:]}] + c[1:] if key(c) in known else c for c in out]
+
+
 def captions_srt(nle_xml, out_path, max_words=4, max_chars=24, fix=None, corrected=None):
     """SRT of the edit's speech with the approved grammar corrections (chunks ≤ max_words / max_chars, never across a
-    sentence end) — import as captions."""
+    sentence end) — import as captions. A song's lyrics (a music video with no speech on A1) come one block per sung
+    line, timed to the isolated vocal."""
     tw = corrected_timeline_words(nle_xml, corrected, fix)
     W = tw['words']
     chunks, cur = [], []
-    for w in W:
+    if W and all(w.get('lyrics') for w in W):
+        chunks = lyric_chunks(W)
+    for w in ([] if chunks else W):
         txt = ' '.join(x['w'] for x in cur + [w])
         if cur and (len(cur) >= max_words or len(txt) > max_chars or w['s'] - cur[-1]['e'] > 0.6):
             chunks.append(cur); cur = []
