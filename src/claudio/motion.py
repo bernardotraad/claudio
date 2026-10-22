@@ -799,9 +799,15 @@ function seek(t){const k=WIN.findIndex(([a,b])=>t>=a&&t<b);
   if(k!==shown){cur.replaceChildren(...(k<0?[]:els[k].map(x=>x[0])));nxt.textContent=k>=0&&CH[k+1]?ghost[k+1]:'';shown=k;
     fitLine(cur,FS0);fitLine(nxt,FS0*.58);}
   if(k<0){cur.style.opacity=0;nxt.style.opacity=0;return;}
-  const [a,b]=WIN[k],p=E.o3(seg(t,a,a+.18)),fo=1-seg(t,b-.08,b);
-  cur.style.opacity=fo*p;cur.style.transform=`translate(-50%,-50%) translateY(${(1-p)*FS0*.25}px)`;
-  nxt.style.opacity=.72*fo*p;
+  // between lines the karaoke scroll: the sung line rises and fades while the waiting line below rises and grows
+  // into its place (it lands as the next line starts, ready to fill); then the line after that fades in below
+  const [a,b]=WIN[k],nb=WIN[k+1]?WIN[k+1][0]:null,T=nb!=null?Math.min(.3,(nb-a)*.3):0;
+  const u=nb!=null?E.o3(seg(t,nb-T,nb)):0, last=nb==null?1-seg(t,b-.12,b):1;
+  const p=k===0?E.o3(seg(t,a,a+.18)):1, q=E.o3(seg(t,a,a+.25));
+  cur.style.opacity=p*last*(1-u);
+  cur.style.transform=`translate(-50%,-50%) translateY(${((1-p)*.25-u*.9)*FS0}px)`;
+  nxt.style.opacity=(k===0?p:q)*last*(.72+.28*u);
+  nxt.style.transform=`translate(-50%,-50%) translateY(${((1-(k===0?p:q))*.4-u*1.12)*FS0}px) scale(${1+u*(1/.58-1)})`;
   // the clip reaches past the word's box (a "j" hook, the outline, a comma stick out of it) and, once the word is
   // sung, covers it whole: an exact 0–100 % box left white slivers on those letters
   CH[k].forEach((i,j)=>{const w=WORDS[i],q=clamp((t-w.s)/Math.max(.08,w.e-w.s));
