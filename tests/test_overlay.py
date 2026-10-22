@@ -69,3 +69,10 @@ def test_overlay_follows_the_sequence_resolution():
     assert motion.fit_sequence('16x9', 3840, 2160) == ('16x9', 2.0)
     assert motion.fit_sequence('9x16', 3840, 2160) == ('9x16', 1)           # another delivery format: its own size
     assert motion.fit_sequence(None, None, None) == ('9x16', 1)
+
+
+def test_karaoke_is_its_own_look():
+    from claudio import motion
+    W = [{'w': 'Chorando,', 's': 0.0, 'e': 1.2}, {'w': 'ouvindo', 's': 1.2, 'e': 1.8}]
+    k, s = motion.caption_code(W, 'karaoke'), motion.caption_code(W, 'social')
+    assert 'clipPath' in k and 'nxt' in k and 'clipPath' not in s      # word fill + next line, not the social pop-in

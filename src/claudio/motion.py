@@ -681,7 +681,7 @@ STYLES = {
     'social':  'Plate escura arredondada atrás das palavras; cada palavra aparece quando é falada; a palavra atual na cor de destaque (padrão da skill motion-designer)',
     'bold':    'Caixa alta, letra grossa com contorno preto, 2–3 palavras por vez, a palavra atual em destaque e com "pop" (estilo reels de alto impacto)',
     'clean':   'Texto branco com sombra suave, sem caixa, palavras surgindo com fade — discreto, deixa a imagem respirar',
-    'karaoke': 'A frase inteira aparece apagada e cada palavra acende quando é falada, a atual em destaque',
+    'karaoke': 'Karaokê de verdade: a linha inteira em branco com contorno, cada palavra se enche da cor de destaque da esquerda pra direita no tempo em que é cantada, e a próxima linha espera embaixo, menor e apagada',
     'box':     'O bloco inteiro dentro de uma caixa na cor de destaque com texto escuro, entra com "pop"',
     'minimal': 'Legenda de TV/cinema: frase inteira, sentence case, tarja preta translúcida, sem animação — bom pra 16:9 e entrevista',
 }
@@ -773,6 +773,40 @@ def recommend_style(aspect, profile_captions=None):
     return 'social'
 
 
+# karaoke: the whole line from the start, white with a dark outline; each word FILLS with the accent colour from left
+# to right over the time it is sung (a held note fills slowly); the next line waits underneath, small and faded
+KARAOKE_JS = r"""
+const _C=Captions(stage,WORDS,{max:MAX}); _C.box.style.display='none';         // the skill's chunking (or the editor's cues)
+const CH=_C.chunks, nextS=i=>WORDS[i+1]?WORDS[i+1].s:1e9;
+const WIN=CH.map((c,k)=>{const l=c[c.length-1],nx=CH[k+1]?WORDS[CH[k+1][0]].s:1e9;
+  return [WORDS[c[0]].s-.02,Math.min(nx-.03,Math.max(WORDS[l].s+.45,Math.min(WORDS[l].e+.6,nextS(l)-.05)))];});
+const tall=H/W>1.2, FS0=tall?74:60, ACC=getComputedStyle(document.documentElement).getPropertyValue('--accent').trim()||'#facc15';
+const Y=POS==='top'?ZONES.HEAD.y+ZONES.HEAD.h*.3:POS==='center'?SB.cy:ZONES.CAP.y+ZONES.CAP.h*.32;
+const line=(fs)=>{const d=div(stage,'el','');d.dataset.role='caption';
+  Object.assign(d.style,{left:SB.cx+'px',transform:'translate(-50%,-50%)',display:'flex',gap:'0 .28em',whiteSpace:'nowrap',
+    justifyContent:'center',alignItems:'center',fontWeight:900,fontSize:fs+'px',lineHeight:1.1,maxWidth:SB.w+'px'});return d;};
+const cur=line(FS0), nxt=line(FS0*.58); cur.style.top=Y+'px'; nxt.style.top=(Y+FS0*1.12)+'px';
+Object.assign(nxt.style,{color:'#fff',webkitTextStroke:(FS0*.045)+'px rgba(0,0,0,.8)',paintOrder:'stroke fill',textShadow:'0 2px 10px rgba(0,0,0,.55)'});
+const OUT=c=>{c.style.webkitTextStroke=(FS0*.07)+'px rgba(0,0,0,.85)';c.style.paintOrder='stroke fill';};
+const els=CH.map(c=>c.map(i=>{const w=document.createElement('span');Object.assign(w.style,{position:'relative',display:'inline-block',color:'#fff'});
+  w.textContent=WORDS[i].w;OUT(w);w.style.textShadow='0 4px 16px rgba(0,0,0,.45)';
+  const f=document.createElement('span');f.textContent=WORDS[i].w;OUT(f);
+  Object.assign(f.style,{position:'absolute',left:0,top:0,color:ACC,clipPath:'inset(0 100% 0 0)'});w.appendChild(f);return [w,f];}));
+const ghost=CH.map(c=>c.map(i=>WORDS[i].w).join(' '));
+let shown=-1;
+function fitLine(el,f0){el.style.fontSize=f0+'px';for(let f=f0;el.scrollWidth>SB.w&&f>f0*.55;f-=2)el.style.fontSize=f+'px';}
+function seek(t){const k=WIN.findIndex(([a,b])=>t>=a&&t<b);
+  if(k!==shown){cur.replaceChildren(...(k<0?[]:els[k].map(x=>x[0])));nxt.textContent=k>=0&&CH[k+1]?ghost[k+1]:'';shown=k;
+    fitLine(cur,FS0);fitLine(nxt,FS0*.58);}
+  if(k<0){cur.style.opacity=0;nxt.style.opacity=0;return;}
+  const [a,b]=WIN[k],p=E.o3(seg(t,a,a+.18)),fo=1-seg(t,b-.08,b);
+  cur.style.opacity=fo*p;cur.style.transform=`translate(-50%,-50%) translateY(${(1-p)*FS0*.25}px)`;
+  nxt.style.opacity=.72*fo*p;
+  CH[k].forEach((i,j)=>{const w=WORDS[i],q=clamp((t-w.s)/Math.max(.08,w.e-w.s));
+    els[k][j][1].style.clipPath=`inset(0 ${(100-q*100).toFixed(2)}% 0 0)`;});}
+"""
+
+
 def caption_code(WORDS, style='social', accent='#4ea1ff', uppercase=None, max_words=None, position='bottom', dur=None, look=None,
                  cues=None):
     code = _caption_code(WORDS, style, accent, uppercase, max_words, position, dur, look)
@@ -823,6 +857,8 @@ function seek(t){const k=WIN.findIndex(([a,b])=>t>=a&&t<b);
             f"const WORDS={json.dumps(W, ensure_ascii=False)};\n")
     if style == 'social':
         return head + f"const CAP=Captions(stage,WORDS,{{max:{mx}}});\nfunction seek(t){{CAP.seek(t);}}\n"
+    if style == 'karaoke':
+        return head + f"const POS='{position}', MAX={mx};\n" + KARAOKE_JS
     return head + f"const STYLE='{style}', POS='{position}', MAX={mx};\n" + r"""
 const _C=Captions(stage,WORDS,{max:MAX}); _C.box.style.display='none';         // reuse the skill's chunking only
 const CH=_C.chunks, nextS=i=>WORDS[i+1]?WORDS[i+1].s:1e9;
