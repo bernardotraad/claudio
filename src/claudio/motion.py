@@ -791,7 +791,7 @@ const OUT=c=>{c.style.webkitTextStroke=(FS0*.07)+'px rgba(0,0,0,.85)';c.style.pa
 const els=CH.map(c=>c.map(i=>{const w=document.createElement('span');Object.assign(w.style,{position:'relative',display:'inline-block',color:'#fff'});
   w.textContent=WORDS[i].w;OUT(w);w.style.textShadow='0 4px 16px rgba(0,0,0,.45)';
   const f=document.createElement('span');f.textContent=WORDS[i].w;OUT(f);
-  Object.assign(f.style,{position:'absolute',left:0,top:0,color:ACC,clipPath:'inset(0 100% 0 0)'});w.appendChild(f);return [w,f];}));
+  Object.assign(f.style,{position:'absolute',left:0,top:0,color:ACC,clipPath:'inset(-40% 100% -40% -20%)'});w.appendChild(f);return [w,f];}));
 const ghost=CH.map(c=>c.map(i=>WORDS[i].w).join(' '));
 let shown=-1;
 function fitLine(el,f0){el.style.fontSize=f0+'px';for(let f=f0;el.scrollWidth>SB.w&&f>f0*.55;f-=2)el.style.fontSize=f+'px';}
@@ -802,18 +802,22 @@ function seek(t){const k=WIN.findIndex(([a,b])=>t>=a&&t<b);
   const [a,b]=WIN[k],p=E.o3(seg(t,a,a+.18)),fo=1-seg(t,b-.08,b);
   cur.style.opacity=fo*p;cur.style.transform=`translate(-50%,-50%) translateY(${(1-p)*FS0*.25}px)`;
   nxt.style.opacity=.72*fo*p;
+  // the clip reaches past the word's box (a "j" hook, the outline, a comma stick out of it) and, once the word is
+  // sung, covers it whole: an exact 0–100 % box left white slivers on those letters
   CH[k].forEach((i,j)=>{const w=WORDS[i],q=clamp((t-w.s)/Math.max(.08,w.e-w.s));
-    els[k][j][1].style.clipPath=`inset(0 ${(100-q*100).toFixed(2)}% 0 0)`;});}
+    els[k][j][1].style.clipPath=`inset(-40% ${q>=1?-20:(100-q*100).toFixed(2)}% -40% -20%)`;});}
 """
 
 
 def caption_code(WORDS, style='social', accent='#4ea1ff', uppercase=None, max_words=None, position='bottom', dur=None, look=None,
                  cues=None):
     code = _caption_code(WORDS, style, accent, uppercase, max_words, position, dur, look)
-    if not cues:
-        return code
-    return (f"const CUES={json.dumps(cues)};window.CUES=CUES;\n" + code +
-            "\nif(typeof WIN!=='undefined')CUES.forEach((c,k)=>{WIN[k]=[c[2]-.001,c[3]];});\n")
+    if cues:
+        code = (f"const CUES={json.dumps(cues)};window.CUES=CUES;\n" + code +
+                "\nif(typeof WIN!=='undefined')CUES.forEach((c,k)=>{WIN[k]=[c[2]-.001,c[3]];});\n")
+    if style == 'karaoke':       # a sung line stays up, filled, until the next one comes in (no gap between lines)
+        code += "\nfor(let k=0;k+1<WIN.length;k++)WIN[k][1]=Math.max(WIN[k][1],WIN[k+1][0]);\n"
+    return code
 
 
 def _caption_code(WORDS, style='social', accent='#4ea1ff', uppercase=None, max_words=None, position='bottom', dur=None, look=None):

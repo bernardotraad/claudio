@@ -76,3 +76,11 @@ def test_karaoke_is_its_own_look():
     W = [{'w': 'Chorando,', 's': 0.0, 'e': 1.2}, {'w': 'ouvindo', 's': 1.2, 'e': 1.8}]
     k, s = motion.caption_code(W, 'karaoke'), motion.caption_code(W, 'social')
     assert 'clipPath' in k and 'nxt' in k and 'clipPath' not in s      # word fill + next line, not the social pop-in
+
+
+def test_karaoke_lines_hold_until_the_next():
+    from claudio import motion
+    W = [{'w': 'a', 's': 0.0, 'e': 1.0}, {'w': 'b', 's': 3.0, 'e': 4.0}]
+    code = motion.caption_code(W, 'karaoke', cues=[[0, 0, 0.0, 1.2, 'a'], [1, 1, 3.0, 4.2, 'b']])
+    assert code.rstrip().endswith('WIN[k][1]=Math.max(WIN[k][1],WIN[k+1][0]);')           # after the editor's cue times
+    assert 'inset(0 100% 0 0)' not in code                                             # fill reaches past the glyph box
