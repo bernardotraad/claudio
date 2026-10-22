@@ -1071,6 +1071,25 @@ def caption_mogrt(nle_xml: str, style: str = 'social', srt: str = None, correcte
 
 
 @mcp.tool()
+def premiere_captions(prproj: str, sequence: str, nle_xml: str = None, track: str = 'C1', out_srt: str = None) -> dict:
+    """The caption track as the editor fixed it in Premiere (text + timing), read from the saved .prproj — Premiere's
+    scripting cannot read captions. Once edited there it is THE caption: use the .srt this writes (default
+    <job>/#legendas/<sequence>_revisada.srt) as `srt` for caption_overlay / caption_mogrt, never regenerate it.
+    With nle_xml (the sequence's XML), what the editor rewrote in a song's lyrics is learned into the song, so its
+    next captions come right. The project must be saved first (the panel does it)."""
+    import re
+    from claudio import motion, nle_read
+    cues = nle_read.premiere_captions(prproj, sequence, track)
+    if not cues:
+        return {'cues': 0, 'note': f'no caption items on {track} of "{sequence}" (saved project?)'}
+    job = os.path.dirname(os.path.dirname(core.local_path(prproj)))
+    out = out_srt or os.path.join(job, '#legendas', re.sub(r'[\\/:*?"<>|]', '-', sequence) + '_revisada.srt')
+    p = nle_read.write_srt(cues, out)
+    learned = motion.learn_caption_edits(nle_xml, cues) if nle_xml else []
+    return {'srt': core.nle_path(p), 'cues': len(cues), 'first': cues[:3], 'learned_lyric_fixes': learned}
+
+
+@mcp.tool()
 def clean_speech(nle_xml: str, out_xml: str = None, max_pause: float = 0.45, fillers: bool = True,
                  extra_fillers: list = None, keep_tracks: list = None, dialogue_track: str = 'A1') -> dict:
     """Tighten a sequence the editor already cut: pauses longer than max_pause between words and hesitation sounds

@@ -83,3 +83,12 @@ def test_held_note_ends_where_the_voice_stops():
     words = [{'w': 'pensava', 's': 10.04, 'e': 11.18}, {'w': 'Mudou', 's': 14.0, 'e': 14.7}]
     out, _ = vocals.snap_words(words, env)
     assert out[0]['e'] == 12.3 and out[0]['s'] == 10.04 and out[1]['e'] == 15.0   # each held to where its voice stops
+
+
+def test_editor_lyric_fix_is_applied_everywhere(tmp_path, monkeypatch):
+    monkeypatch.setattr(core, 'cache_dir', lambda p: str(tmp_path))
+    core.save_lyric_fix('song.wav', 'Sinto sua falta, não tenho explicação', 'Sinto sua falta, não tem explicação')
+    ws = [{'w': w, 's': k, 'e': k + .9, 'line': k == 0} for k, w in enumerate('Sinto sua falta, não tenho explicação Vai'.split())]
+    out = core.apply_lyric_fixes(ws, core.lyric_fixes('song.wav'))
+    assert ' '.join(w['w'] for w in out) == 'Sinto sua falta, não tem explicação Vai'
+    assert out[4]['s'] == 4 and out[-1]['s'] == 6 and out[0].get('line')       # the swapped word keeps its time

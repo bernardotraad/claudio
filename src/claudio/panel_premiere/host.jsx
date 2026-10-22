@@ -49,6 +49,11 @@ function claudioImportXml(xmlPath) {
 }
 
 // ── safety net: what is on the tracks before / after Claude acts ──────────────────────────────────────────────────
+// Saves the project so its caption tracks can be read from the .prproj (Premiere's scripting cannot read captions).
+function claudioSave() {
+    try { app.project.save(); return '{"ok":true}'; } catch (e) { return '{"ok":false,"error":' + q(e.toString()) + '}'; }
+}
+
 function claudioSeqById(id) {
     var p = app.project;
     if (!p) return null;

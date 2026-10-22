@@ -17,7 +17,7 @@
 
 Paths can be Windows paths (D:\\...) — they are translated on WSL — and come back as the editor's paths.
 """
-import json, os, sys, traceback
+import json, os, re, sys, traceback
 
 
 def _status(a):
@@ -183,9 +183,37 @@ def _sfx(a):
                        a.get('sfx_dir') or prof.get('sfx_dir'), extra_keywords=(prof.get('caption_look') or {}).get('emphasis_words') or ())
 
 
-def _srt_in(job):
-    """The caption file to use: the newest *revisada*.srt in the job's #legendas, else the newest .srt there."""
+def _from_premiere(a):
+    """The caption as the editor left it in Premiere (track C1 of the active sequence, read from the saved .prproj),
+    written as <sequence>_revisada.srt in #legendas. None when the sequence has no caption track."""
+    from claudio import core, motion, nle_read
+    if not (a.get('prproj') and a.get('sequence')):
+        return None, []
+    try:
+        cues = nle_read.premiere_captions(a['prproj'], a['sequence'], a.get('track', 'C1'))
+    except Exception:
+        return None, []
+    if not cues:
+        return None, []
+    job = a.get('job') or os.path.dirname(os.path.dirname(core.local_path(a['prproj'])))
+    name = re.sub(r'[\\/:*?"<>|]', '-', a['sequence'])
+    p = nle_read.write_srt(cues, os.path.join(core.local_path(job), '#legendas', f'{name}_revisada.srt'))
+    learned = []
+    if a.get('nle_xml'):
+        try:
+            learned = motion.learn_caption_edits(a['nle_xml'], cues)
+        except Exception:
+            pass
+    return p, learned
+
+
+def _srt_in(job, a=None):
+    """The caption to use: the caption track the editor fixed in Premiere, else the newest *revisada*.srt in the
+    job's #legendas, else the newest .srt there."""
     from claudio import core
+    p, _ = _from_premiere(a or {})
+    if p:
+        return p
     if not job:
         return None
     best = []
@@ -204,7 +232,7 @@ def _mogrt_styles(a):
     from claudio import core, motion
     prof = client_for(a.get('job') or '') or {}
     styles = list(motion.STYLES) if prof.get('caption_look') else [s for s in motion.STYLES if s != 'marca']
-    srt = _srt_in(a.get('job'))
+    srt = _srt_in(a.get('job'), a)
     return {'styles': styles, 'client': prof.get('name'), 'recommended': 'marca' if prof.get('caption_look') else None,
             'srt': core.nle_path(srt) if srt else None}
 
@@ -212,14 +240,16 @@ def _mogrt_styles(a):
 def _mogrt(a):
     from claudio import core, mogrt
     prof = client_for(a.get('job') or a['nle_xml']) or {}
-    srt = a.get('srt')
+    srt, learned = a.get('srt'), []
     if srt == 'auto':
-        srt = _srt_in(a.get('job'))
+        srt, learned = _from_premiere(a)
+        srt = srt or _srt_in(a.get('job'))
     out = a.get('out_dir') or (os.path.join(core.local_path(a['job']), '#legendas') if a.get('job') else None)
     if out:
         os.makedirs(core.local_path(out), exist_ok=True)
-    return mogrt.caption_mogrt(a['nle_xml'], a.get('style', 'social'), a.get('aspect'), a.get('accent', '#4ea1ff'), srt,
-                               a.get('corrected'), a.get('fix'), prof.get('caption_look'), a.get('position', 'bottom'), out)
+    r = mogrt.caption_mogrt(a['nle_xml'], a.get('style', 'social'), a.get('aspect'), a.get('accent', '#4ea1ff'), srt,
+                            a.get('corrected'), a.get('fix'), prof.get('caption_look'), a.get('position', 'bottom'), out)
+    return {**r, 'learned': learned} if learned else r
 
 
 ACTIONS = {'clean': _clean, 'sfx': _sfx, 'mogrt': _mogrt, 'mogrt_styles': _mogrt_styles, 'describe': _describe, 'multicam_plan': _multicam_plan, 'status': _status, 'index': _index, 'stereo': _stereo, 'flatten': _flatten, 'qc': _qc, 'sync': _sync}

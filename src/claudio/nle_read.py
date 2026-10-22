@@ -97,6 +97,75 @@ def premiere_timeline(prproj, name):
     raise KeyError(f'sequence not found: {name}')
 
 
+def _caption_text(b64):
+    """The text inside a caption block's FormattedTextData (a FlatBuffer): the longest length-prefixed UTF-8 string
+    that is not one of its style names."""
+    import base64, struct
+    b = base64.b64decode(b64)
+    best = ''
+    for i in range(len(b) - 4):
+        n = struct.unpack_from('<I', b, i)[0]
+        if 0 < n < 2000 and i + 4 + n < len(b) and b[i + 4 + n] == 0:
+            try:
+                t = b[i + 4:i + 4 + n].decode('utf-8')
+            except UnicodeDecodeError:
+                continue
+            if t.replace('\n', '').isprintable() and t not in ('AnimationType', 'LucidaConsole') and len(t) > len(best):
+                best = t
+    return best
+
+
+def premiere_captions(prproj, sequence, track='C1'):
+    """The caption track as the editor left it in Premiere — text and timing on the sequence clock — read from the
+    saved .prproj (Premiere's scripting cannot read captions). Once edited there, this is THE caption: overlay,
+    MOGRT and the lessons for next time start from it."""
+    root, byid, byuid = _load(prproj)
+    texts = {}                                    # the payload is stored once per text, other blocks point to its hash
+    for el in root.iter('FormattedTextData'):
+        if el.text and el.text.strip():
+            texts[el.get('BinaryHash')] = _caption_text(el.text.strip())
+    for seq in [e for e in root if e.tag == 'Sequence']:
+        nm = seq.find('Name')
+        if nm is None or nm.text != sequence:
+            continue
+        cues, ci = [], 0
+        for tg in seq.iter('TrackGroup'):
+            sec = tg.find('Second')
+            grp = _ref(sec if sec is not None else tg, byid, byuid)
+            if grp is None or 'Data' not in grp.tag:
+                continue
+            for tr in grp.iter('Track'):
+                t = _ref(tr, byid, byuid)
+                if t is None:
+                    continue
+                ci += 1
+                if f'C{ci}' != track:
+                    continue
+                for it in t.iter('TrackItem'):
+                    item = _ref(it, byid, byuid)
+                    if item is None or item.find('.//End') is None:
+                        continue
+                    st = item.find('.//Start')
+                    blk = _ref(item.find('.//BlockVectorItem'), byid, byuid)
+                    ftd = blk.find('FormattedTextData') if blk is not None else None
+                    cues.append({'s': round((int(st.text) if st is not None else 0) / TICKS, 3),
+                                 'e': round(int(item.find('.//End').text) / TICKS, 3),
+                                 'text': texts.get(ftd.get('BinaryHash'), '') if ftd is not None else ''})
+        return sorted(cues, key=lambda c: c['s'])
+    raise KeyError(f'sequence not found: {sequence}')
+
+
+def write_srt(cues, out_path):
+    def ts(t):
+        h, r = divmod(max(t, 0), 3600); m, s = divmod(r, 60)
+        return f'{int(h):02d}:{int(m):02d}:{int(s):02d},{int(round((s % 1) * 1000)) % 1000:03d}'
+    out_path = core.local_path(out_path)
+    os.makedirs(os.path.dirname(out_path), exist_ok=True)
+    open(out_path, 'w', encoding='utf-8-sig').write('\n'.join(f"{k}\n{ts(c['s'])} --> {ts(c['e'])}\n{c['text']}\n"
+                                                             for k, c in enumerate(cues, 1)))
+    return out_path
+
+
 GRAPHIC = {'Graphic', 'SyntheticCaption', None}
 
 

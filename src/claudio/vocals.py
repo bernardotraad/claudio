@@ -5,7 +5,7 @@ before it (the caption showed up ~1 s before the voice). With the vocal alone, w
 just its loudness. The model (UVR-MDX-NET-Voc_FT, 67 MB) is downloaded once to ~/.cache/claudio/models; the stem is
 cached next to the clip's index (vocals.f32, mono 16 kHz) for the timing pass.
 """
-import os, subprocess, urllib.request
+import os, re, subprocess, urllib.request
 
 import numpy as np
 
@@ -103,12 +103,20 @@ def envelope(path, d=None, progress=lambda f: None):
     return env
 
 
+def sung_length(word):
+    """How long the first word of a sung line lasts: 0.12 s + 0.08 s per syllable (fit on the editor's timing)."""
+    return 0.12 + 0.08 * max(1, len(re.findall(r'[aeiouáéíóúâêôãõày]+', word.lower())))
+
+
 def snap_words(words, env, floor_db=None):
     """Move each word's start forward to where the voice actually starts, when Whisper put it in the instrumental
     before (a sung line's first word) or over the held last note of the line before ("pensava…" 10.2–12.3 s, a
     pause, "Mudou" at 14.2 s that Whisper started at 11.2 s). The start goes to the end of the LAST pause in the
-    voice (≥ 200 ms) inside the word. Then each end runs on while the voice holds the note, up to the next word
-    ("pensava" ended at 11.2 s in Whisper, sung to 12.3 s: the caption left 20 frames early)."""
+    voice (≥ 200 ms) inside the word. A line sung right after the previous one has no pause to find: Whisper glues
+    its first word to the line before ("Vai" 0.9 s, "Eu" 1.1 s for one syllable) and the caption came ~16 frames
+    early; that word (line=True) starts one sung syllable-length before its end — calibrated on the editor's own
+    timing of a whole song: 17 → 3 frames off on average. Then each end runs on while the voice holds the note, up
+    to the next word ("pensava" ended at 11.2 s in Whisper, sung to 12.3 s: the caption left 20 frames early)."""
     if not len(env) or not words:
         return words, 0
     loud = np.percentile(env, 90)
@@ -134,6 +142,9 @@ def snap_words(words, env, floor_db=None):
                 k += 1
         if start is not None:
             ns = round((a + start) / ENV_SR - 0.05, 3)            # captions read better a hair before the syllable
+            out.append({**w, 's': ns, 'snapped': round(ns - w['s'], 2)}); moved += 1
+        elif w.get('line') and out and w['e'] - sung_length(w['w']) - w['s'] >= 0.1:
+            ns = round(w['e'] - sung_length(w['w']), 3)
             out.append({**w, 's': ns, 'snapped': round(ns - w['s'], 2)}); moved += 1
         else:
             out.append(w)

@@ -251,12 +251,12 @@ def timeline_words(nle_xml, tracks=('A1',)):
             lyr = bool((idx.get('speech') or {}).get('lyrics'))
             if only_lyrics and not lyr:
                 continue
-            for w in core.load_words(idx):
+            for w in (core.apply_lyric_fixes(core.load_words(idx), core.lyric_fixes(it['path'])) if lyr else core.load_words(idx)):
                 if w['s'] >= it['src_in'] - 0.02 and w['e'] <= it['src_out'] + 0.02:
                     words.append({'w': core.clean_text(w['w']), 's': round(it['tl_in'] + w['s'] - it['src_in'], 3),
                                   'e': round(it['tl_in'] + w['e'] - it['src_in'], 3),
-                                  **({'lyrics': True, 'line': True} if lyr and (w.get('line') or not words) else
-                                     {'lyrics': True} if lyr else {})})
+                                  **({'lyrics': True, 'line': True, 'src': it['path']} if lyr and (w.get('line') or not words) else
+                                     {'lyrics': True, 'src': it['path']} if lyr else {})})
         return words
     live = [i for i in tl['items'] if i['path'] and i['enabled']]
     words = collect([i for i in live if i['track'] in tracks])
@@ -265,6 +265,37 @@ def timeline_words(nle_xml, tracks=('A1',)):
         words = collect(list(once.values()), only_lyrics=True)
     words.sort(key=lambda w: w['s'])
     return {'timeline': tl['name'], 'duration': tl['duration'], 'fps': tl['fps'], 'words': words}
+
+
+def learn_caption_edits(nle_xml, cues):
+    """What the editor rewrote in a song's caption (read back from Premiere) goes into the song: every later caption,
+    overlay or MOGRT of it comes with their text. The whole lyric is aligned word by word with the whole caption, so
+    blocks the editor only moved or re-cut teach nothing; a changed word saves its sung line, rewritten."""
+    import difflib
+    W = [w for w in timeline_words(nle_xml)['words'] if w.get('lyrics')]
+    theirs = [t for c in cues for t in c['text'].split()]
+    sm = difflib.SequenceMatcher(None, [core.norm(w['w']) for w in W], [core.norm(t) for t in theirs], autojunk=False)
+    lines = core.lyric_lines(W)
+    line_of = {id(w): k for k, ln in enumerate(lines) for w in ln}
+    changed = {}                                  # line index → its words, rewritten
+    for op, a0, a1, b0, b1 in sm.get_opcodes():
+        if op == 'equal' or a1 == a0:             # an inserted word with nothing sung under it: not learnable here
+            continue
+        k = line_of[id(W[a0])]
+        if line_of[id(W[a1 - 1])] != k:
+            continue                              # a change across two lines: too unsure to learn
+        cur = changed.get(k, [w['w'] for w in lines[k]])
+        i0 = lines[k].index(W[a0]) + (len(cur) - len(lines[k]))      # earlier changes in this line shift it
+        cur = cur[:i0] + theirs[b0:b1] + cur[i0 + (a1 - a0):]
+        changed[k] = cur
+    learned = []
+    for k, new in changed.items():
+        old = ' '.join(w['w'] for w in lines[k])
+        if core.norm(old.replace(' ', '')) == core.norm(''.join(new)):
+            continue
+        core.save_lyric_fix(lines[k][0]['src'], old, ' '.join(new))
+        learned.append({'was': old, 'now': ' '.join(new)})
+    return learned
 
 
 def lyric_chunks(W, max_chars=38):
@@ -289,8 +320,14 @@ def lyric_chunks(W, max_chars=38):
                    + (0.3 if re.search(r'[,;:]$', ln[k - 1]['w']) else 0)
                    + (2 if key(ln[:k]) in known or key(ln[k:]) in known else 0))
         return cut(ln[:best]) + cut(ln[best:])
+    from claudio import vocals
     for ln in lines:
-        out += cut(ln)
+        for i, piece in enumerate(cut(ln)):
+            w = piece[0]                                # the 2nd half of a cut line: same glued short word ("e" 0.8 s)
+            if i and len(re.findall(r'[aeiouáéíóúâêôãõ]+', w['w'].lower())) <= 2 and w['e'] - vocals.sung_length(w['w']) - w['s'] >= 0.1:
+                piece = [{**w, 's': round(w['e'] - vocals.sung_length(w['w']), 3)}] + piece[1:]
+                out[-1] = out[-1][:-1] + [{**out[-1][-1], 'e': max(out[-1][-1]['e'], piece[0]['s'])}]   # sung through
+            out.append(piece)
     return [[{**c[0], 'w': c[0]['w'][:1].upper() + c[0]['w'][1:]}] + c[1:] if key(c) in known else c for c in out]
 
 
@@ -317,8 +354,10 @@ def captions_srt(nle_xml, out_path, max_words=4, max_chars=24, fix=None, correct
         return f'{int(h):02d}:{int(m):02d}:{int(s):02d},{int(round((s % 1) * 1000)) % 1000:03d}'
     lines = []
     for k, c in enumerate(chunks, 1):
-        hold = 0 if c[-1].get('lyrics') else 0.3       # a sung line ends with its note (already measured on the voice)
-        a = c[0]['s']; b = min(c[-1]['e'] + hold, chunks[k][0]['s'] - 0.04 if k < len(chunks) else c[-1]['e'] + hold)
+        lyr = c[-1].get('lyrics')
+        hold = 0 if lyr else 0.3                        # a sung line ends with its note (already measured on the voice)
+        gap = 3 / float(Fraction(str(tw.get('fps') or 30))) if lyr else 0.04   # the editor leaves 3 frames between sung lines
+        a = c[0]['s']; b = min(c[-1]['e'] + hold, chunks[k][0]['s'] - gap if k < len(chunks) else c[-1]['e'] + hold)
         lines.append(f"{k}\n{ts(a)} --> {ts(max(b, a + 0.3))}\n{' '.join(w['w'] for w in c)}\n")
     out_path = core.local_path(out_path)
     os.makedirs(os.path.dirname(out_path), exist_ok=True)

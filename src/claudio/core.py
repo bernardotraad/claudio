@@ -754,7 +754,7 @@ def sung_timing(path, d, sp, progress=lambda *_: None):
     try:
         from claudio import vocals
         env = vocals.envelope(path, d, lambda f: progress('vocals', f))
-        sp['words'], sp['snapped'] = vocals.snap_words(sp['words'], env)
+        sp['words'], sp['snapped'] = vocals.snap_words(mark_lines(sp['words']), env)   # line starts get their own rule
     except Exception as e:                          # no model / no network: the lyrics still come, with Whisper's times
         sp['vocals_error'] = str(e)[:200]
     sp['words'] = mark_lines(sp['words'])
@@ -784,6 +784,59 @@ def lyric_lines(words):
     return lines
 
 
+def retext(old, new_text, s0=None, e0=None):
+    """The words of one line rewritten as new_text: unchanged words keep their times, replaced ones take the times of
+    the words they replace (spread evenly), misheard extra words are dropped."""
+    import difflib
+    new_t = new_text.split()
+    s0 = old[0]['s'] if s0 is None and old else s0
+    e0 = old[-1]['e'] if e0 is None and old else e0
+    sm = difflib.SequenceMatcher(None, [norm(w['w']) for w in old], [norm(w) for w in new_t])
+    fixed = []
+    for op, a0, a1, b0, b1 in sm.get_opcodes():
+        if op == 'equal':
+            fixed += [{**old[a0 + j], 'w': new_t[b0 + j]} for j in range(b1 - b0)]
+            continue
+        if b1 == b0:
+            continue
+        t0 = old[a0]['s'] if a1 > a0 else (fixed[-1]['e'] if fixed else s0)
+        t1 = old[a1 - 1]['e'] if a1 > a0 else (old[a0]['s'] if a0 < len(old) else e0)
+        step = max(t1 - t0, 0) / (b1 - b0)
+        fixed += [{**({'line': True} if not fixed and old and old[0].get('line') else {}), 'w': new_t[b0 + j],
+                   's': round(t0 + j * step, 3), 'e': round(t0 + (j + 1) * step, 3), 'p': 0.5, 'fixed': True}
+                  for j in range(b1 - b0)]
+    return fixed
+
+
+def lyric_fixes(path):
+    """What the editor rewrote in a song's captions ({normalised words as sung: their text}), kept in the clip's
+    caption_fixes.json — every later caption of the song comes with it."""
+    p = os.path.join(cache_dir(local_path(path)), 'caption_fixes.json')
+    return (json.load(open(p, encoding='utf-8')) if os.path.exists(p) else {}).get('lyrics', {})
+
+
+def save_lyric_fix(path, old_text, new_text):
+    p = os.path.join(cache_dir(local_path(path)), 'caption_fixes.json')
+    st = json.load(open(p, encoding='utf-8')) if os.path.exists(p) else {}
+    st.setdefault('lyrics', {})[' '.join(norm(w) for w in old_text.split())] = new_text.strip()
+    json.dump(st, open(p, 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
+
+
+def apply_lyric_fixes(words, fixes):
+    """Every stretch of the song that matches a saved fix (a whole line or part of one) takes the editor's text."""
+    for old, new in (fixes or {}).items():
+        toks = old.split()
+        k = 0
+        while toks and k + len(toks) <= len(words):
+            if [norm(w['w']) for w in words[k:k + len(toks)]] == toks:
+                rep = retext(words[k:k + len(toks)], new)
+                words = words[:k] + rep + words[k + len(toks):]
+                k += len(rep)
+            else:
+                k += 1
+    return words
+
+
 def fix_repeated_lines(segs, words, min_ratio=0.65):
     """Lyrics: a chorus line repeats, so a line heard ONCE that is nearly a repeated one is that line misheard
     ("Coisa da mais que eu tentei funcionar" → "Pois nada mais que eu tentei funcionou", 0.88). Real verses stay
@@ -808,23 +861,8 @@ def fix_repeated_lines(segs, words, min_ratio=0.65):
         if difflib.SequenceMatcher(None, k, best).ratio() < min_ratio or len(k) > 1.25 * len(best):
             continue
         idx = [i for i, w in enumerate(words) if s['s'] - 0.05 <= w['s'] < s['e'] - 0.02]   # not the next line's 1st word
-        old = [words[i] for i in idx]
-        new_t = canon[best].split()
-        sm = difflib.SequenceMatcher(None, [norm(w['w']) for w in old], [norm(w) for w in new_t])
-        fixed = []
-        for op, a0, a1, b0, b1 in sm.get_opcodes():
-            if op == 'equal':
-                fixed += [{**old[a0 + j], 'w': new_t[b0 + j]} for j in range(b1 - b0)]
-                continue
-            if b1 == b0:
-                continue                                        # a misheard extra word: dropped
-            t0 = old[a0]['s'] if a1 > a0 else (fixed[-1]['e'] if fixed else s['s'])
-            t1 = old[a1 - 1]['e'] if a1 > a0 else (old[a0]['s'] if a0 < len(old) else s['e'])
-            step = max(t1 - t0, 0) / (b1 - b0)
-            fixed += [{'w': new_t[b0 + j], 's': round(t0 + j * step, 3), 'e': round(t0 + (j + 1) * step, 3), 'p': 0.5,
-                       'fixed': True} for j in range(b1 - b0)]
         if idx:
-            words[idx[0]:idx[-1] + 1] = fixed
+            words[idx[0]:idx[-1] + 1] = retext([words[i] for i in idx], canon[best], s['s'], s['e'])
         s['text'] = canon[best]
         s['fixed_from_repeat'] = True
     return segs, words
