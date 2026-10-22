@@ -71,3 +71,15 @@ def test_snap_moves_a_line_start_to_the_voice():
     words = [{'w': 'pensava', 's': 1.0, 'e': 3.0}, {'w': 'Mudou', 's': 3.0, 'e': 6.0}]
     out, moved = vocals.snap_words(words, env)
     assert moved == 1 and out[0]['s'] == 1.0 and abs(out[1]['s'] - 5.15) < 0.02 and out[1]['e'] == 6.0
+
+
+def test_held_note_ends_where_the_voice_stops():
+    import numpy as np
+    from claudio import vocals
+    env = np.full(1600, -60.0, np.float32)
+    env[750:1230] = -15
+    env[900:905] = -60        # a 50 ms dip in the held note (vibrato) is not its end
+    env[1400:1500] = -15
+    words = [{'w': 'pensava', 's': 10.04, 'e': 11.18}, {'w': 'Mudou', 's': 14.0, 'e': 14.7}]
+    out, _ = vocals.snap_words(words, env)
+    assert out[0]['e'] == 12.3 and out[0]['s'] == 10.04 and out[1]['e'] == 15.0   # each held to where its voice stops

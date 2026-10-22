@@ -107,7 +107,8 @@ def snap_words(words, env, floor_db=None):
     """Move each word's start forward to where the voice actually starts, when Whisper put it in the instrumental
     before (a sung line's first word) or over the held last note of the line before ("pensava…" 10.2–12.3 s, a
     pause, "Mudou" at 14.2 s that Whisper started at 11.2 s). The start goes to the end of the LAST pause in the
-    voice (≥ 200 ms) inside the word. Ends are left alone: held notes are long on purpose."""
+    voice (≥ 200 ms) inside the word. Then each end runs on while the voice holds the note, up to the next word
+    ("pensava" ended at 11.2 s in Whisper, sung to 12.3 s: the caption left 20 frames early)."""
     if not len(env) or not words:
         return words, 0
     loud = np.percentile(env, 90)
@@ -136,4 +137,16 @@ def snap_words(words, env, floor_db=None):
             out.append({**w, 's': ns, 'snapped': round(ns - w['s'], 2)}); moved += 1
         else:
             out.append(w)
+    for k, w in enumerate(out):
+        nxt = int(out[k + 1]['s'] * ENV_SR) if k + 1 < len(out) else len(on)
+        e = int(round(w['e'] * ENV_SR))
+        if not (0 < e < min(nxt, len(on)) and on[e - 1]):
+            continue
+        j, quiet = e, 0
+        while j < min(nxt, len(on)) and quiet < 10:               # dips under 100 ms are vibrato, not the end
+            quiet = quiet + 1 if not on[j] else 0
+            j += 1
+        ne = round(min(j - quiet, nxt) / ENV_SR, 3)
+        if ne - w['e'] >= 0.1:
+            out[k] = {**w, 'e': ne, 'held': round(ne - w['e'], 2)}; moved += 1
     return out, moved

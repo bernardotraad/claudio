@@ -317,7 +317,8 @@ def captions_srt(nle_xml, out_path, max_words=4, max_chars=24, fix=None, correct
         return f'{int(h):02d}:{int(m):02d}:{int(s):02d},{int(round((s % 1) * 1000)) % 1000:03d}'
     lines = []
     for k, c in enumerate(chunks, 1):
-        a = c[0]['s']; b = min(c[-1]['e'] + 0.3, chunks[k][0]['s'] - 0.04 if k < len(chunks) else c[-1]['e'] + 0.3)
+        hold = 0 if c[-1].get('lyrics') else 0.3       # a sung line ends with its note (already measured on the voice)
+        a = c[0]['s']; b = min(c[-1]['e'] + hold, chunks[k][0]['s'] - 0.04 if k < len(chunks) else c[-1]['e'] + hold)
         lines.append(f"{k}\n{ts(a)} --> {ts(max(b, a + 0.3))}\n{' '.join(w['w'] for w in c)}\n")
     out_path = core.local_path(out_path)
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
