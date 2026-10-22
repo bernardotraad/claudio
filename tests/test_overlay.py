@@ -82,5 +82,5 @@ def test_karaoke_lines_hold_until_the_next():
     from claudio import motion
     W = [{'w': 'a', 's': 0.0, 'e': 1.0}, {'w': 'b', 's': 3.0, 'e': 4.0}]
     code = motion.caption_code(W, 'karaoke', cues=[[0, 0, 0.0, 1.2, 'a'], [1, 1, 3.0, 4.2, 'b']])
-    assert code.rstrip().endswith('WIN[k][1]=Math.max(WIN[k][1],WIN[k+1][0]);')           # after the editor's cue times
+    assert code.index('CUES.forEach') < code.index('SOLO_GAP=')                       # after the editor's cue times
     assert 'inset(0 100% 0 0)' not in code                                             # fill reaches past the glyph box

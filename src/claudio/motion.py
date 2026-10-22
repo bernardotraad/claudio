@@ -773,6 +773,8 @@ def recommend_style(aspect, profile_captions=None):
     return 'social'
 
 
+SOLO_GAP = 4.0      # karaoke: a pause longer than this between sung lines clears the screen
+
 # karaoke: the whole line from the start, white with a dark outline; each word FILLS with the accent colour from left
 # to right over the time it is sung (a held note fills slowly); the next line waits underneath, small and faded
 KARAOKE_JS = r"""
@@ -793,21 +795,23 @@ const els=CH.map(c=>c.map(i=>{const w=document.createElement('span');Object.assi
   const f=document.createElement('span');f.textContent=WORDS[i].w;OUT(f);
   Object.assign(f.style,{position:'absolute',left:0,top:0,color:ACC,clipPath:'inset(-40% 100% -40% -20%)'});w.appendChild(f);return [w,f];}));
 const ghost=CH.map(c=>c.map(i=>WORDS[i].w).join(' '));
+let SOLO=[];                                   // set after the editor's cue times: lines followed by a long pause
 let shown=-1;
 function fitLine(el,f0){el.style.fontSize=f0+'px';for(let f=f0;el.scrollWidth>SB.w&&f>f0*.55;f-=2)el.style.fontSize=f+'px';}
 function seek(t){const k=WIN.findIndex(([a,b])=>t>=a&&t<b);
-  if(k!==shown){cur.replaceChildren(...(k<0?[]:els[k].map(x=>x[0])));nxt.textContent=k>=0&&CH[k+1]?ghost[k+1]:'';shown=k;
+  if(k!==shown){cur.replaceChildren(...(k<0?[]:els[k].map(x=>x[0])));nxt.textContent=k>=0&&CH[k+1]&&!SOLO[k]?ghost[k+1]:'';shown=k;
     fitLine(cur,FS0);fitLine(nxt,FS0*.58);}
   if(k<0){cur.style.opacity=0;nxt.style.opacity=0;return;}
   // between lines the karaoke scroll: the sung line rises and fades while the waiting line below rises and grows
   // into its place (it lands as the next line starts, ready to fill); then the line after that fades in below
-  const [a,b]=WIN[k],nb=WIN[k+1]?WIN[k+1][0]:null,T=nb!=null?Math.min(.3,(nb-a)*.3):0;
-  const u=nb!=null?E.o3(seg(t,nb-T,nb)):0, last=nb==null?1-seg(t,b-.12,b):1;
-  const p=k===0?E.o3(seg(t,a,a+.18)):1, q=E.o3(seg(t,a,a+.25));
+  // before a solo / long pause the line leaves on its own (rising, fading) and the next one rises in on its own
+  const [a,b]=WIN[k],nb=WIN[k+1]&&!SOLO[k]?WIN[k+1][0]:null,T=nb!=null?Math.min(.3,(nb-a)*.3):0;
+  const u=nb!=null?E.o3(seg(t,nb-T,nb)):0, out=nb==null?E.o3(seg(t,b-.25,b)):0, last=1-out;
+  const alone=k===0||SOLO[k-1], p=alone?E.o3(seg(t,a,a+.25)):1, q=E.o3(seg(t,a,a+.25));
   cur.style.opacity=p*last*(1-u);
-  cur.style.transform=`translate(-50%,-50%) translateY(${((1-p)*.25-u*.9)*FS0}px)`;
-  nxt.style.opacity=(k===0?p:q)*last*(.72+.28*u);
-  nxt.style.transform=`translate(-50%,-50%) translateY(${((1-(k===0?p:q))*.4-u*1.12)*FS0}px) scale(${1+u*(1/.58-1)})`;
+  cur.style.transform=`translate(-50%,-50%) translateY(${((1-p)*.25-u*.9-out*.3)*FS0}px)`;
+  nxt.style.opacity=(alone?p:q)*last*(.72+.28*u);
+  nxt.style.transform=`translate(-50%,-50%) translateY(${((1-(alone?p:q))*.4-u*1.12)*FS0}px) scale(${1+u*(1/.58-1)})`;
   // the clip reaches past the word's box (a "j" hook, the outline, a comma stick out of it) and, once the word is
   // sung, covers it whole: an exact 0–100 % box left white slivers on those letters
   CH[k].forEach((i,j)=>{const w=WORDS[i],q=clamp((t-w.s)/Math.max(.08,w.e-w.s));
@@ -821,8 +825,14 @@ def caption_code(WORDS, style='social', accent='#4ea1ff', uppercase=None, max_wo
     if cues:
         code = (f"const CUES={json.dumps(cues)};window.CUES=CUES;\n" + code +
                 "\nif(typeof WIN!=='undefined')CUES.forEach((c,k)=>{WIN[k]=[c[2]-.001,c[3]];});\n")
-    if style == 'karaoke':       # a sung line stays up, filled, until the next one comes in (no gap between lines)
-        code += "\nfor(let k=0;k+1<WIN.length;k++)WIN[k][1]=Math.max(WIN[k][1],WIN[k+1][0]);\n"
+    if style == 'karaoke':
+        # a sung line stays up, filled, until the next one comes in — except across a solo / long pause (> SOLO_GAP:
+        # breaths between lines measured up to 3 s, a solo 11.5 s): it holds 0.8 s and leaves, and the next line
+        # comes in 1 s before it is sung
+        code += (f"\nconst SOLO_GAP={SOLO_GAP};SOLO=WIN.map(()=>false);\n"
+                 "for(let k=0;k+1<WIN.length;k++){const gap=WIN[k+1][0]-WIN[k][1];\n"
+                 "  if(gap>SOLO_GAP){SOLO[k]=true;WIN[k][1]+=.8;WIN[k+1][0]-=1;}\n"
+                 "  else WIN[k][1]=Math.max(WIN[k][1],WIN[k+1][0]);}\n")
     return code
 
 
