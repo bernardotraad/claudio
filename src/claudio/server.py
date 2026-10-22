@@ -990,15 +990,17 @@ def caption_style_preview(nle_xml: str, aspect: str = '9x16', accent: str = '#4e
 
 
 @mcp.tool()
-async def caption_overlay(nle_xml: str, out_folder: str, ctx: Context, style: str = 'social', aspect: str = '9x16',
+async def caption_overlay(nle_xml: str, out_folder: str, ctx: Context, style: str = 'social', aspect: str = None,
                           accent: str = '#4ea1ff', corrected: dict = None, uppercase: bool = None, max_words: int = None,
                           position: str = 'bottom', fix: dict = None, codec: str = 'png', client: str = None,
                           dynamic: bool = None, srt: str = None) -> dict:
     """STEP 4 of captions: render the chosen style over the whole edit as it is NOW (export the sequence as FCP7 XML
     first) → one transparent .mov the length of the edit (PNG in MOV; codec='prores' for ProRes 4444), to lay on the
-    top video track at 0.
-    srt = the .srt the editor REVIEWED in Premiere (STEP 3: captions_srt → caption track → they fix words and timing →
-    export the track to .srt). Then that file is the truth: every block appears exactly from its in to its out with the
+    top video track at 0. It comes at the sequence's own resolution (a 4K UHD sequence gets a 3840×2160 overlay with
+    the 1920×1080 layout drawn at 2×), so it goes in at 100 % — never scale it up. aspect: leave empty for the
+    sequence's; pass one only for a different delivery format.
+    srt = the caption the editor REVIEWED in Premiere (STEP 3: captions_srt → caption track → they fix words and
+    timing → premiere_captions reads the track back into <sequence>_revisada.srt). Then that file is the truth: every block appears exactly from its in to its out with the
     editor's text (word pops inside a block follow the transcript); `corrected` is ignored. Without srt: the approved
     grammar corrections (`corrected` from caption_sentences), timings word by word from the transcript.
     When the editor says the captions were reviewed / corrected in Premiere, ask for (or find in #legendas) the exported

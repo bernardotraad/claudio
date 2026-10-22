@@ -101,8 +101,9 @@ def _size(ar):
     raise ValueError(f'aspect must be one of {list(SIZES)} or WxH')
 
 
-def render_frames(html, ar, fps, start, end, frames_dir, workers=3, progress=lambda *_: None):
-    """PNG frames with alpha (omit_background) of [start, end) at fps. Returns the frame count."""
+def render_frames(html, ar, fps, start, end, frames_dir, workers=3, progress=lambda *_: None, scale=1):
+    """PNG frames with alpha (omit_background) of [start, end) at fps. Returns the frame count. scale=2 draws the same
+    layout with twice the pixels (a 1920×1080 design rendered 3840×2160 for a 4K sequence: sharp, not upscaled)."""
     from playwright.sync_api import sync_playwright
     W, H = _size(ar)
     fps = float(Fraction(str(fps)))
@@ -116,7 +117,7 @@ def render_frames(html, ar, fps, start, end, frames_dir, workers=3, progress=lam
     def work(idxs):
         with sync_playwright() as p:
             b = p.chromium.launch(args=['--allow-file-access-from-files'])
-            pg = b.new_page(viewport={'width': W, 'height': H}, device_scale_factor=1)
+            pg = b.new_page(viewport={'width': W, 'height': H}, device_scale_factor=scale)
             errs = []
             pg.on('pageerror', lambda e: errs.append(str(e)))
             pg.on('console', lambda m: errs.append(m.text) if m.type == 'error' else None)
@@ -205,7 +206,7 @@ def _work_dir(name):
 
 
 def render_overlay(code, name, out_dir, ar='9x16', fps='30000/1001', start=0.0, end=None, progress=lambda *_: None, codec='png',
-                   fonts_css=None):
+                   fonts_css=None, scale=1):
     """Build the HTML from the skill core + `code`, render it with alpha, write a .mov with alpha into out_dir.
     codec='png' (default: fast, small) or 'prores' (ProRes 4444, slow at 4K; for pipelines that require ProRes)."""
     out_dir = core.local_path(out_dir)
@@ -220,7 +221,7 @@ def render_overlay(code, name, out_dir, ar='9x16', fps='30000/1001', start=0.0, 
         dur = float(m.group(1))
     # on the Linux disk, not /tmp (tmpfs); one folder per run, so two renders of the same overlay never clobber each other
     frames = os.path.join(_work_dir(name), f'frames-{os.getpid()}-{int(time.time() * 1000)}')
-    n = render_frames(html, ar, fps, start, dur, frames, progress=progress)
+    n = render_frames(html, ar, fps, start, dur, frames, progress=progress, scale=scale)
     out = os.path.join(out_dir, f'{name}.mov')
     enc, label = CODECS.get(codec, CODECS['png'])
     progress(0.99)
@@ -228,7 +229,7 @@ def render_overlay(code, name, out_dir, ar='9x16', fps='30000/1001', start=0.0, 
     shutil.rmtree(frames, ignore_errors=True)
     W, H = _size(ar)
     return {'overlay': core.nle_path(out), 'html': core.nle_path(html), 'frames': n, 'duration_s': round(dur - start, 3),
-            'size': f'{W}x{H}', 'fps': str(fps), 'alpha': label,
+            'size': f'{round(W * scale)}x{round(H * scale)}', 'fps': str(fps), 'alpha': label,
             'place_at': 'a NEW empty video track above every track that has clips (create it); never overwrite or insert onto a track that already has anything (adjustment layers, titles, B-roll) — list the tracks with the Premiere MCP first, at the timeline time this overlay starts'}
 
 
@@ -264,7 +265,8 @@ def timeline_words(nle_xml, tracks=('A1',)):
         once = {(i['path'], i['tl_in'], i['src_in']): i for i in live if i['track'].startswith('A') and i['track'] not in tracks}
         words = collect(list(once.values()), only_lyrics=True)
     words.sort(key=lambda w: w['s'])
-    return {'timeline': tl['name'], 'duration': tl['duration'], 'fps': tl['fps'], 'words': words}
+    return {'timeline': tl['name'], 'duration': tl['duration'], 'fps': tl['fps'], 'words': words,
+            'width': tl.get('width'), 'height': tl.get('height')}
 
 
 def learn_caption_edits(nle_xml, cues):
@@ -435,7 +437,18 @@ def nle_read_fcp7(nle_xml):
     return nle_read.read_fcp7(nle_xml)
 
 
-def caption_overlay(nle_xml, out_dir, ar='9x16', accent='#4ea1ff', uppercase=None, max_words=None, fix=None, progress=lambda *_: None,
+def fit_sequence(ar, width, height):
+    """(aspect, scale) for an overlay laid on a sequence: no aspect → the sequence's own; the design is rendered at
+    the sequence's resolution (4K UHD → scale 2 of the 1920×1080 layout) so it goes in at 100 %, never scaled up."""
+    if not (width and height):
+        return ar or '9x16', 1
+    if not ar:
+        ar = min(SIZES, key=lambda k: abs(SIZES[k][0] / SIZES[k][1] - width / height))
+    W, H = _size(ar)
+    return ar, (round(width / W, 4) if abs(W / H - width / height) < 0.01 else 1)
+
+
+def caption_overlay(nle_xml, out_dir, ar=None, accent='#4ea1ff', uppercase=None, max_words=None, fix=None, progress=lambda *_: None,
                     style='social', corrected=None, position='bottom', codec='png', look=None, srt=None):
     """Captions over the whole edit in one of STYLES, with the approved grammar corrections, transparent background →
     alpha .mov to lay at 0 on a NEW empty video track above every track that has clips (create it); never overwrite or insert onto a track that already has anything (adjustment layers, titles, B-roll) — list the tracks with the Premiere MCP first.
@@ -446,8 +459,9 @@ def caption_overlay(nle_xml, out_dir, ar='9x16', accent='#4ea1ff', uppercase=Non
                         cues=tw.get('cues'))
     name = f'legendas_{style}_' + re.sub(r'[^A-Za-z0-9]+', '_', tw['timeline'] or 'timeline')[:40]
     fps = tw['fps']
+    ar, scale = fit_sequence(ar, tw.get('width'), tw.get('height'))
     r = render_overlay(code, name, out_dir, ar, fps, 0.0, None, progress, codec,
-                       fonts_css=brand_fonts_css(look or {}) if style == 'marca' else None)
+                       fonts_css=brand_fonts_css(look or {}) if style == 'marca' else None, scale=scale)
     r.update(words=len(W), timeline=tw['timeline'], style=style, corrections_applied=tw.get('corrections_applied', 0),
              learned_vocabulary=tw.get('learned_vocabulary', []))
     if srt:

@@ -271,7 +271,10 @@ def read_fcp7(xml_path):
     for m in top.findall('marker'):
         mi = int(m.findtext('in') or 0)
         markers.append({'where': 'sequence', 'tl': round(mi / F, 3), 'name': m.findtext('name'), 'comment': m.findtext('comment')})
-    return {'name': top.findtext('name'), 'fps': f'{fps.numerator}/{fps.denominator}', 'duration': round(int(top.findtext('duration') or 0) / F, 3),
+    sc = top.find('./media/video/format/samplecharacteristics')
+    size = {'width': int(sc.findtext('width')), 'height': int(sc.findtext('height'))} \
+        if sc is not None and (sc.findtext('width') or '').isdigit() and (sc.findtext('height') or '').isdigit() else {}
+    return {**size, 'name': top.findtext('name'), 'fps': f'{fps.numerator}/{fps.denominator}', 'duration': round(int(top.findtext('duration') or 0) / F, 3),
             'items': items, 'markers': sorted(markers, key=lambda m: m['tl']), 'nested': sorted(n_ for _, n_ in ctx['nests']),
             'not_read': ctx['dropped']}
 

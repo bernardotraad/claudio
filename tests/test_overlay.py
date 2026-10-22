@@ -59,3 +59,13 @@ def test_render_in_hash_folder(tmp_path, skill):
 
 def test_codecs_listed():
     assert set(motion.CODECS) == {'png', 'prores'}
+
+
+def test_overlay_follows_the_sequence_resolution():
+    from claudio import motion
+    assert motion.fit_sequence(None, 3840, 2160) == ('16x9', 2.0)          # 4K UHD: the 1080 layout, twice the pixels
+    assert motion.fit_sequence(None, 1920, 1080) == ('16x9', 1.0)
+    assert motion.fit_sequence(None, 2160, 3840) == ('9x16', 2.0)          # vertical 4K
+    assert motion.fit_sequence('16x9', 3840, 2160) == ('16x9', 2.0)
+    assert motion.fit_sequence('9x16', 3840, 2160) == ('9x16', 1)           # another delivery format: its own size
+    assert motion.fit_sequence(None, None, None) == ('9x16', 1)
