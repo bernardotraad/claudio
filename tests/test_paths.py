@@ -56,7 +56,10 @@ def test_decomposed_accents_are_found(tmp_path):
     f = d / nfd('Antes Que Eu Enlouqueça.wav')           # stored as on a Mac: c + combining cedilla
     f.write_bytes(b'')
     typed = str(tmp_path / 'Açúcar' / 'AUDIO' / 'Antes Que Eu Enlouqueça.wav')
-    assert typed != str(f) and core.local_path(typed) == str(f)
+    got = core.local_path(typed)
+    assert typed != str(f) and os.path.exists(got)
+    # Linux/WSL hands back the name as stored; macOS (APFS ignores the form) may keep the typed one
+    assert unicodedata.normalize('NFC', got) == unicodedata.normalize('NFC', str(f))
     assert core.local_path(str(tmp_path / 'nada.wav')) == str(tmp_path / 'nada.wav')   # missing stays as given
 
 

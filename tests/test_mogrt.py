@@ -84,6 +84,7 @@ def test_blocks_work_inside_the_servers_asyncio_loop():
     # MCP tools run inside the server's event loop; the sync Playwright API refuses to start there
     import asyncio
     pytest.importorskip('playwright')
+    _skill()                                    # blocks() lays the text out with the skill's template
     words = [{'w': w, 's': k * 0.4, 'e': k * 0.4 + 0.3} for k, w in enumerate('Vai ver que eu só preciso de outra'.split())]
 
     async def tool():
