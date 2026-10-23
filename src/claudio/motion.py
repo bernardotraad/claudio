@@ -692,7 +692,7 @@ STYLES['marca'] = ('A legenda da marca do cliente, medida nos vídeos que ele j�
 
 # what a brand caption looks like — overridden by the client's profile (caption_look); sizes are px at 1080 wide
 BRAND_DEFAULT = {'font': 'Inter', 'font_file': None, 'size': 80, 'color': '#ffffff', 'bg': '#111111', 'pad_x': 19, 'pad_y': 19,
-                 'radius': 0, 'y': 0.578, 'max_words': 5, 'max_chars': 20, 'gap': 0.1, 'line_height': 0.9, 'stroke': 0,
+                 'radius': 0, 'y': 0.578, 'max_words': 5, 'max_chars': 20, 'gap': 0.1, 'line_height': 0.9, 'line_gap': 0.12, 'stroke': 0,
                  'pop': {'dur': 0.1, 'scale': 0.95, 'rise': 15, 'opacity': 0.2},
                  # dynamic=True: words appear as spoken, keywords flip colours with a bigger bounce, springy entry
                  'dynamic': False, 'emphasis_bg': '#ffffff', 'emphasis_color': None}
@@ -736,18 +736,33 @@ const WIN=CH.map((c,k)=>{const nx=CH[k+1]?WORDS[CH[k+1][0]].s:1e9, l=c[c.length-
 const k1080=W/1080, FS=L.size*k1080, PX=L.pad_x*k1080, PY=L.pad_y*k1080;
 const box=div(stage,'el','');box.dataset.role='caption';
 Object.assign(box.style,{left:(W/2)+'px',top:(H*L.y)+'px',transform:'translate(-50%,-50%)',display:'flex',alignItems:'center',
-  justifyContent:'center',whiteSpace:'nowrap',background:L.bg,padding:`${PY}px ${PX}px`,borderRadius:(L.radius*k1080)+'px',opacity:0,
+  justifyContent:'center',flexDirection:'column',whiteSpace:'nowrap',background:L.bg,padding:`${PY}px ${PX}px`,borderRadius:(L.radius*k1080)+'px',opacity:0,
   fontFamily:`'${L.font}', Inter, sans-serif`,fontWeight:500,fontSize:FS+'px',lineHeight:L.line_height,color:L.color});
+// lead = first word of its line (no space before it)
+const lead=(s,w,first)=>{if(w.em)s.style.margin=`${-PY*.55}px ${-PX*.25}px ${-PY*.55}px ${first?-PX*.25:(.26*FS-PX*.25)}px`;
+  else s.style.marginLeft=first?'0':(.26*FS)+'px';};
 const mkSpan=(w,j)=>{const s=document.createElement('span');s.textContent=w.w;
-  Object.assign(s.style,{display:'inline-block',marginLeft:j?(.26*FS)+'px':'0',transformOrigin:'50% 70%',position:'relative'});
+  Object.assign(s.style,{display:'inline-block',transformOrigin:'50% 70%',position:'relative'});
   if(L.stroke){s.style.webkitTextStroke=(L.stroke*k1080)+'px currentColor';s.style.paintOrder='stroke fill';}
-  if(w.em)Object.assign(s.style,{padding:`${PY*.55}px ${PX*.55}px`,margin:`${-PY*.55}px ${-PX*.25}px ${-PY*.55}px ${j?(.26*FS-PX*.25):-PX*.25}px`});
-  return s;};
+  if(w.em)s.style.padding=`${PY*.55}px ${PX*.55}px`;
+  lead(s,w,!j);return s;};
 const EL=CH.map(c=>c.map((i,j)=>mkSpan(WORDS[i],j)));
+// a block wider than the frame breaks into 2 lines (rows), at the word that makes the wider line the narrowest
+const row=()=>{const r=document.createElement('div');Object.assign(r.style,{display:'flex',alignItems:'center',justifyContent:'center'});return r;};
+const R1=row(),R2=row();R2.style.marginTop=(L.line_gap*FS)+'px';
+function layout(k){const c=CH[k],sp=EL[k];box.style.fontSize=FS+'px';
+  sp.forEach((s,j)=>{s.style.display='inline-block';lead(s,WORDS[c[j]],!j);});
+  R1.replaceChildren(...sp);box.replaceChildren(R1);
+  if(box.offsetWidth<=W*.92||sp.length<2)return;
+  const put=j=>{sp.forEach((s,i)=>lead(s,WORDS[c[i]],!i||i===j));R1.replaceChildren(...sp.slice(0,j));R2.replaceChildren(...sp.slice(j));};
+  box.replaceChildren(R1,R2);let best=1,bw=1e9;
+  for(let j=1;j<sp.length;j++){put(j);if(box.offsetWidth<bw){bw=box.offsetWidth;best=j;}}
+  put(best);
+  for(let f=FS;box.offsetWidth>W*.92&&f>FS*.6;f-=2)box.style.fontSize=f+'px';}
 const spring=x=>x>=1?1:1-Math.cos(x*Math.PI*1.25)*Math.exp(-x*4.2);       // 0→1 with one overshoot
 let shown=-1;
 function seek(t){const k=WIN.findIndex(([a,b])=>t>=a&&t<b);
-  if(k!==shown){box.replaceChildren(...(k<0?[]:EL[k]));shown=k;}
+  if(k!==shown){if(k<0)box.replaceChildren();else layout(k);shown=k;}
   if(k<0){box.style.opacity=0;return;}
   const [a,b]=WIN[k];
   const pin=spring(seg(t,a,a+.3)), out=seg(t,b-.07,b);
@@ -759,7 +774,8 @@ function seek(t){const k=WIN.findIndex(([a,b])=>t>=a&&t<b);
     if(w.em){const hot=t>=w.s-.04;
       sp.style.background=hot?L.emphasis_bg:'transparent';sp.style.color=hot?(L.emphasis_color||L.bg):L.color;
       sp.style.transform=`scale(${hot?.7+.3*p+.06*Math.max(0,1-seg(t,w.s,w.s+.5)):1}) rotate(${hot?-3*(1-seg(t,w.s,w.s+.45)):0}deg)`;}
-    else {sp.style.transform=`translateY(${(1-p)*12*k1080}px) scale(${.85+.15*p})`;sp.style.opacity=clamp(.3+p);}});}
+    else {sp.style.transform=`translateY(${(1-p)*12*k1080}px) scale(${.85+.15*p})`;sp.style.opacity=clamp(.3+p);}});
+  R2.style.display=R2.firstChild&&R2.firstChild.style.display!=='none'?'flex':'none';}
 """
 
 
@@ -855,7 +871,7 @@ const WIN=CH.map((c,k)=>{const nx=CH[k+1]?WORDS[CH[k+1][0]].s:1e9, l=c[c.length-
   return [WORDS[c[0]].s-.02, Math.min(nx-.02-L.gap, Math.max(WORDS[l].e+.25, WORDS[l].s+.4))];});
 const k1080=W/1080;
 const box=div(stage,'el','');box.dataset.role='caption';
-Object.assign(box.style,{left:(W/2)+'px',top:(H*L.y)+'px',transform:'translate(-50%,-50%)',whiteSpace:'nowrap',
+Object.assign(box.style,{left:(W/2)+'px',top:(H*L.y)+'px',transform:'translate(-50%,-50%)',whiteSpace:'pre',textAlign:'center',
   fontFamily:`'${L.font}', Inter, sans-serif`,fontWeight:500,fontSize:(L.size*k1080)+'px',lineHeight:L.line_height,
   color:L.color,background:L.bg,padding:`${L.pad_y*k1080}px ${L.pad_x*k1080}px`,borderRadius:(L.radius*k1080)+'px',opacity:0});
 if(L.stroke){box.style.webkitTextStroke=(L.stroke*k1080)+'px '+L.color;box.style.paintOrder='stroke fill';}   // Premiere's faux bold
@@ -863,6 +879,11 @@ const txt=CH.map(c=>c.map(i=>WORDS[i].w).join(' '));
 let shown=-1;
 function seek(t){const k=WIN.findIndex(([a,b])=>t>=a&&t<b);
   if(k!==shown){box.textContent=k<0?'':txt[k];shown=k;box.style.fontSize=(L.size*k1080)+'px';
+    // wider than the frame: 2 lines, broken at the word that makes the wider line the narrowest
+    const ws=k<0?[]:txt[k].split(' ');
+    if(box.offsetWidth>W*.92&&ws.length>1){let best=1,bw=1e9;
+      for(let j=1;j<ws.length;j++){box.textContent=ws.slice(0,j).join(' ')+'\n'+ws.slice(j).join(' ');if(box.offsetWidth<bw){bw=box.offsetWidth;best=j;}}
+      box.textContent=ws.slice(0,best).join(' ')+'\n'+ws.slice(best).join(' ');}
     for(let f=L.size*k1080;k>=0&&box.offsetWidth>W*.92&&f>L.size*k1080*.6;f-=2)box.style.fontSize=f+'px';}
   if(k<0){box.style.opacity=0;return;}
   const p=E.o3(seg(t,WIN[k][0],WIN[k][0]+L.pop.dur));

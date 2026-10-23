@@ -996,7 +996,9 @@ async def caption_overlay(nle_xml: str, out_folder: str, ctx: Context, style: st
                           dynamic: bool = None, srt: str = None) -> dict:
     """STEP 4 of captions: render the chosen style over the whole edit as it is NOW (export the sequence as FCP7 XML
     first) → one transparent .mov the length of the edit (PNG in MOV; codec='prores' for ProRes 4444), to lay on the
-    top video track at 0. It comes at the sequence's own resolution (a 4K UHD sequence gets a 3840×2160 overlay with
+    top video track at 0 — on a NEW track by OVERWRITE (overwrite_clip, or the panel's "Colocar overlay" button when the
+    full .mov path is written in the answer); never add_to_timeline/insert, which ripples the whole sequence right.
+    It comes at the sequence's own resolution (a 4K UHD sequence gets a 3840×2160 overlay with
     the 1920×1080 layout drawn at 2×), so it goes in at 100 % — never scale it up. aspect: leave empty for the
     sequence's; pass one only for a different delivery format.
     srt = the caption the editor REVIEWED in Premiere (STEP 3: captions_srt → caption track → they fix words and

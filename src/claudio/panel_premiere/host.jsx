@@ -173,6 +173,43 @@ function claudioPlaceMogrts(planPath) {
 }
 
 
+// ── caption overlay (.mov): imported and laid at 0 s on a NEW top video track by OVERWRITE — an insert ripples the
+// whole sequence to the right; nothing else in the sequence moves ─────────────────────────────────────────────────
+function claudioFindItemByPath(bin, p) {
+    for (var i = 0; i < bin.children.numItems; i++) {
+        var it = bin.children[i];
+        if (it.type === ProjectItemType.BIN) { var r = claudioFindItemByPath(it, p); if (r) return r; }
+        else { try { if (String(it.getMediaPath()).replace(/\//g, '\\').toLowerCase() === p) return it; } catch (e) {} }
+    }
+    return null;
+}
+function claudioPlaceOverlay(movPath) {
+    try {
+        var seq = app.project.activeSequence;
+        if (!seq) return '{"ok":false,"error":"abra a sequência na timeline"}';
+        if (!new File(movPath).exists) return '{"ok":false,"error":' + q('overlay não encontrado: ' + movPath) + '}';
+        var key = String(movPath).replace(/\//g, '\\').toLowerCase();
+        var item = claudioFindItemByPath(app.project.rootItem, key);
+        if (!item) {
+            app.project.importFiles([movPath], true, app.project.getInsertionBin(), false);
+            item = claudioFindItemByPath(app.project.rootItem, key);
+        }
+        if (!item) return '{"ok":false,"error":' + q('não consegui importar ' + movPath) + '}';
+        var n0 = seq.videoTracks.numTracks;
+        app.enableQE();
+        qe.project.getActiveSequence().addTracks(1, n0, 0);
+        var vi = seq.videoTracks.numTracks - 1;
+        if (vi < n0) return '{"ok":false,"error":"não consegui criar a trilha de vídeo nova"}';
+        try { seq.videoTracks[vi].name = 'Legenda overlay'; } catch (eN) {}
+        var t0 = new Time(); t0.seconds = 0;
+        seq.videoTracks[vi].overwriteClip(item, t0);
+        if (seq.videoTracks[vi].clips.numItems < 1) return '{"ok":false,"error":"o overlay não entrou na trilha nova"}';
+        return '{"ok":true,"track":"V' + (vi + 1) + '","name":' + q(item.name) + '}';
+    } catch (e) {
+        return '{"ok":false,"error":' + q(e.toString()) + '}';
+    }
+}
+
 // id of the sequence called `name` (a multicam clip's source sequence), '' when there is none
 function claudioSeqIdByName(name) {
     try {
