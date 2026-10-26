@@ -124,6 +124,21 @@ def test_scribe_menu_marks_the_captioned_whisper_sequences(page):
 
 
 @needs_browser
+def test_messages_use_the_premiere_bridge_when_it_is_up(page):
+    """With the bridge up, every message talks to the one Premiere MCP that holds the UXP port (HTTP), not a new copy."""
+    pg, _ = page
+    cfg = pg.evaluate("""()=>{const fs=require('fs'), r=fs.readFileSync, w=fs.writeFileSync; let out=null;
+        fs.readFileSync=()=>JSON.stringify({mcpServers:{claudio:{command:'wsl.exe'},'premiere-pro':{command:'node.exe',env:{PREMIERE_UXP_TOKEN:'x'}}}});
+        fs.writeFileSync=(f,t)=>{out=JSON.parse(t).mcpServers};
+        os.tmpdir=()=>'C:\\tmp'; const was=bridgeUp; connectorsOn=false;
+        bridgeUp=true; mcpArgs('monta a abertura'); const up=out['premiere-pro'];
+        bridgeUp=false; mcpArgs('monta a abertura'); const down=out['premiere-pro'];
+        bridgeUp=was; fs.readFileSync=r; fs.writeFileSync=w; return [up, down];}""")
+    assert cfg[0] == {'type': 'http', 'url': 'http://127.0.0.1:7788/mcp'}
+    assert cfg[1]['command'] == 'node.exe'                   # no bridge: the per-message copy, as before
+
+
+@needs_browser
 def test_context_carries_xml_and_tracks(page):
     """Claude reads the sequence from the XML the panel already exported, instead of asking the Premiere MCP."""
     pg, _ = page

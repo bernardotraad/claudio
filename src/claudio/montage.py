@@ -613,7 +613,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             if s['audio'] != 'dialogue':
                 continue
             idx = core.light_index(s['path'], lang)
-            ws = core.words_in(core.load_words(idx), s['src_in'], s['src_out'])
+            ws = core.words_in(core.load_words(idx), s['src_in'], s['src_out'], idx)
             chunk = []
             def flush():
                 if not chunk:

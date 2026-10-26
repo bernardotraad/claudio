@@ -674,13 +674,42 @@ function contextBlock(snap, xml) {
 const WANTS_CONNECTORS = /\bvault\b|storyblocks|banco de (imagens|vídeos)|stock/i;
 let connectorsOn = false;
 try { connectorsOn = localStorage.getItem('claudio-connectors') === '1'; } catch (e) {}
+// ── one Premiere MCP that stays up (premiere_bridge.js): its UXP bridge stays connected between messages ──────────
+// A fresh premiere-pro-mcp per message held the UXP port only while the message ran: the UXP plugin sat
+// "disconnected" and early UXP calls raced its reconnect. The bridge runs one copy and serves it as HTTP.
+const BRIDGE_PORT = 7788, BRIDGE_URL = `http://127.0.0.1:${BRIDGE_PORT}/mcp`;
+const EXT_DIR = path.dirname(decodeURIComponent(new URL(location.href).pathname)).replace(/^\/([A-Za-z]:)/, '$1');
+let bridgeUp = false;
+function bridgeHealth() {
+  return new Promise((res) => {
+    const rq = require('http').get(`http://127.0.0.1:${BRIDGE_PORT}/health`, { timeout: 800 }, (r) => {
+      let b = ''; r.on('data', (d) => (b += d)); r.on('end', () => { try { res(JSON.parse(b).ok === true); } catch (e) { res(false); } });
+    });
+    rq.on('error', () => res(false)); rq.on('timeout', () => { rq.destroy(); res(false); });
+  });
+}
+async function ensureBridge() {
+  if (await bridgeHealth()) return (bridgeUp = true);
+  try {
+    const m = JSON.parse(fs.readFileSync(path.join(os.homedir(), '.claude.json'), 'utf8')).mcpServers['premiere-pro'];
+    const node = /node(\.exe)?$/i.test(m.command) ? m.command : 'node';
+    cp.spawn(node, [path.join(EXT_DIR, 'premiere_bridge.js'), '--port', String(BRIDGE_PORT)],
+             { detached: true, stdio: 'ignore', windowsHide: true, env: childEnv() }).unref();
+  } catch (e) { return (bridgeUp = false); }
+  for (let i = 0; i < 20; i++) {                     // the server initializes in ~3 s
+    await new Promise((r) => setTimeout(r, 500));
+    if (await bridgeHealth()) return (bridgeUp = true);
+  }
+  return (bridgeUp = false);
+}
 function mcpArgs(text) {
   if (connectorsOn || WANTS_CONNECTORS.test(text)) return [];
   try {
     const all = (JSON.parse(fs.readFileSync(path.join(os.homedir(), '.claude.json'), 'utf8')).mcpServers) || {};
     if (!all.claudio || !all['premiere-pro']) return [];
     const f = path.join(os.tmpdir(), 'claudio-panel-mcp.json');
-    fs.writeFileSync(f, JSON.stringify({ mcpServers: { claudio: all.claudio, 'premiere-pro': all['premiere-pro'] } }));
+    const pr = bridgeUp ? { type: 'http', url: BRIDGE_URL } : all['premiere-pro'];   // no bridge: the old per-message copy
+    fs.writeFileSync(f, JSON.stringify({ mcpServers: { claudio: all.claudio, 'premiere-pro': pr } }));
     // without the connectors the AI must not try the vault (it wrote the notes out for me to paste): one line pointing
     // to button 18, which runs with them and resumes this same conversation
     return ['--strict-mcp-config', '--mcp-config', f, '--append-system-prompt',
@@ -715,6 +744,7 @@ async function send(text) {
   if (!text.trim() || child) return;
   await readContext();
   add('user', text);
+  await ensureBridge();
   const before = ctx.sequence ? await snapshot('') : null;
   const bk = before ? await backup(before) : null;
   if (before && bk) await saveTracks(before, bk);
@@ -859,4 +889,5 @@ setInterval(showProgress, 2000);
 
 readContext().then(() => { add('meta', `pasta do trabalho: ${jobFolder()}`, false); showProgress(); });
 runLocal('stt', {}).then(paintStt).catch(() => {});
+ensureBridge().catch(() => {});
 setInterval(() => { if (!child) readContext(); }, 4000);

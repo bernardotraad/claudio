@@ -191,6 +191,14 @@ Abra o Premiere com um projeto → **Janela › Extensões › MCP for Adobe Pre
   `claude mcp add -s user -e PREMIERE_MCP_PROTOCOL_MODE=legacy premiere-pro -- cmd /c premiere-pro-mcp`.
 - Já usa o MCP do Premiere pelo Claude Desktop (bundle `.mcpb`)? Ele continua lá. O painel do Cláudio usa o **Claude
   Code**, que precisa do registro acima (é outro cliente, então não duplica nada).
+- **Ponte UXP** (Premiere 25.6+): com `PREMIERE_UXP_TOKEN` no `env` do registro `premiere-pro` (o mesmo token no
+  plugin, em Janela › Plugins UXP), o painel do Cláudio mantém **um** MCP do Premiere sempre ligado
+  (`premiere_bridge.js`, em `http://127.0.0.1:7788/mcp`), e cada mensagem conversa com ele: a UXP fica conectada entre
+  as mensagens, em vez de só durante cada uma. A ponte sai sozinha 10 min depois de o Premiere fechar; o log fica em
+  `%TEMP%\claudio-premiere-bridge.log`. Só um processo segura a porta 7777: deixe o token fora do Claude Desktop.
+- **Instalando de dentro do Claude Desktop (Windows)?** Ele é um app MSIX e virtualiza o `%APPDATA%`: um `npm i -g`
+  rodado de lá vai para `%LOCALAPPDATA%\Packages\Claude_*\LocalCache\Roaming\npm`, que o Premiere e o painel não
+  enxergam — rode no PowerShell normal (ou copie de lá para `%APPDATA%\npm`).
 
 #### 7. MCP do DaVinci Resolve — [hiteshK03/davinci-resolve-mcp](https://github.com/hiteshK03/davinci-resolve-mcp)
 

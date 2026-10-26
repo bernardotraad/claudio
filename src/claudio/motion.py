@@ -253,7 +253,7 @@ def timeline_words(nle_xml, tracks=('A1',)):
             if only_lyrics and not lyr:
                 continue
             src = core.apply_lyric_fixes(core.load_words(idx), core.lyric_fixes(it['path'])) if lyr else core.load_words(idx)
-            for w in core.words_in(src, it['src_in'], it['src_out']):
+            for w in core.words_in(src, it['src_in'], it['src_out'], None if lyr else idx):   # sung over the band: no speech level
                 words.append({'w': core.clean_text(w['w']), 's': round(it['tl_in'] + w['s'] - it['src_in'], 3),
                               'e': round(it['tl_in'] + w['e'] - it['src_in'], 3),
                               **({'lyrics': True, 'line': True, 'src': it['path']} if lyr and (w.get('line') or not words) else
@@ -528,7 +528,8 @@ def caption_sentences(nle_xml):
     out, k = [], 0
     for it in sorted([i for i in tl['items'] if i['track'] == 'A1' and i['path'] and i['enabled']], key=lambda i: i['tl_in']):
         try:
-            ws = core.words_in(core.load_words(core.build_index(it['path'])), it['src_in'], it['src_out'])
+            idx = core.build_index(it['path'])
+            ws = core.words_in(core.load_words(idx), it['src_in'], it['src_out'], None if (idx.get('speech') or {}).get('lyrics') else idx)
         except Exception:
             continue
         fixes = _load_fixes(it['path'])

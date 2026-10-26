@@ -63,7 +63,7 @@ if not env('CACHE'):
     _migrate_cache()
 CACHE = os.path.expanduser(env('CACHE', '~/.cache/claudio'))
 WHISPER_MODEL = env('WHISPER', 'large-v3-turbo')
-INDEX_VERSION = 7
+INDEX_VERSION = 9
 SR = 16000          # audio analysis rate
 HOP = 0.02          # RMS hop (s)
 QFPS = 4            # quality-analysis frame rate
@@ -731,7 +731,8 @@ def align_to_voice(words, db, thr, min_pause=0.16, lead=0.04, max_hold=0.6):
     threshold (whispered, under noise) is left as it is."""
     if not words or db is None or not len(db):
         return words
-    on = np.asarray(db) > thr
+    db = np.asarray(db)
+    on = db > thr
     n, P = len(on), max(1, int(round(min_pause / HOP)))
     out = [dict(w) for w in words]
 
@@ -767,11 +768,15 @@ def align_to_voice(words, db, thr, min_pause=0.16, lead=0.04, max_hold=0.6):
                   int((w['e'] + max_hold) / HOP))
         if not (0 < e < lim and on[e - 1]):
             continue
+        if db[min(int(w['s'] / HOP), e - 1):e].max() < thr + 12:  # said off-mic (a countdown "ação" peaking at −31 dB,
+            continue                                   # threshold −37): its "tail" was the next word's onset, into the cut
         j, quiet = e, 0
         while j < lim and quiet < 5:                # dips under 100 ms are inside the voice
             quiet = quiet + 1 if not on[j] else 0
             j += 1
         ne = round((j - quiet) * HOP + lead, 3)
+        if k + 1 < len(out):
+            ne = min(ne, out[k + 1]['s'])           # never past the next word's start
         if ne - w['e'] >= 0.06:
             w['e'], w['aligned'] = ne, True
     return out
@@ -1200,6 +1205,20 @@ def migrate(idx, d):
                     shutil.copy(p, p + '.v6')           # Whisper's own times, to compare or go back
                 json.dump(voice_aligned(json.load(open(p)), d, idx['audio'].get('silence_threshold_db')),
                           open(p, 'w'), ensure_ascii=False)
+    if v in (7, 8) and idx.get('speech') and not idx['speech'].get('lyrics') and idx.get('audio'):
+        # v7/v8 stretched quiet off-mic words into the next one: align again from the untouched transcript (Scribe's
+        # cached answer, or Whisper's times kept at the v7 migration)
+        base = None
+        if idx['speech'].get('engine') == 'elevenlabs' and os.path.exists(os.path.join(d, 'scribe.json')):
+            base = transcribe_scribe(d, None)['words']
+        elif os.path.exists(os.path.join(d, 'words_raw.json.v6')):
+            base = json.load(open(os.path.join(d, 'words_raw.json.v6')))
+        if base is not None:
+            raw = voice_aligned(base, d, idx['audio'].get('silence_threshold_db'))
+            json.dump(raw, open(os.path.join(d, 'words_raw.json'), 'w'), ensure_ascii=False)
+            voc = idx.get('vocabulary')
+            json.dump(dedupe_vocab(apply_vocabulary([dict(w) for w in raw], voc)) if voc else raw,
+                      open(os.path.join(d, 'words.json'), 'w'), ensure_ascii=False)
     idx['version'] = INDEX_VERSION
     idx['migrated_from'] = v
     json.dump(idx, open(os.path.join(d, 'index.json'), 'w'), ensure_ascii=False, indent=1)
@@ -1320,11 +1339,30 @@ def words_only(path, lang='pt'):
     return w
 
 
-def words_in(words, s_in, s_out):
+def words_in(words, s_in, s_out, idx=None, edge=0.25):
     """The words a cut [s_in, s_out) plays: the middle of the word inside, its edges clamped to the cut. A word whose
     start leaks a little before the in-point (or end past the out-point) is still heard and still captioned — it was
-    dropped, and its caption with it."""
-    return [{**w, 's': max(w['s'], s_in), 'e': min(w['e'], s_out)} for w in words if s_in <= (w['s'] + w['e']) / 2 < s_out]
+    dropped, and its caption with it. With the clip's index, a word at the edge of the cut (within `edge` s) also needs
+    voice in the part the cut plays: INC 9 — the editor cut right after the countdown said off-mic ("três, dois, um,
+    ação", ~−40 dB), Scribe timed that "ação" a few hundredths into the cut (one with zero length) and it came back
+    in the caption over silence."""
+    voice = None
+    if idx and (idx.get('audio') or {}).get('silence_threshold_db') is not None:
+        p = os.path.join(idx['cache'], 'rms_db.npy')
+        if os.path.exists(p):
+            voice = np.load(p), idx['audio']['silence_threshold_db']
+    out = []
+    for w in words:
+        if not s_in <= (w['s'] + w['e']) / 2 < s_out:
+            continue
+        a, b = max(w['s'], s_in), min(w['e'], s_out)
+        if voice and (w['s'] < s_in + edge or w['e'] > s_out - edge):
+            db, thr = voice
+            seg = db[int(a / HOP):max(int(a / HOP) + 1, int(math.ceil(b / HOP)))]
+            if not (seg > thr).any():
+                continue
+        out.append({**w, 's': a, 'e': b})
+    return out
 
 
 def load_words(idx):

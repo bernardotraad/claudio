@@ -82,3 +82,29 @@ def test_panel_switch_writes_the_setting(tmp_path, monkeypatch):
     assert json.load(open(core.SETTINGS)) == {'stt': 'elevenlabs'}
     assert run._stt({'set': 'whisper'})['stt'] == 'whisper'
     assert run._stt_check({'paths': [str(tmp_path / 'nada.mp4')]})['clips'][str(tmp_path / 'nada.mp4')]['indexed'] is False
+
+
+def test_a_quiet_off_mic_word_is_not_stretched_into_the_next():
+    """INC 9 Junior: the countdown's "ação" (−34 dB, threshold −37) ran on into "Essa" and came back into the cut."""
+    db = envelope([])
+    db[int(70.02 / core.HOP):int(70.24 / core.HOP)] = -30.6
+    db[int(70.24 / core.HOP):int(70.6 / core.HOP)] = -15.0
+    w = core.align_to_voice([{'w': 'ação.', 's': 70.02, 'e': 70.18}, {'w': 'Essa', 's': 70.28, 'e': 70.46}], db, -36.8)
+    assert w[0]['e'] == 70.18
+
+
+def test_an_edge_word_needs_voice_inside_the_cut(tmp_path):
+    """The cut starts right after the countdown: an "ação" timed a hair into the cut, over silence, stays out."""
+    d = str(tmp_path)
+    db = envelope([(47.5, 48.5)], dur=60)
+    np.save(os.path.join(d, 'rms_db.npy'), db)
+    idx = {'cache': d, 'audio': {'silence_threshold_db': THR}}
+    words = [{'w': 'ação.', 's': 47.34, 'e': 47.42}, {'w': 'Temos', 's': 47.48, 'e': 47.70}]
+    assert [w['w'] for w in core.words_in(words, 47.347, 50.0)] == ['ação.', 'Temos']      # without the audio: as before
+    assert [w['w'] for w in core.words_in(words, 47.347, 50.0, idx)] == ['Temos']
+
+
+def test_a_zero_length_word_does_not_break_the_alignment():
+    db = envelope([(38.5, 39.0)], dur=60)          # Scribe: "Ação." 38.56–38.56 in the countdown
+    w = core.align_to_voice([{'w': 'Ação.', 's': 38.56, 'e': 38.56}, {'w': 'Cem', 's': 38.62, 'e': 38.80}], db, THR)
+    assert w[0]['s'] == 38.56
