@@ -822,7 +822,11 @@ async function send(text) {
 }
 
 $('#send').onclick = () => { const t = $('#input').value; $('#input').value = ''; send(t); };
-$('#input').addEventListener('keydown', (e) => { if (e.key === 'Enter' && e.ctrlKey) { e.preventDefault(); $('#send').click(); } });
+$('#input').addEventListener('keydown', (e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); $('#send').click(); } });
+// on the Mac Premiere swallows modifier shortcuts before the panel sees them unless the panel asks for them (36 = Return, 76 = keypad Enter)
+if (process.platform === 'darwin') try {
+  window.__adobe_cep__.registerKeyEventsInterest(JSON.stringify([36, 76].flatMap((keyCode) => [{ keyCode, metaKey: true }, { keyCode, ctrlKey: true }])));
+} catch (e) {}
 $('#stop').onclick = () => { if (child) { child.kill(); add('meta', 'parado'); } };
 // the bin of actions folds away to give the conversation the room (remembered)
 try { if (localStorage.getItem('claudio-bin-shut') === '1') document.body.classList.add('binshut'); } catch (e) {}
