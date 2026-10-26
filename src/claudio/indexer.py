@@ -143,7 +143,7 @@ def run(folder, vocabulary=None, lang='pt'):
             durs[f] = 0.0
         if k % 3 == 2:
             early(k + 1)
-    todo = [f for f in files if not os.path.exists(os.path.join(core.cache_dir(f), 'index.json')) or vocabulary]
+    todo = [f for f in files if not os.path.exists(os.path.join(core.cache_dir(f), 'index.json')) or vocabulary or core.needs_stt(f)]
     j = {'folder': core.nle_path(folder), 'pid': os.getpid(), 'state': 'running', 'started': time.time(), 'updated': time.time(),
          'files_total': len(todo), 'files_done': 0, 'total_s': sum(durs[f] for f in todo), 'done_s': 0.0, 'errors': [],
          'current': None, 'stage': None, 'stage_progress': 0, 'fraction': 0.0, 'eta_min': None, 'speed_x': None}
@@ -189,7 +189,7 @@ def run(folder, vocabulary=None, lang='pt'):
                 j.update(stage=stage, stage_progress=round(min(fr, 1), 3))
                 if time.time() - j['updated'] > 2:
                     save()
-            idx = core.build_index(f, lang, prog, False, vocabulary)
+            idx = core.build_index(f, lang, prog, False, vocabulary, core.stt_engine())
             try:
                 sidecar.write_clip_md(idx)
             except Exception as e:

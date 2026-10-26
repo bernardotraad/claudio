@@ -55,6 +55,10 @@ def check():
         add(WARN, 'skill motion-designer não encontrada', 'opcional: copie para ~/.claude/skills/motion-designer (ou CLAUDIO_MOTION_SKILL)')
     has_key = bool(os.environ.get('ELEVENLABS_API_KEY')) or os.path.exists(os.path.expanduser('~/.config/elevenlabs/api_key'))
     add(OK if has_key else WARN, 'ElevenLabs', 'chave encontrada' if has_key else 'opcional: ~/.config/elevenlabs/api_key (sem ela, narração pelo edge-tts grátis)')
+    stt = core.stt_engine()
+    add(OK, 'motor de transcrição', 'ElevenLabs Scribe (pago)' if stt == 'elevenlabs' else
+        'Whisper local' + (' — Scribe escolhido mas sem chave' if core.env('STT') == 'elevenlabs' else
+                           (' (Scribe: {"stt": "elevenlabs"} em ~/.config/claudio/settings.json)' if has_key else '')))
     claude = shutil.which('claude') or next((p for p in [os.path.expanduser('~/.local/bin/claude'), '/opt/homebrew/bin/claude', '/usr/local/bin/claude'] if os.path.exists(p)), None)
     if core.IS_WSL and not claude:
         win = '/mnt/c/Users/' + os.environ.get('USER', '') + '/.local/bin/claude.exe'

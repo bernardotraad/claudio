@@ -13,7 +13,9 @@ falta é olhar o material: sem isso, "o melhor take" ou "um b-roll bom das mãos
 
 O Cláudio é esse par de olhos e ouvidos:
 
-- **O que é dito** — transcrição por palavra (Whisper), incluindo a claquete falada ("cena 3, take 2… ação… corta").
+- **O que é dito** — transcrição por palavra (Whisper, ou ElevenLabs Scribe se você escolher), incluindo a claquete falada
+  ("cena 3, take 2… ação… corta"). Início e fim de cada palavra são acertados pela voz medida no áudio: a legenda não
+  entra no silêncio antes da fala e o corte não come o fim da palavra.
 - **O que se vê** — contact sheets, frames e timelines com waveform devolvidos como **imagens**, com timecode.
 - **O que serve** — foco relativo, exposição, movimento de câmera, takes repetidos, falas criticadas pelo próprio
   falante, cor (log × Rec.709), silêncios.
@@ -62,8 +64,8 @@ Os botões ficam agrupados pela etapa do trabalho, cada grupo com uma cor (● =
 | **Preparar** | 01 Analisar material ● · 02 Status ● · 03 Áudio estéreo ● · 04 Multicam ● |
 | **Entender** | 05 Visão geral · 06 Descrever planos ● · 07 Ler minhas notas |
 | **Montar** | 08 Selects · 09 Corte por quem fala · 10 Recap de evento · 11 Limpar falas ● · 12 SFX nos cortes ● · 13 Desaninhar ● |
-| **Legendar** | 14 Legendas · 15 Overlay da legenda revisada · 16 Legenda MOGRT ● |
-| **Entregar** | 17 QC antes de exportar ● · 18 Registrar no vault |
+| **Legendar** | 14 Transcrição Scribe ● · 15 Legendas · 16 Overlay da legenda revisada · 17 Legenda MOGRT ● |
+| **Entregar** | 18 QC antes de exportar ● · 19 Registrar no vault |
 
 ---
 
@@ -220,7 +222,8 @@ Cláudio, o Editor**.
 - **Skill motion-designer** (legendas estilizadas, overlays, narração): copie a pasta da skill para
   `~/.claude/skills/motion-designer` **dentro do Ubuntu**.
 - **ElevenLabs** (narração mais natural): salve a chave em `~/.config/elevenlabs/api_key` dentro do Ubuntu. Sem ela, a
-  narração usa o edge-tts gratuito.
+  narração usa o edge-tts gratuito. A mesma chave (com a permissão *Speech to Text*) liga a transcrição pelo
+  **Scribe** — veja `stt` em [Configuração](#configuração).
 - **Claude Desktop**: em `claude_desktop_config.json`, use o mesmo comando do passo 5:
   `"command": "C:\\Windows\\System32\\wsl.exe", "args": ["-d", "Ubuntu", "--", "/home/<usuario>/.local/bin/claudio"]`.
 
@@ -376,8 +379,25 @@ O que você escrever nos `.md` fora dos marcadores `<!-- claudio:auto -->` nunca
 | `CLAUDIO_WHISPER` / `CLAUDIO_MLX_MODEL` | `large-v3-turbo` | modelo de transcrição |
 | `CLAUDIO_FFMPEG_GPU` | `~/.local/opt/ffmpeg-*/bin/ffmpeg` | ffmpeg com CUDA |
 | `CLAUDIO_GPU` / `CLAUDIO_FAST` | `1` | `0` desliga a NVDEC / o modo keyframes |
+| `CLAUDIO_STT` | `whisper` | `elevenlabs` transcreve pelo ElevenLabs Scribe (pago, tempos de palavra a 1–2 frames da voz) |
+| `CLAUDIO_SCRIBE_MODEL` | `scribe_v2` | modelo do Scribe |
 
-As variáveis antigas `DECUPA_*` continuam valendo.
+As variáveis antigas `DECUPA_*` continuam valendo. Qualquer uma também pode ir em `~/.config/claudio/settings.json`,
+em minúsculas e sem o prefixo — mais prático, porque o MCP e o painel rodam pelo `wsl.exe`:
+
+```json
+{"stt": "elevenlabs"}
+```
+
+**Scribe (opcional).** Com `stt` = `elevenlabs`, "Analisar material" transcreve pela API (resposta guardada no cache
+do clipe: reanalisar não paga de novo). Clipes já analisados pelo Whisper refazem **só a transcrição** — a imagem não é
+reanalisada. Música continua no Whisper + voz isolada. Qualquer erro da API (sem crédito, sem internet, chave sem
+permissão) cai no Whisper e fica anotado em `stt_error` no índice. Voltar para `whisper` + analisar refaz pelo Whisper.
+
+No painel, o **14 Transcrição Scribe** liga/desliga o Scribe e lista as sequências do projeto com fala em A1, **lidas
+como estão agora na timeline** (não de XML salvo), com as legendadas que ainda usam o Whisper já marcadas. "Refazer com
+o Scribe" retranscreve só esses clipes (sem IA), exporta cada sequência marcada naquele momento e pede à IA a revisão de
+gramática e um `<sequência> (scribe).srt` em `#legendas` para cada uma — sem mexer nas sequências.
 
 ## Limitações
 

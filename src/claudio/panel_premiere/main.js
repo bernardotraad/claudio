@@ -446,6 +446,21 @@ const LOCAL = {
       (r.dropped.length ? `\n\nFicou de fora (copie da sequência antiga para a trilha de cima): ${r.dropped.join('; ')}` : '') + `\n\nXML: \`${r.nle_path}\``);
     importButtons(m, r.nle_path);
   }),
+  stt: () => localJob('transcrição: lendo as sequências', async () => {
+    await readContext(); await evalHost('claudioSave()');          // caption tracks are read from the saved project
+    let seqs = [];
+    try { seqs = JSON.parse(await evalHost('claudioSequences()')).sequences || []; } catch (e) {}
+    // what each sequence plays on A1 (where the captions come from) AS IT IS NOW in Premiere, not a saved XML
+    const media = {};
+    for (const s of seqs) {
+      const sn = await snapshot(s.id);
+      const a1 = sn ? (sn.tracks.find((t) => t.track === 'A1') || { clips: [] }).clips : [];
+      media[s.id] = [...new Set(a1.filter((c) => c.media && c.enabled !== false).map((c) => c.media))];
+    }
+    const r = await runLocal('stt_check', { paths: [...new Set(Object.values(media).flat())], prproj: ctx.project });
+    if (!r.ok) return add('local err', r.error);
+    sttMenu(seqs, media, r);
+  }),
   qc: () => localJob('QC', async () => {
     const x = await exportActive(); if (!x) return;
     const r = await runLocal('qc', { nle_xml: x, platform: null });
@@ -457,11 +472,94 @@ const LOCAL = {
       ((a.ducking || []).length ? '\n\n| começa | termina | abaixar a música |\n|---|---|---|\n' + a.ducking.map((d) => `| \`${d.tc}\` | ${dur(d.end)} | ${d.lower_music_by_db} dB |`).join('\n') : ''));
   }),
 };
+// ── Scribe (ElevenLabs) on/off, and the captions of the sequences Whisper transcribed, redone ──────────────────────
+function paintStt(r) {
+  if (r && r.ok !== false && $('#stt-label')) $('#stt-label').textContent = r.stt === 'elevenlabs' ? 'Scribe: ligado' : 'Scribe: desligado';
+}
+function sttMenu(seqs, media, r) {
+  const clips = r.clips || {}, cap = r.captioned || {};
+  const speech = (p) => clips[p] && clips[p].speech && !clips[p].lyrics;
+  const whisper = (p) => speech(p) && clips[p].engine !== 'elevenlabs';
+  const rows = seqs.filter((s) => media[s.id].some(speech));
+  const on = r.stt === 'elevenlabs';
+  const d = add('local', `Transcrição agora: **${on ? 'Scribe (ElevenLabs, pago)' : 'Whisper (local)'}**.` +
+    (rows.length ? ` Sequências com fala (como estão agora na timeline) — marque as que quer legendar de novo com o Scribe:` : ' Nenhuma sequência deste projeto tem fala em A1.'), false);
+  const tg = document.createElement('button');
+  tg.textContent = on ? 'Desligar o Scribe (voltar ao Whisper)' : 'Ligar o Scribe';
+  tg.onclick = async () => {
+    const s = await runLocal('stt', { set: on ? 'whisper' : 'elevenlabs' });
+    paintStt(s);
+    tg.disabled = true;
+    add('local', !s.ok ? s.error : s.stt === 'elevenlabs' ? 'Scribe **ligado**: o que for analisado daqui pra frente sai pelo ElevenLabs.' :
+      (s.chosen === 'elevenlabs' && !s.has_key ? 'Não achei a chave do ElevenLabs (`~/.config/elevenlabs/api_key` no Ubuntu): continuo no Whisper.' : 'Scribe **desligado**: volta ao Whisper (local, grátis).'));
+  };
+  d.appendChild(tg);
+  const picks = [];
+  for (const s of rows) {
+    const w = media[s.id].filter(whisper), n = media[s.id].filter(speech).length;
+    const lb = document.createElement('label');
+    lb.style.cssText = 'display:block;margin-top:5px;font-size:11px;cursor:pointer';
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.checked = w.length > 0 && (!!cap[s.name] || s.name === ctx.sequence);
+    lb.append(cb, ` ${s.name} — ${n} clipe(s) com fala, ` + (w.length ? `${w.length} pelo Whisper` : 'já no Scribe') + (cap[s.name] ? ` · legendada (${cap[s.name]} blocos)` : ''));
+    d.appendChild(lb);
+    picks.push([cb, s]);
+  }
+  if (!rows.length) return;
+  const go = document.createElement('button');
+  const todo = () => [...new Set(picks.filter(([cb]) => cb.checked).flatMap(([, s]) => media[s.id].filter(whisper)))];
+  const label = () => {
+    const t = todo(), min = t.reduce((a, p) => a + (clips[p].duration || 0), 0) / 60;
+    go.textContent = `Refazer com o Scribe + revisar gramática` + (t.length ? ` (${t.length} clipe(s), ~${min.toFixed(1)} min de áudio)` : '');
+  };
+  picks.forEach(([cb]) => (cb.onchange = label));
+  label();
+  go.className = 'primary';
+  go.onclick = () => {
+    const sel = picks.filter(([cb]) => cb.checked).map(([, s]) => s);
+    if (!sel.length) return;
+    d.querySelectorAll('button, input').forEach((x) => (x.disabled = true));
+    sttRedo(sel, todo());
+  };
+  d.appendChild(go);
+}
+async function sttRedo(sel, todo) {
+  let xmls = [];
+  await localJob('Scribe', async () => {
+    let s = await runLocal('stt', {});
+    if (s.stt !== 'elevenlabs') s = await runLocal('stt', { set: 'elevenlabs' });
+    paintStt(s);
+    if (s.stt !== 'elevenlabs') return add('local err', 'Não achei a chave do ElevenLabs (`~/.config/elevenlabs/api_key` no Ubuntu): nada foi refeito.');
+    const errs = [];
+    for (let i = 0; i < todo.length; i++) {
+      const nm = path.basename(todo[i].replace(/\\/g, '/'));
+      toolStart(`Scribe ${i + 1}/${todo.length}: ${nm}`);
+      const r = await runLocal('retranscribe', { path: todo[i] });
+      if (!r.ok || r.stt_error || r.engine !== 'elevenlabs') errs.push(`${nm}: ${r.error || r.stt_error || 'ficou no Whisper'}`);
+    }
+    // the sequences exported NOW, one by one: the editor may have changed them since any XML on disk
+    for (const q of sel) {
+      toolStart(`exportando ${q.name}`);
+      const sn = await snapshot(q.id);
+      const p = sn && await backup(sn);
+      if (p) xmls.push({ name: q.name, xml: p }); else errs.push(`${q.name}: não consegui exportar a sequência`);
+    }
+    add('local', `**${todo.length - errs.filter((e) => !/sequência$/.test(e)).length} de ${todo.length} clipe(s)** retranscritos pelo Scribe` +
+      ` e **${xmls.length} sequência(s)** exportadas como estão agora.` + (errs.length ? '\n\nCom problema:\n' + errs.map((e) => '- ' + e).join('\n') : '') +
+      (xmls.length ? '\n\nAgora a revisão de gramática (IA).' : ''));
+  });
+  if (!xmls.length) return;
+  const out = path.join(jobFolder(), '#legendas');
+  send(`Legendas refeitas com a transcrição do Scribe (ElevenLabs). As sequências abaixo foram exportadas AGORA do Premiere, do jeito que estão na timeline — use estes XMLs (não os de #projeto/xml nem versões antigas):\n` +
+    xmls.map((x) => `- "${x.name}": ${x.xml}`).join('\n') +
+    `\n\nPara cada uma: 1) caption_sentences(nle_xml) e corrija SÓ a gramática (concordância, regência, crase, pontuação), sem mudar as palavras do falante nem nomes de marca; o Scribe escreve número por extenso — valor, preço, data e porcentagem viram algarismos ("setecentos e cinquenta reais" → "R$ 750"); 2) captions_srt com o mesmo nle_xml, corrected, out_srt "${out}\\<nome da sequência> (scribe).srt"; 3) uma tabela por sequência só com as falas que mudaram (fala → legenda). Não mexa nas sequências nem na timeline. No fim, liste os .srt e pergunte se quero que você coloque cada um como trilha de legenda NOVA na sua sequência (a legenda antiga fica; eu apago depois de conferir).`);
+}
 function droppedLine(r) {
   const d = r.dropped || [];
   if (!d.length) return '';
   const mg = d.filter((x) => /MOGRT/.test(x));
-  return (mg.length ? `\n\n**${mg.length} legenda(s) MOGRT ficaram de fora** (o XML não leva o texto delas): aplique as legendas de novo na sequência nova com o 16 (Legenda MOGRT).` : '') +
+  return (mg.length ? `\n\n**${mg.length} legenda(s) MOGRT ficaram de fora** (o XML não leva o texto delas): aplique as legendas de novo na sequência nova com o 17 (Legenda MOGRT).` : '') +
     (d.length > mg.length ? `\n\nTambém ficou de fora: ${d.filter((x) => !/MOGRT/.test(x)).slice(0, 6).join('; ')}` : '');
 }
 async function mogrtRun(style, srt) {
@@ -760,4 +858,5 @@ function showProgress() {
 setInterval(showProgress, 2000);
 
 readContext().then(() => { add('meta', `pasta do trabalho: ${jobFolder()}`, false); showProgress(); });
+runLocal('stt', {}).then(paintStt).catch(() => {});
 setInterval(() => { if (!child) readContext(); }, 4000);

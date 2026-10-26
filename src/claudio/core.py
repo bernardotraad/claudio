@@ -13,15 +13,39 @@ Everything is computed from the real media (no guessing):
 
 Indexes are cached in ~/.cache/claudio/<key>/ (key = path + size + mtime).
 """
-import difflib, hashlib, io, json, math, os, re, subprocess, threading, time, unicodedata, urllib.parse
+import difflib, hashlib, io, json, math, os, re, shutil, subprocess, threading, time, unicodedata, urllib.parse
 from fractions import Fraction
 
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
+SETTINGS = os.path.expanduser('~/.config/claudio/settings.json')
+
+
+def set_setting(name, value):
+    """Write one key of ~/.config/claudio/settings.json (the panel's switches); None removes it."""
+    try:
+        cur = json.load(open(SETTINGS))
+    except (OSError, ValueError):
+        cur = {}
+    if value is None:
+        cur.pop(name.lower(), None)
+    else:
+        cur[name.lower()] = value
+    os.makedirs(os.path.dirname(SETTINGS), exist_ok=True)
+    json.dump(cur, open(SETTINGS, 'w'), indent=1)
+
+
 def env(name, default=None):
-    """CLAUDIO_<name>, falling back to the pre-rename DECUPA_<name>."""
-    return os.environ.get('CLAUDIO_' + name, os.environ.get('DECUPA_' + name, default))
+    """CLAUDIO_<name>, falling back to the pre-rename DECUPA_<name>, then to ~/.config/claudio/settings.json
+    ({"stt": "elevenlabs"}) — the MCP and the panel run through wsl.exe, where an environment variable is awkward."""
+    v = os.environ.get('CLAUDIO_' + name, os.environ.get('DECUPA_' + name))
+    if v is None:
+        try:
+            v = json.load(open(SETTINGS)).get(name.lower())
+        except (OSError, ValueError):
+            pass
+    return default if v is None else v
 
 
 def _migrate_cache():
@@ -39,7 +63,7 @@ if not env('CACHE'):
     _migrate_cache()
 CACHE = os.path.expanduser(env('CACHE', '~/.cache/claudio'))
 WHISPER_MODEL = env('WHISPER', 'large-v3-turbo')
-INDEX_VERSION = 6
+INDEX_VERSION = 7
 SR = 16000          # audio analysis rate
 HOP = 0.02          # RMS hop (s)
 QFPS = 4            # quality-analysis frame rate
@@ -697,6 +721,77 @@ def fix_word_times(words):
     return words
 
 
+def align_to_voice(words, db, thr, min_pause=0.16, lead=0.04, max_hold=0.6):
+    """Word edges put on the voice measured in the audio (rms_db, 20 ms). Whisper starts the first word after a pause
+    back in the silence (INC C0011: "que" 6.95 s, voice at 7.26 s — the caption came in 9 frames early, over the
+    pause, and a cut kept the breath) and ends some words before the voice does (a tight cut clipped the tail).
+    A start moves forward to the end of the last pause (≥ min_pause; a consonant closure is shorter) inside the word;
+    an end runs on while the voice holds, up to the next word — and never comes back: a word's weak last syllable
+    ("Excelen-te") sits under the threshold, and an earlier end is a clipped cut. A word with no voice above the
+    threshold (whispered, under noise) is left as it is."""
+    if not words or db is None or not len(db):
+        return words
+    on = np.asarray(db) > thr
+    n, P = len(on), max(1, int(round(min_pause / HOP)))
+    out = [dict(w) for w in words]
+
+    def runs(seg):                                  # [(start, end)] of silent runs ≥ P
+        r, k = [], 0
+        while k < len(seg):
+            if not seg[k]:
+                j = k
+                while j < len(seg) and not seg[j]:
+                    j += 1
+                if j - k >= P:
+                    r.append((k, j))
+                k = j
+            else:
+                k += 1
+        return r
+    for w in out:
+        a, b = int(w['s'] / HOP), min(int(math.ceil(w['e'] / HOP)), n)
+        seg = on[a:b]
+        if b - a < 3 or not seg.any():
+            continue
+        s0, e0 = w['s'], w['e']
+        inner = [j for k, j in runs(seg) if j < len(seg)]   # a pause with voice after it
+        if inner:
+            w['s'] = max(w['s'], round((a + inner[-1]) * HOP - lead, 3))
+        if w['e'] - w['s'] < 0.06:
+            w['s'], w['e'] = s0, e0
+        elif (w['s'], w['e']) != (s0, e0):
+            w['aligned'] = True
+    for k, w in enumerate(out):                     # the voice still on at the end: the word goes on
+        e = int(round(w['e'] / HOP))
+        lim = min(n, int((out[k + 1]['s'] if k + 1 < len(out) else w['e'] + max_hold) / HOP) - 1,
+                  int((w['e'] + max_hold) / HOP))
+        if not (0 < e < lim and on[e - 1]):
+            continue
+        j, quiet = e, 0
+        while j < lim and quiet < 5:                # dips under 100 ms are inside the voice
+            quiet = quiet + 1 if not on[j] else 0
+            j += 1
+        ne = round((j - quiet) * HOP + lead, 3)
+        if ne - w['e'] >= 0.06:
+            w['e'], w['aligned'] = ne, True
+    return out
+
+
+def needs_stt(path):
+    """An indexed clip whose speech was transcribed by the other engine than the one chosen now."""
+    try:
+        sp = json.load(open(os.path.join(cache_dir(local_path(path)), 'index.json'))).get('speech')
+    except (OSError, ValueError):
+        return False
+    return bool(sp) and not sp.get('lyrics') and sp.get('engine', 'whisper') != stt_engine()
+
+
+def voice_aligned(words, d, thr):
+    """align_to_voice with the clip's own measured envelope (no-op when the audio was not analysed)."""
+    p = os.path.join(d, 'rms_db.npy')
+    return align_to_voice(words, np.load(p), thr) if os.path.exists(p) and thr is not None else words
+
+
 def transcribe(d, lang, progress=lambda *_: None, duration=1, vocabulary=None, audio_only=False):
     audio = load_pcm(d)
     prompt = PROMPT_PT if (lang or '').startswith('pt') else None
@@ -746,6 +841,72 @@ def transcribe(d, lang, progress=lambda *_: None, duration=1, vocabulary=None, a
     words = apply_vocabulary(words if lyrics else fix_word_times(words), vocabulary)   # sung notes are long on purpose
     r = {'language': info.language, 'segments': _resegment(out, words) if vocabulary else out, 'words': words}
     return {**r, 'lyrics': True} if lyrics else r
+
+
+def stt_engine():
+    """'elevenlabs' (Scribe, paid: word timings within ~1–2 frames of the voice) when chosen in settings.json /
+    CLAUDIO_STT and a key exists; else 'whisper' (local, free)."""
+    return 'elevenlabs' if env('STT', 'whisper') == 'elevenlabs' and elevenlabs_key() else 'whisper'
+
+
+def elevenlabs_key():
+    k = os.environ.get('ELEVENLABS_API_KEY')
+    p = os.path.expanduser('~/.config/elevenlabs/api_key')
+    if not k and os.path.exists(p):
+        k = open(p).read().strip()
+    return k or None
+
+
+def sounds_like_song(d):
+    """Silero VAD (the one inside faster-whisper, CPU, seconds) keeps under half of the audio: singing over
+    instruments — the song pipeline (Whisper + isolated vocal) stays in charge of it."""
+    from faster_whisper.vad import get_speech_timestamps, VadOptions
+    audio = load_pcm(d)
+    ts = get_speech_timestamps(audio, VadOptions(min_silence_duration_ms=300))
+    return sum(t['end'] - t['start'] for t in ts) < 0.5 * len(audio)
+
+
+def transcribe_scribe(d, lang, progress=lambda *_: None):
+    """ElevenLabs Scribe v2 on the clip's 16 kHz audio (sent as FLAC). The answer is cached in the clip's cache dir
+    (scribe.json): a re-index, a new vocabulary or a migration never pays twice. Raises on any failure — the caller
+    falls back to Whisper."""
+    import httpx
+    cp = os.path.join(d, 'scribe.json')
+    if os.path.exists(cp):
+        r = json.load(open(cp))
+    else:
+        flac = os.path.join(d, 'a16.flac')
+        run(['ffmpeg', '-v', 'error', '-y', '-f', 's16le', '-ar', str(SR), '-ac', '1', '-i', os.path.join(d, 'a16.pcm'), flac])
+        progress('speech', 0.1)
+        try:
+            with open(flac, 'rb') as f:
+                resp = httpx.post('https://api.elevenlabs.io/v1/speech-to-text', headers={'xi-api-key': elevenlabs_key()},
+                                  data={'model_id': env('SCRIBE_MODEL', 'scribe_v2'), 'timestamps_granularity': 'word',
+                                        'tag_audio_events': 'false', **({'language_code': lang[:2]} if lang else {})},
+                                  files={'file': ('audio.flac', f, 'audio/flac')}, timeout=httpx.Timeout(1800, connect=30))
+        finally:
+            os.remove(flac)
+        if resp.status_code != 200:
+            raise RuntimeError(f'ElevenLabs {resp.status_code}: {resp.text[:300]}')
+        r = resp.json()
+        json.dump(r, open(cp, 'w'), ensure_ascii=False)
+    words = [{'w': w['text'].strip(), 's': round(float(w['start']), 3), 'e': round(float(w['end']), 3),
+              'p': round(math.exp(w.get('logprob') or 0), 3)}
+             for w in r.get('words', []) if w.get('type') == 'word' and w['text'].strip() and w.get('start') is not None]
+    segs, cur = [], []                              # Whisper-like segments: a sentence end or a pause ≥ 0.6 s
+    for w in words:
+        if cur and w['s'] - cur[-1]['e'] >= 0.6:
+            segs.append(cur); cur = []
+        cur.append(w)
+        if re.search(r'[.?!]$', w['w']):
+            segs.append(cur); cur = []
+    if cur:
+        segs.append(cur)
+    progress('speech', 1)
+    lc = r.get('language_code') or lang or ''
+    return {'language': {'por': 'pt', 'eng': 'en', 'spa': 'es'}.get(lc, lc[:2]), 'words': words,
+            'segments': [{'s': round(c[0]['s'], 2), 'e': round(c[-1]['e'], 2), 'text': clean_text(' '.join(w['w'] for w in c))}
+                         for c in segs]}
 
 
 def sung_timing(path, d, sp, progress=lambda *_: None):
@@ -1031,15 +1192,53 @@ def migrate(idx, d):
         if idx.get('speech'):
             for s in idx['speech']['segments']:
                 s['text'] = clean_text(s['text'])
+    if v < 7 and idx.get('speech') and not idx['speech'].get('lyrics') and idx.get('audio'):   # words on the voice
+        for f in ('words_raw.json', 'words.json'):
+            p = os.path.join(d, f)
+            if os.path.exists(p):
+                if not os.path.exists(p + '.v6'):
+                    shutil.copy(p, p + '.v6')           # Whisper's own times, to compare or go back
+                json.dump(voice_aligned(json.load(open(p)), d, idx['audio'].get('silence_threshold_db')),
+                          open(p, 'w'), ensure_ascii=False)
     idx['version'] = INDEX_VERSION
     idx['migrated_from'] = v
     json.dump(idx, open(os.path.join(d, 'index.json'), 'w'), ensure_ascii=False, indent=1)
     return idx
 
 
-def build_index(path, lang='pt', progress=lambda *_: None, force=False, vocabulary=None):
+def _speech(path, d, idx, lang, progress, vocabulary, stt):
+    """The transcript: Scribe when stt='elevenlabs' (a song stays with Whisper + the isolated vocal; any API failure
+    falls back to Whisper, noted in stt_error), else Whisper. Speech words are put on the measured voice."""
+    info, sp, err = idx['info'], None, None
+    audio_only = not info['has_video']
+    if stt == 'elevenlabs' and not (audio_only and sounds_like_song(d)):
+        try:
+            sp = transcribe_scribe(d, lang, progress)
+            sp['engine'] = 'elevenlabs'
+        except Exception as e:
+            err = str(e)[:300]
+    if sp is None:
+        sp = transcribe(d, lang, progress, info['duration'], None, audio_only=audio_only)
+        sp['engine'] = 'whisper'
+    if sp.get('lyrics'):
+        sp = sung_timing(path, d, sp, progress)
+    else:
+        sp['words'] = voice_aligned(sp['words'], d, (idx.get('audio') or {}).get('silence_threshold_db'))
+    json.dump(sp['words'], open(os.path.join(d, 'words_raw.json'), 'w'), ensure_ascii=False)
+    if vocabulary:
+        sp['words'] = dedupe_vocab(apply_vocabulary([dict(w) for w in sp['words']], vocabulary))
+        sp['segments'] = [{**s, 'text': clean_text(s['text'])} for s in _resegment(sp['segments'], sp['words'])]
+    json.dump(sp['words'], open(os.path.join(d, 'words.json'), 'w'), ensure_ascii=False)
+    idx['vocabulary'] = vocabulary
+    idx['speech'] = {'language': sp['language'], 'segments': sp['segments'], 'n_words': len(sp['words']),
+                     'engine': sp['engine'], **({'lyrics': True} if sp.get('lyrics') else {}),
+                     **({'stt_error': err} if err else {})}
+
+
+def build_index(path, lang='pt', progress=lambda *_: None, force=False, vocabulary=None, stt=None):
     """vocabulary: names Whisper must get right ("INC Empreendimentos, Juiz de Fora"). A new vocabulary on an existing
-    index re-runs only the transcript."""
+    index re-runs only the transcript. stt ('whisper' | 'elevenlabs', from stt_engine()) is passed only by the
+    indexing entry points: an index transcribed by the other engine gets only its transcript redone; reads leave it."""
     path = local_path(path)
     d = cache_dir(path)
     ip = os.path.join(d, 'index.json')
@@ -1049,6 +1248,13 @@ def build_index(path, lang='pt', progress=lambda *_: None, force=False, vocabula
         if idx.get('version', 0) < INDEX_VERSION and idx.get('version', 0) >= 3:
             idx = migrate(idx, d)
         if idx.get('version') == INDEX_VERSION:
+            sp = idx.get('speech')
+            if stt and sp and not sp.get('lyrics') and sp.get('engine', 'whisper') != stt and stt_engine() == stt:
+                _speech(path, d, idx, lang, progress, vocabulary or idx.get('vocabulary'), stt)
+                if idx['speech']['engine'] != stt:          # the API failed: keep the old transcript's engine mark
+                    idx['speech']['engine'] = sp.get('engine', 'whisper')
+                json.dump(idx, open(ip, 'w'), ensure_ascii=False, indent=1)
+                return idx
             if vocabulary and vocabulary != idx.get('vocabulary') and idx.get('speech'):
                 # vocabulary is a post-correction: re-apply it to the stored words, no re-transcription
                 wp, raw = os.path.join(d, 'words.json'), os.path.join(d, 'words_raw.json')
@@ -1071,19 +1277,9 @@ def build_index(path, lang='pt', progress=lambda *_: None, force=False, vocabula
     progress('audio', 1)
     if info['has_video']:
         idx['picture'] = analyze_picture(src, d, sinfo, progress)
-    sp = None
+    idx['speech'] = None
     if idx['audio'] and (idx['audio']['speech_ratio'] > 0.02 or not info['has_video']):   # a song can measure ~0
-        sp = transcribe(d, lang, progress, info['duration'], None, audio_only=not info['has_video'])
-        if sp.get('lyrics'):
-            sp = sung_timing(path, d, sp, progress)
-        json.dump(sp['words'], open(os.path.join(d, 'words_raw.json'), 'w'), ensure_ascii=False)
-        if vocabulary:
-            sp['words'] = dedupe_vocab(apply_vocabulary([dict(w) for w in sp['words']], vocabulary))
-            sp['segments'] = [{**s, 'text': clean_text(s['text'])} for s in _resegment(sp['segments'], sp['words'])]
-        json.dump(sp['words'], open(os.path.join(d, 'words.json'), 'w'), ensure_ascii=False)
-        idx['vocabulary'] = vocabulary
-    idx['speech'] = {'language': sp['language'], 'segments': sp['segments'], 'n_words': len(sp['words']),
-                     **({'lyrics': True} if sp.get('lyrics') else {})} if sp else None
+        _speech(path, d, idx, lang, progress, vocabulary, stt or stt_engine())
     idx['seconds_to_index'] = round(time.time() - t0, 1)
     json.dump(idx, open(ip, 'w'), ensure_ascii=False, indent=1)
     return idx
@@ -1122,6 +1318,13 @@ def words_only(path, lang='pt'):
     w = transcribe(d, lang)['words']
     json.dump(w, open(wq, 'w'), ensure_ascii=False)
     return w
+
+
+def words_in(words, s_in, s_out):
+    """The words a cut [s_in, s_out) plays: the middle of the word inside, its edges clamped to the cut. A word whose
+    start leaks a little before the in-point (or end past the out-point) is still heard and still captioned — it was
+    dropped, and its caption with it."""
+    return [{**w, 's': max(w['s'], s_in), 'e': min(w['e'], s_out)} for w in words if s_in <= (w['s'] + w['e']) / 2 < s_out]
 
 
 def load_words(idx):

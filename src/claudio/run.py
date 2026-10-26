@@ -14,6 +14,9 @@
   sfx         {"nle_xml", "whoosh"?, "pops"?, "sfx_dir"?}  whoosh into b-roll, pop on caption keywords (new audio track)
   mogrt       {"nle_xml", "style", "srt"?, "job"?}    caption MOGRTs: template (After Effects) + placement plan
   mogrt_styles {"job"?}                            the styles on offer (+ the client's brand one) and the .srt found
+  stt         {"set"?: "elevenlabs" | "whisper"}   transcription engine (Scribe on/off), saved in settings.json
+  stt_check   {"paths", "prproj"?}                 per clip: indexed, speech, engine, duration (+ sequences with captions)
+  retranscribe {"path"}                            redo ONE clip's transcript with the chosen engine (picture kept)
 
 Paths can be Windows paths (D:\\...) — they are translated on WSL — and come back as the editor's paths.
 """
@@ -252,7 +255,46 @@ def _mogrt(a):
     return {**r, 'learned': learned} if learned else r
 
 
-ACTIONS = {'clean': _clean, 'sfx': _sfx, 'mogrt': _mogrt, 'mogrt_styles': _mogrt_styles, 'describe': _describe, 'multicam_plan': _multicam_plan, 'status': _status, 'index': _index, 'stereo': _stereo, 'flatten': _flatten, 'qc': _qc, 'sync': _sync}
+def _stt(a):
+    from claudio import core
+    if a.get('set') in ('elevenlabs', 'whisper'):
+        core.set_setting('stt', a['set'])
+    return {'stt': core.stt_engine(), 'chosen': core.env('STT', 'whisper'), 'has_key': bool(core.elevenlabs_key())}
+
+
+def _stt_check(a):
+    """What switching engines would redo: each clip's engine and length; songs and unindexed clips are left out."""
+    import json as _json
+    from claudio import core, nle_read
+    clips = {}
+    for p in a.get('paths') or []:
+        try:
+            lp = core.local_path(p)
+            ip = os.path.join(core.cache_dir(lp), 'index.json')
+            idx = _json.load(open(ip)) if os.path.exists(ip) else None
+        except Exception:
+            idx = None
+        sp = (idx or {}).get('speech')
+        clips[p] = {'indexed': bool(idx), 'speech': bool(sp), 'lyrics': bool(sp and sp.get('lyrics')),
+                    'engine': (sp or {}).get('engine', 'whisper') if sp else None,
+                    'duration': (idx or {}).get('info', {}).get('duration', 0)}
+    caps = {}
+    if a.get('prproj'):
+        try:
+            caps = nle_read.caption_sequences(a['prproj'])
+        except Exception:
+            pass
+    return {'stt': core.stt_engine(), 'clips': clips, 'captioned': caps}
+
+
+def _retranscribe(a):
+    from claudio import core
+    idx = core.build_index(a['path'], a.get('language', 'pt'), stt=core.stt_engine())
+    sp = idx.get('speech') or {}
+    return {'engine': sp.get('engine'), 'stt_error': sp.get('stt_error'), 'words': sp.get('n_words', 0)}
+
+
+ACTIONS = {'stt': _stt, 'stt_check': _stt_check, 'retranscribe': _retranscribe, 'clean': _clean, 'sfx': _sfx, 'mogrt': _mogrt, 'mogrt_styles': _mogrt_styles, 'describe': _describe, 'multicam_plan': _multicam_plan, 'status': _status, 'index': _index, 'stereo': _stereo, 'flatten': _flatten, 'qc': _qc, 'sync': _sync}
 
 
 def main():

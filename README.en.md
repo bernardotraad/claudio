@@ -62,8 +62,8 @@ The buttons are grouped by stage of the job, one colour per group (● = runs wi
 | **Preparar** (prepare) | 01 Analisar material ● · 02 Status ● · 03 Áudio estéreo ● · 04 Multicam ● |
 | **Entender** (understand) | 05 Visão geral · 06 Descrever planos ● · 07 Ler minhas notas |
 | **Montar** (edit) | 08 Selects · 09 Corte por quem fala · 10 Recap de evento · 11 Limpar falas ● · 12 SFX nos cortes ● · 13 Desaninhar ● |
-| **Legendar** (caption) | 14 Legendas · 15 Overlay da legenda revisada · 16 Legenda MOGRT ● |
-| **Entregar** (deliver) | 17 QC antes de exportar ● · 18 Registrar no vault |
+| **Legendar** (caption) | 14 Transcrição Scribe ● · 15 Legendas · 16 Overlay da legenda revisada · 17 Legenda MOGRT ● |
+| **Entregar** (deliver) | 18 QC antes de exportar ● · 19 Registrar no vault |
 
 ---
 
@@ -375,8 +375,16 @@ Text you write in the `.md` files outside the `<!-- claudio:auto -->` markers is
 | `CLAUDIO_WHISPER` / `CLAUDIO_MLX_MODEL` | `large-v3-turbo` | transcription model |
 | `CLAUDIO_FFMPEG_GPU` | `~/.local/opt/ffmpeg-*/bin/ffmpeg` | ffmpeg with CUDA |
 | `CLAUDIO_GPU` / `CLAUDIO_FAST` | `1` | `0` turns off NVDEC / keyframe mode |
+| `CLAUDIO_STT` | `whisper` | `elevenlabs` transcribes with ElevenLabs Scribe (paid, word timings within 1–2 frames of the voice) |
+| `CLAUDIO_SCRIBE_MODEL` | `scribe_v2` | Scribe model |
 
-The old `DECUPA_*` variables still work.
+The old `DECUPA_*` variables still work. Any of them can also go in `~/.config/claudio/settings.json`, lowercase and
+without the prefix (`{"stt": "elevenlabs"}`) — handier, since the MCP and the panel run through `wsl.exe`.
+
+Word edges are always put on the voice measured in the audio (free, local): captions don't come in over the silence
+before speech and cuts don't clip a word's tail. With Scribe on, "Analisar material" redoes only the transcript of
+clips Whisper already did (cached per clip: never paid twice); songs stay on Whisper + the isolated vocal; any API
+error falls back to Whisper and is noted as `stt_error` in the index.
 
 ## Limitations
 

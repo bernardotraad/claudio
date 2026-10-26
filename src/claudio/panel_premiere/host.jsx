@@ -210,6 +210,18 @@ function claudioPlaceOverlay(movPath) {
     }
 }
 
+// every sequence of the project: [{id, name}] (Premiere's scripting cannot tell which timeline tabs are open)
+function claudioSequences() {
+    try {
+        var p = app.project, out = [];
+        for (var i = 0; i < p.sequences.numSequences; i++)
+            out.push('{"id":' + q(p.sequences[i].sequenceID) + ',"name":' + q(p.sequences[i].name) + '}');
+        return '{"ok":true,"sequences":[' + out.join(',') + ']}';
+    } catch (e) {
+        return '{"ok":false,"error":' + q(e.toString()) + '}';
+    }
+}
+
 // id of the sequence called `name` (a multicam clip's source sequence), '' when there is none
 function claudioSeqIdByName(name) {
     try {

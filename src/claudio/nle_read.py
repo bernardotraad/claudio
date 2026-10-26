@@ -155,6 +155,27 @@ def premiere_captions(prproj, sequence, track='C1'):
     raise KeyError(f'sequence not found: {sequence}')
 
 
+def caption_sequences(prproj):
+    """{sequence name: caption blocks} of every sequence with a caption track, from one read of the saved .prproj."""
+    root, byid, byuid = _load(prproj)
+    out = {}
+    for seq in [e for e in root if e.tag == 'Sequence']:
+        nm = seq.find('Name')
+        n = 0
+        for tg in seq.iter('TrackGroup'):
+            sec = tg.find('Second')
+            grp = _ref(sec if sec is not None else tg, byid, byuid)
+            if grp is None or 'Data' not in grp.tag:
+                continue
+            for tr in grp.iter('Track'):
+                t = _ref(tr, byid, byuid)
+                if t is not None:
+                    n += sum(1 for it in t.iter('TrackItem') if (x := _ref(it, byid, byuid)) is not None and x.find('.//End') is not None)
+        if n and nm is not None:
+            out[nm.text] = n
+    return out
+
+
 def write_srt(cues, out_path):
     def ts(t):
         h, r = divmod(max(t, 0), 3600); m, s = divmod(r, 60)

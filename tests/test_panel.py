@@ -99,12 +99,28 @@ def test_tool_images_shown(page):
 def test_local_buttons_and_model(page):
     pg, _ = page
     loc = pg.evaluate("[...document.querySelectorAll('#quick button.loc')].map(b=>b.dataset.q)")
-    assert set(loc) == {'index', 'qc', 'stereo', 'flatten', 'status', 'multicam', 'describe', 'clean', 'sfx', 'captions_mogrt'}
-    assert pg.evaluate("Object.keys(LOCAL).sort().join(',')") == 'captions_mogrt,clean,describe,flatten,index,multicam,qc,sfx,status,stereo'
+    assert set(loc) == {'index', 'qc', 'stereo', 'flatten', 'status', 'multicam', 'describe', 'clean', 'sfx', 'captions_mogrt', 'stt'}
+    assert pg.evaluate("Object.keys(LOCAL).sort().join(',')") == 'captions_mogrt,clean,describe,flatten,index,multicam,qc,sfx,status,stereo,stt'
     assert set(pg.evaluate("[...document.querySelectorAll('#quick button:not(.loc)')].map(b=>b.dataset.q)")) <= set(pg.evaluate("Object.keys(QUICK)"))
     assert pg.evaluate("document.querySelector('#model').value") == 'sonnet'
     pg.evaluate("add('local','**3 clipe(s)** com áudio de um lado só',false)")
     assert 'sem IA' in pg.evaluate("[...document.querySelectorAll('.msg.local .hd b')].pop().textContent")
+
+
+@needs_browser
+def test_scribe_menu_marks_the_captioned_whisper_sequences(page):
+    """Button 14: sequences with speech listed as they are now; captioned ones still on Whisper come checked."""
+    pg, _ = page
+    pg.evaluate("""()=>sttMenu([{id:'1',name:'INC - 01 Robson (limpo)'},{id:'2',name:'INC - 01 Robson (bruto)'},{id:'3',name:'padrão'}],
+        {'1':['E:\\\\C0008.MP4'],'2':['E:\\\\C0008.MP4','E:\\\\C0011.MP4'],'3':[]},
+        {stt:'whisper',captioned:{'INC - 01 Robson (limpo)':21},clips:{'E:\\\\C0008.MP4':{speech:true,engine:'whisper',duration:38},
+         'E:\\\\C0011.MP4':{speech:true,engine:'elevenlabs',duration:15}}})""")
+    rows = pg.evaluate("[...document.querySelectorAll('.msg.local label')].map(l=>[l.textContent.trim(), l.querySelector('input').checked])")
+    assert rows == [['INC - 01 Robson (limpo) — 1 clipe(s) com fala, 1 pelo Whisper · legendada (21 blocos)', True],
+                    ['INC - 01 Robson (bruto) — 2 clipe(s) com fala, 1 pelo Whisper', False]]
+    btns = pg.evaluate("[...document.querySelectorAll('.msg.local')].pop().querySelectorAll('button').length")
+    assert btns == 2
+    assert '(1 clipe(s), ~0.6 min de áudio)' in pg.evaluate("[...document.querySelectorAll('.msg.local button.primary')].pop().textContent")
 
 
 @needs_browser

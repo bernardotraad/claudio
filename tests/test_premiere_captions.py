@@ -52,3 +52,9 @@ def test_learns_only_real_text_changes(tmp_path, monkeypatch):
             {'s': 5, 'e': 8, 'text': 'Sinto sua falta, não tem explicação'}, {'s': 8, 'e': 9, 'text': 'Vai ver'}]
     learned = motion.learn_caption_edits('x.xml', cues)
     assert saved == {'Sinto sua falta, não tenho explicação': 'Sinto sua falta, não tem explicação'} and len(learned) == 1
+
+
+def test_lists_the_sequences_with_a_caption_track(tmp_path):
+    p = tmp_path / 'job.prproj'
+    _prproj(p, [(1.0, 2.0, 'Você que paga aluguel'), (2.0, 3.0, 'e sente que o')], name='INC - 01 Robson (limpo)')
+    assert nle_read.caption_sequences(str(p)) == {'INC - 01 Robson (limpo)': 2}

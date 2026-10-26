@@ -45,7 +45,8 @@ def _worker():
         t0 = _time.time()
         try:
             job['state'] = 'running'
-            idx = core.build_index(path, lang, lambda stage, f: job.update(stage=stage, progress=round(min(f, 1), 3)), force, vocab)
+            idx = core.build_index(path, lang, lambda stage, f: job.update(stage=stage, progress=round(min(f, 1), 3)), force, vocab,
+                                   core.stt_engine())
             job['state'] = 'done'
             if md:
                 try:
@@ -186,7 +187,7 @@ async def index_media(path: str, ctx: Context, language: str = 'pt', wait_second
     """Analyse one video (Windows path like D:\\Footage\\A001.mov or Linux path): probe, camera + colour space (log vs
     Rec.709), audio, picture (cuts, sharpness, motion), transcript with word timestamps. Writes <clip>.md next to the
     video. Shows progress while it runs; returns when done (or state=running after wait_seconds — index_status)."""
-    p = _enqueue(path, language, force, vocabulary) if force or vocabulary or not _is_indexed(path) else core.local_path(path)
+    p = _enqueue(path, language, force, vocabulary) if force or vocabulary or not _is_indexed(path) or core.needs_stt(path) else core.local_path(path)
     await _wait_with_progress(ctx, [p], wait_seconds)
     j = _jobs.get(p, {'state': 'done'})
     if j['state'] == 'done':
@@ -246,7 +247,7 @@ async def index_folder(folder: str, ctx: Context, language: str = 'pt', vocabula
         extra = [t for t in motion.folder_vocabulary(root) if t.lower() not in have]
         vocabulary = ', '.join(([vocabulary] if vocabulary else []) + extra)   # re-applied to stored words: no re-transcription
         motion.mark_vocabulary_applied(root)
-    pending = [f for f in files if not _is_indexed(f) or vocabulary]
+    pending = [f for f in files if not _is_indexed(f) or vocabulary or core.needs_stt(f)]
     j = indexer.read_job(root)
     if pending and not (j and j.get('state') == 'running'):
         indexer.launch_detached(root, vocabulary, language)      # survives the chat, the panel and Claude Desktop

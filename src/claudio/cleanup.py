@@ -32,7 +32,7 @@ def speech_spans(tl, track='A1'):
         except Exception:
             continue
         ws = [{'w': core.clean_text(w['w']), 's': it['tl_in'] + w['s'] - it['src_in'], 'e': it['tl_in'] + w['e'] - it['src_in']}
-              for w in core.load_words(idx) if w['s'] >= it['src_in'] - 0.02 and w['e'] <= it['src_out'] + 0.02]
+              for w in core.words_in(core.load_words(idx), it['src_in'], it['src_out'])]
         if ws:
             spans.append({'a': it['tl_in'], 'b': it['tl_out'], 'words': ws, 'clip': it['name']})
     return spans
