@@ -315,6 +315,8 @@ def caption_mogrt(nle_xml, style='social', aspect=None, accent='#4ea1ff', srt=No
     if style == 'marca' and not look:
         return {'error': 'estilo marca precisa do caption_look do cliente'}
     tpl = ensure_templates([style], aspect, accent, look, position)[style]      # the shared template library, not the job
+    if not srt and tw['words'] and not any(w.get('lyrics') for w in tw['words']):   # the same phrase blocks as the .srt
+        tw['cues'] = motion.speech_cues(tw, 'marca' if style.startswith('marca') else style, look, None, None, max_words)
     bl = blocks(tw['words'], style, look, tw.get('cues'), max_words, tw['duration'])
     out_dir = core.local_path(out_dir) if out_dir else os.path.dirname(core.local_path(nle_xml))
     plan_path = os.path.join(out_dir, re.sub(r'[\\/:*?"<>|]', '-', f'legendas {style} {tl["name"] or "timeline"}') + '.claudio-mogrt.jsx')

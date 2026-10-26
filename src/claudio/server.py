@@ -1040,15 +1040,27 @@ async def caption_overlay(nle_xml: str, out_folder: str, ctx: Context, style: st
 
 
 @mcp.tool()
-def captions_srt(nle_xml: str, out_srt: str, corrected: dict = None, max_words: int = 4, max_chars: int = 24, fix: dict = None) -> dict:
+def captions_srt(nle_xml: str, out_srt: str, corrected: dict = None, style: str = None, client: str = None,
+                 max_chars: int = None, lines: int = None, max_words: int = None, fix: dict = None) -> dict:
     """STEP 3 of captions — the REVIEW round, before any overlay: editable captions (.srt) of the edit with the approved
-    grammar corrections. Put it in Premiere as a caption track (Premiere MCP create_caption_track, or the editor drags
-    the .srt onto the sequence; Resolve: import subtitle), then STOP and let the editor fix words and timing there.
-    When they are done they export the track (Text panel › Captions › ··· › Export to SRT file, or File › Export ›
-    Captions) to #legendas, e.g. <name>_revisada.srt, and caption_overlay(srt=that file) renders exactly it.
-    Same chunking as the styled overlay."""
+    grammar corrections. Blocks are cut by PHRASE like a subtitler (never across a sentence end, never ending on
+    "de"/"que"/"o", never splitting a number or a name, a breath is where a block ends) and timed on the sequence's
+    frames: in on the first word's voice, out after the last (held long enough to read), chained 2 frames apart,
+    in/out snapped to nearby picture cuts. Pass the chosen `style` (or `client` for its caption look) so the blocks
+    fit that style's line; max_chars (per line) / lines override it. Without style: one line of 26 characters on a
+    vertical sequence, two of 42 on a horizontal one.
+    Put it in Premiere as a caption track (Premiere MCP create_caption_track, or the editor drags the .srt onto the
+    sequence; Resolve: import subtitle), then STOP and let the editor fix words and timing there. The panel's
+    "Overlay da legenda revisada" / premiere_captions read the edited track back — caption_overlay(srt=...) renders
+    exactly it."""
     from claudio import motion
-    return motion.captions_srt(nle_xml, out_srt, max_words, max_chars, fix, corrected)
+    look = None
+    if style == 'marca' or client:
+        from claudio import clients, run
+        prof = clients.load(client) if client else run.client_for(nle_xml)
+        look = (prof or {}).get('caption_look') or None
+        style = 'marca' if look else (None if style == 'marca' else style)
+    return motion.captions_srt(nle_xml, out_srt, max_words, max_chars, fix, corrected, lines, style, look)
 
 
 @mcp.tool()

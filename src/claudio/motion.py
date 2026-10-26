@@ -265,8 +265,9 @@ def timeline_words(nle_xml, tracks=('A1',)):
         once = {(i['path'], i['tl_in'], i['src_in']): i for i in live if i['track'].startswith('A') and i['track'] not in tracks}
         words = collect(list(once.values()), only_lyrics=True)
     words.sort(key=lambda w: w['s'])
+    cuts = sorted({round(i['tl_in'], 3) for i in live if i['track'].startswith('V') and i['tl_in'] > 0})
     return {'timeline': tl['name'], 'duration': tl['duration'], 'fps': tl['fps'], 'words': words,
-            'width': tl.get('width'), 'height': tl.get('height')}
+            'width': tl.get('width'), 'height': tl.get('height'), 'cuts': cuts}
 
 
 def learn_caption_edits(nle_xml, cues):
@@ -333,38 +334,41 @@ def lyric_chunks(W, max_chars=38):
     return [[{**c[0], 'w': c[0]['w'][:1].upper() + c[0]['w'][1:]}] + c[1:] if key(c) in known else c for c in out]
 
 
-def captions_srt(nle_xml, out_path, max_words=4, max_chars=24, fix=None, corrected=None):
-    """SRT of the edit's speech with the approved grammar corrections (chunks ≤ max_words / max_chars, never across a
-    sentence end) — import as captions. A song's lyrics (a music video with no speech on A1) come one block per sung
-    line, timed to the isolated vocal."""
+def speech_cues(tw, style=None, look=None, max_chars=None, lines=None, max_words=None):
+    """The caption blocks of the edit's speech, cut by phrase and timed to the voice and the picture cuts
+    (claudio.captions) — the same blocks for the .srt, the overlay and the MOGRT."""
+    from claudio import captions
+    vertical = (tw.get('height') or 1920) > (tw.get('width') or 1080)
+    mc, ln = captions.limits(style, vertical, look, max_chars, lines)
+    max_words = max_words or (look or {}).get('max_words') if style == 'marca' or look else max_words
+    return captions.cues(tw['words'], mc, ln, max_words, tw.get('fps') or 30, tw.get('cuts') or (), tw.get('duration'))
+
+
+def captions_srt(nle_xml, out_path, max_words=None, max_chars=None, fix=None, corrected=None, lines=None, style=None, look=None):
+    """SRT of the edit's speech with the approved grammar corrections, one block per phrase (claudio.captions: never
+    across a sentence end, never ending on "de"/"que"/"o", never splitting a number or a name), on the frame grid,
+    in on the voice, chained, cut with the picture — import as captions. Limits come from the chosen style (or the
+    client's look); max_chars per line / lines override them. A song's lyrics (a music video with no speech on A1)
+    come one block per sung line, timed to the isolated vocal."""
+    from claudio import captions
     tw = corrected_timeline_words(nle_xml, corrected, fix)
     W = tw['words']
-    chunks, cur = [], []
     if W and all(w.get('lyrics') for w in W):
         chunks = lyric_chunks(W)
-    for w in ([] if chunks else W):
-        txt = ' '.join(x['w'] for x in cur + [w])
-        if cur and (len(cur) >= max_words or len(txt) > max_chars or w['s'] - cur[-1]['e'] > 0.6):
-            chunks.append(cur); cur = []
-        cur.append(w)
-        if re.search(r'[.?!]$', w['w']):
-            chunks.append(cur); cur = []
-    if cur:
-        chunks.append(cur)
-    def ts(t):
-        t = max(t, 0); h, r = divmod(t, 3600); m, s = divmod(r, 60)
-        return f'{int(h):02d}:{int(m):02d}:{int(s):02d},{int(round((s % 1) * 1000)) % 1000:03d}'
-    lines = []
-    for k, c in enumerate(chunks, 1):
-        lyr = c[-1].get('lyrics')
-        hold = 0 if lyr else 0.3                        # a sung line ends with its note (already measured on the voice)
-        gap = 3 / float(Fraction(str(tw.get('fps') or 30))) if lyr else 0.04   # the editor leaves 3 frames between sung lines
-        a = c[0]['s']; b = min(c[-1]['e'] + hold, chunks[k][0]['s'] - gap if k < len(chunks) else c[-1]['e'] + hold)
-        lines.append(f"{k}\n{ts(a)} --> {ts(max(b, a + 0.3))}\n{' '.join(w['w'] for w in c)}\n")
+        gap = 3 / float(Fraction(str(tw.get('fps') or 30)))   # the editor leaves 3 frames between sung lines
+        cues = []
+        for k, c in enumerate(chunks):                  # a sung line ends with its note (already measured on the voice)
+            b = min(c[-1]['e'], chunks[k + 1][0]['s'] - gap) if k + 1 < len(chunks) else c[-1]['e']
+            cues.append([0, 0, c[0]['s'], max(b, c[0]['s'] + 0.3), ' '.join(w['w'] for w in c)])
+    else:
+        cues = speech_cues(tw, style, look, max_chars, lines, max_words)
     out_path = core.local_path(out_path)
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
-    open(out_path, 'w', encoding='utf-8-sig').write('\n'.join(lines))
-    return {'srt': core.nle_path(out_path), 'blocks': len(chunks), 'words': len(W), 'timeline': tw['timeline']}
+    open(out_path, 'w', encoding='utf-8-sig').write('\n'.join(
+        f"{k}\n{captions.srt_time(a)} --> {captions.srt_time(b)}\n{t}\n" for k, (_, _, a, b, t) in enumerate(cues, 1)))
+    short = sum(1 for c in cues if c[3] - c[2] < captions.MIN_DUR - 0.01)
+    return {'srt': core.nle_path(out_path), 'blocks': len(cues), 'words': len(W), 'timeline': tw['timeline'],
+            'short_blocks': short, 'preview': [c[4] for c in cues[:6]]}
 
 
 def parse_srt(path):
@@ -455,6 +459,8 @@ def caption_overlay(nle_xml, out_dir, ar=None, accent='#4ea1ff', uppercase=None,
     srt: an .srt the editor reviewed in the NLE — its text and block timings win over the transcript (corrected is ignored)."""
     tw = srt_timeline_words(nle_xml, srt, fix) if srt else corrected_timeline_words(nle_xml, corrected, fix)
     W = tw['words']
+    if not srt and W and not any(w.get('lyrics') for w in W):          # the same phrase blocks as the .srt
+        tw['cues'] = speech_cues(tw, style, look, None, None, max_words)
     code = caption_code(W, style, accent, uppercase, max_words, position, max(tw['duration'], (W[-1]['e'] + 1) if W else 1), look,
                         cues=tw.get('cues'))
     name = f'legendas_{style}_' + re.sub(r'[^A-Za-z0-9]+', '_', tw['timeline'] or 'timeline')[:40]
