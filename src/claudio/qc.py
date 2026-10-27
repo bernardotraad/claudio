@@ -131,7 +131,7 @@ def qc_timeline(nle_xml, platform=None, seq_size=None):
 
 
 # ───────────────────────────── how the voice sounds ─────────────────────────────
-MUFFLED_DB = -20       # energy above 3 kHz vs the whole voice: ~−10…−15 dB clean, ~−22 dB with the lav under a jacket
+MUFFLED_DB = -26       # energy above 3 kHz vs the whole voice: normal lavs measured −16…−21 dB (INC 9, Aline −21 sounded fine)
 
 
 def _stereo(path, s, e, sr=48000):
