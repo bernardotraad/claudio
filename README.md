@@ -64,9 +64,9 @@ Os botões ficam agrupados pela etapa do trabalho, cada grupo com uma cor (● =
 |---|---|
 | **Preparar** | 01 Analisar material ● · 02 Status ● · 03 Áudio estéreo ● · 04 Multicam ● |
 | **Entender** | 05 Visão geral · 06 Descrever planos ● · 07 Ler minhas notas |
-| **Montar** | 08 Selects · 09 Corte por quem fala · 10 Recap de evento · 11 Limpar falas ● · 12 SFX nos cortes ● · 13 Desaninhar ● |
-| **Legendar** | 14 Transcrição Scribe ● · 15 Legendas · 16 Overlay da legenda revisada · 17 Legenda MOGRT ● |
-| **Entregar** | 18 QC antes de exportar ● · 19 Registrar no vault |
+| **Montar** | 08 Selects · 09 Corte por quem fala · 10 Recap de evento · 11 Limpar falas ● · 12 SFX nos cortes ● · 13 Trilha sonora · 14 Desaninhar ● |
+| **Legendar** | 15 Transcrição Scribe ● · 16 Legendas · 17 Overlay da legenda revisada · 18 Legenda MOGRT ● |
+| **Entregar** | 19 QC antes de exportar ● · 20 Registrar no vault |
 
 ---
 

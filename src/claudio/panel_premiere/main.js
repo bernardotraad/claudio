@@ -214,9 +214,64 @@ async function placeOverlay(p, b) {
     : `Não coloquei o overlay: ${r.error}`);
   return r;
 }
+// a soundtrack plan (.claudio-trilha.jsx) in Claude's answer: placed by the panel, one NEW audio track per sequence,
+// each sequence backed up first. Live answers apply it at once (the editor asked for it in one go); reloaded ones
+// only show the button.
+const MUSIC_RE = process.platform === 'win32' ? /[A-Za-z]:\\[^\n"`*<>|]*?\.claudio-trilha\.jsx\b/g : /\/[^\n"`*<>|]*?\.claudio-trilha\.jsx\b/g;
+const musicDone = new Set((() => { try { return JSON.parse(localStorage.getItem('claudio-music-done') || '[]'); } catch (e) { return []; } })());
+const musicSave = () => { try { localStorage.setItem('claudio-music-done', JSON.stringify([...musicDone].slice(-50))); } catch (e) {} };
+function musicButtons(d, text) {
+  const seen = new Set();
+  for (const m of text.match(MUSIC_RE) || []) {
+    const p = m.trim();
+    if (seen.has(p) || !fs.existsSync(p)) continue;
+    seen.add(p);
+    const b = document.createElement('button');
+    b.className = 'import music';
+    b.dataset.plan = p;
+    b.textContent = 'Colocar a trilha nas sequências';
+    if (musicDone.has(p)) { b.disabled = true; b.textContent = 'trilha colocada'; }
+    b.onclick = () => placeMusic(p, b);
+    d.appendChild(document.createElement('br'));
+    d.appendChild(b);
+  }
+}
+async function placeMusic(p, b) {
+  if (musicDone.has(p) && b && b.disabled) return;
+  musicDone.add(p); musicSave();
+  if (b) { b.disabled = true; b.textContent = 'colocando a trilha…'; }
+  let P = { sequences: [] };
+  try { P = JSON.parse(fs.readFileSync(p, 'utf8').replace(/^\s*var CLAUDIO_MUSIC\s*=\s*/, '').replace(/;\s*$/, '')); } catch (e) {}
+  const bks = [];
+  for (const s of P.sequences) {                      // a backup of every sequence that is about to change
+    const id = s.id || await evalHost('claudioSeqIdByName(' + JSON.stringify(s.sequence) + ')');
+    const sn = id ? await snapshot(id) : null;
+    const bk = sn && await backup(sn);
+    if (bk) bks.push(bk);
+  }
+  let r = {};
+  try { r = JSON.parse(await evalHost('claudioPlaceMusic(' + JSON.stringify(p) + ')')); } catch (e) { r = { ok: false, error: String(e) }; }
+  const res = r.results || [];
+  const okN = res.filter((x) => x.ok).length;
+  const plan = (n) => P.sequences.find((s) => s.sequence === n) || {};
+  const rows = res.map((x) => {
+    const q = plan(x.sequence);
+    return x.ok ? `| ${x.sequence} | ${q.title || ''} | **${x.track}** | ${q.under_db === q.gaps_db ? `${q.gaps_db} dB (sem ducking)` : `${q.under_db} dB sob a fala · ${q.gaps_db} dB nos respiros`} | ${x.keys} |`
+      + ((x.errors || []).length ? ` ${x.errors.join('; ')}` : '')
+      : `| ${x.sequence} | — | — | não colocada: ${x.error || (x.errors || []).join('; ')} | — |`;
+  });
+  if (b) b.textContent = r.ok && okN ? `trilha colocada em ${okN} sequência(s)` : 'falhou — veja a mensagem';
+  if (!(r.ok && okN)) { musicDone.delete(p); musicSave(); if (b) b.disabled = false; }
+  add(r.ok && okN ? 'local' : 'local err', r.ok ? `**Trilha em ${okN} de ${res.length} sequência(s)**, cada uma numa trilha de áudio nova (nada que já estava mudou de lugar).\n\n` +
+    '| sequência | música | trilha | nível | keyframes |\n|---|---|---|---|---|\n' + rows.join('\n') +
+    `\n\nO ducking está nos keyframes de Volume › Nível do clipe de música: arraste os pontos se quiser mais ou menos. Backup antes: \`${bks.length ? path.dirname(bks[0]) : '—'}\`.`
+    : `Não coloquei a trilha: ${r.error}`);
+  return r;
+}
 function importButtons(d, text) {
   mogrtButtons(d, text);
   overlayButtons(d, text);
+  musicButtons(d, text);
   const seen = new Set();
   for (const m of text.match(XML_RE) || []) {
     const p = m.trim();
@@ -395,7 +450,54 @@ const cleanSpeech = (zoom, xml) => localJob(zoom ? 'limpando as falas (com zoom)
   }
 });
 const dur = (s) => clock(+s);
+// "Trilha sonora": the editor ticks the sequences, they are exported NOW (each one also a backup), and the AI takes it
+// from there with the Storyblocks connector (the word in the message loads it): brief, choose with the editor,
+// download into #trilhas, one plan that the panel places on new audio tracks
+async function musicMenu() {
+  await readContext();
+  let seqs = [];
+  try { seqs = JSON.parse(await evalHost('claudioSequences()')).sequences || []; } catch (e) {}
+  if (!seqs.length) return add('local err', 'Nenhuma sequência neste projeto.', false);
+  const d = add('local', 'Trilha sonora (Storyblocks): marque as sequências que vão ganhar música — uma música para todas ou uma para cada, o Claude pergunta depois.', false);
+  const picks = seqs.map((s) => {
+    const lb = document.createElement('label');
+    lb.style.cssText = 'display:block;margin-top:5px;font-size:11px;cursor:pointer';
+    const cb = document.createElement('input');
+    cb.type = 'checkbox'; cb.checked = s.name === ctx.sequence;
+    lb.append(cb, ' ' + s.name);
+    d.appendChild(lb);
+    return [cb, s];
+  });
+  const go = document.createElement('button');
+  go.className = 'primary'; go.textContent = 'Escolher a trilha';
+  go.onclick = async () => {
+    const sel = picks.filter(([cb]) => cb.checked).map(([, s]) => s);
+    if (!sel.length) return;
+    d.querySelectorAll('button, input').forEach((x) => (x.disabled = true));
+    connectorsUntil = Date.now() + 45 * 60 * 1000;
+    const xmls = [];
+    await localJob('exportando as sequências', async () => {
+      for (const q of sel) {
+        toolStart(`exportando ${q.name}`);
+        const sn = await snapshot(q.id);
+        const p = sn && await backup(sn);
+        if (p) xmls.push({ name: q.name, id: q.id, xml: p }); else add('local err', `${q.name}: não consegui exportar a sequência`);
+      }
+    });
+    if (!xmls.length) return;
+    send(`Trilha sonora pelo Storyblocks para estas sequências, exportadas AGORA do Premiere (use estes XMLs):\n` +
+      xmls.map((x) => `- "${x.name}" (sequence_id ${x.id}): ${x.xml}`).join('\n') +
+      `\n\n1) music_brief com esses XMLs; veja o perfil do cliente (client_profile) se houver — trilha/estilo da última vez. ` +
+      `2) Numa mensagem só, me pergunte o que faltar: mood/gênero (proponha um a partir do conteúdo), uma música para todas ou uma por sequência, e se a música que já existe em alguma fica. ` +
+      `3) Busque no conector Storyblocks (áudio/música; instrumental quando houver fala; BPM, energia e duração mínima do brief; prefira a versão com duração mais próxima) e mostre 3–5 opções por sequência numa tabela (título, BPM, duração, link de prévia), com uma recomendada. Espere a minha escolha. ` +
+      `4) Com a escolha: pegue o link de download no Storyblocks e rode fetch_music(url, job "${jobFolder()}", title = nome da música) para cada uma. ` +
+      `5) music_plan(job "${jobFolder()}", sequences = [{nle_xml, music, sequence_id}]) — mode auto, a não ser que eu peça outro trecho — e escreva o caminho completo do .claudio-trilha.jsx: o painel coloca sozinho, numa trilha de áudio nova de cada sequência, com backup antes. Não importe nem coloque a música pelo MCP do Premiere. ` +
+      `6) Resuma em 2–3 linhas por sequência: onde a música entra, de que ponto da música, nível sob a fala e nos respiros, e qualquer emenda (música repetida) para eu conferir.`);
+  };
+  d.appendChild(go);
+}
 const LOCAL = {
+  music: () => musicMenu(),
   clean: () => cleanSpeech(false),
   sfx: () => localJob('sonorizando', async () => {
     const x = await exportActive(); if (!x) return;
@@ -577,7 +679,7 @@ function droppedLine(r) {
   const d = r.dropped || [];
   if (!d.length) return '';
   const mg = d.filter((x) => /MOGRT/.test(x));
-  return (mg.length ? `\n\n**${mg.length} legenda(s) MOGRT ficaram de fora** (o XML não leva o texto delas): aplique as legendas de novo na sequência nova com o 17 (Legenda MOGRT).` : '') +
+  return (mg.length ? `\n\n**${mg.length} legenda(s) MOGRT ficaram de fora** (o XML não leva o texto delas): aplique as legendas de novo na sequência nova com o 18 (Legenda MOGRT).` : '') +
     (d.length > mg.length ? `\n\nTambém ficou de fora: ${d.filter((x) => !/MOGRT/.test(x)).slice(0, 6).join('; ')}` : '');
 }
 async function mogrtRun(style, srt) {
@@ -720,8 +822,10 @@ async function ensureBridge() {
   }
   return (bridgeUp = false);
 }
+// the soundtrack flow spans several messages ("a segunda", "pode baixar"): Storyblocks stays loaded for a while
+let connectorsUntil = 0;
 function mcpArgs(text) {
-  if (connectorsOn || WANTS_CONNECTORS.test(text)) return [];
+  if (connectorsOn || WANTS_CONNECTORS.test(text) || Date.now() < connectorsUntil) return [];
   try {
     const all = (JSON.parse(fs.readFileSync(path.join(os.homedir(), '.claude.json'), 'utf8')).mcpServers) || {};
     if (!all.claudio || !all['premiere-pro']) return [];
@@ -733,7 +837,7 @@ function mcpArgs(text) {
     return ['--strict-mcp-config', '--mcp-config', f, '--append-system-prompt',
       'Nesta mensagem o conector Vault NÃO está carregado (economia de tokens do painel). Não tente registrar no vault nem ' +
       'escreva o texto para colar: se houver decisão ou informação nova que valha registrar, termine com uma linha só ' +
-      'pedindo para apertar "18 Registrar no vault" — esse botão roda com o conector e continua esta mesma conversa.'];
+      'pedindo para apertar "20 Registrar no vault" — esse botão roda com o conector e continua esta mesma conversa.'];
   } catch (e) { return []; }
 }
 
@@ -791,7 +895,10 @@ async function send(text) {
       if (ev.type === 'system' && ev.session_id) { localStorage.setItem(sessionKey, ev.session_id); saveHist(); }
       if (ev.type === 'assistant' && ev.message && ev.message.content) {
         for (const b of ev.message.content) {
-          if (b.type === 'text' && b.text.trim()) { cur = add('claude', b.text); importButtons(cur, b.text); $('#status').textContent = ''; }
+          if (b.type === 'text' && b.text.trim()) {
+            cur = add('claude', b.text); importButtons(cur, b.text); $('#status').textContent = '';
+            cur.querySelectorAll('button.music:not([disabled])').forEach((m) => placeMusic(m.dataset.plan, m));
+          }
           if (b.type === 'tool_use') {
             const name = b.name.replace(/^mcp__/, '').replace('__', ' › ');
             add('tool', name);

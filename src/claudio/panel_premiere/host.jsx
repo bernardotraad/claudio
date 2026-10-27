@@ -230,3 +230,89 @@ function claudioSeqIdByName(name) {
     } catch (e) {}
     return '';
 }
+
+// ── soundtrack (.claudio-trilha.jsx): each sequence of the plan gets its song on a NEW audio track (never one with
+// clips), trimmed as planned, with the ducking as Volume › Level keyframes. QE adds tracks only to the active
+// sequence, so each one is opened in turn and the editor's sequence is made active again at the end. ─────────────
+function claudioDbToLevel(db) { return Math.pow(10, (db - 15) / 20); }          // Premiere's Level: 1.0 = +15 dB
+function claudioBin(name) {
+    var r = app.project.rootItem;
+    for (var i = 0; i < r.children.numItems; i++) if (r.children[i].type === ProjectItemType.BIN && r.children[i].name === name) return r.children[i];
+    return r.createBin(name) || app.project.getInsertionBin();
+}
+function claudioLevelParam(clip) {
+    for (var c = 0; c < clip.components.numItems; c++) {
+        var cm = clip.components[c];
+        for (var k = 0; k < cm.properties.numItems; k++) if (/^(Level|N[ií]vel)$/i.test(cm.properties[k].displayName)) return cm.properties[k];
+    }
+    try { return clip.components[0].properties[1]; } catch (e) { return null; }
+}
+function claudioKey(lvl, sec, val) {
+    var t = new Time(); t.seconds = sec;
+    try { lvl.addKey(t); lvl.setValueAtKey(t, val, true); } catch (e) { lvl.addKey(sec); lvl.setValueAtKey(sec, val, true); }
+}
+function claudioMusicOne(S) {
+    var p = app.project, seq = null, head = '"sequence":' + q(S.sequence);
+    if (S.id) seq = claudioSeqById(S.id);
+    if (!seq) { var sid = claudioSeqIdByName(S.sequence); if (sid) seq = claudioSeqById(sid); }
+    if (!seq) return '{' + head + ',"ok":false,"error":"sequência não encontrada"}';
+    if (!new File(S.music).exists) return '{' + head + ',"ok":false,"error":' + q('música não encontrada: ' + S.music) + '}';
+    p.openSequence(seq.sequenceID);
+    if (!p.activeSequence || p.activeSequence.sequenceID != seq.sequenceID) return '{' + head + ',"ok":false,"error":"não consegui abrir a sequência"}';
+    var key = String(S.music).replace(/\//g, '\\').toLowerCase();
+    var item = claudioFindItemByPath(p.rootItem, key);
+    if (!item) {
+        p.importFiles([S.music], true, claudioBin('Trilhas'), false);
+        item = claudioFindItemByPath(p.rootItem, key);
+    }
+    if (!item) return '{' + head + ',"ok":false,"error":' + q('não consegui importar ' + S.music) + '}';
+    var n0 = seq.audioTracks.numTracks;
+    app.enableQE();
+    qe.project.getActiveSequence().addTracks(0, 0, 1, 1, n0, 0, 0);          // one stereo audio track after the last
+    var ai = seq.audioTracks.numTracks - 1;
+    if (ai < n0) return '{' + head + ',"ok":false,"error":"não consegui criar a trilha de áudio nova"}';
+    var tr = seq.audioTracks[ai];
+    try { tr.name = 'Trilha ' + S.title; } catch (eN) {}
+    var placed = 0, keys = 0, errs = [];
+    for (var i = 0; i < S.segments.length; i++) {
+        var g = S.segments[i];
+        try {
+            item.setInPoint(g.src_in, 4); item.setOutPoint(g.src_out, 4);
+            var t0 = new Time(); t0.seconds = g.tl_in;
+            tr.overwriteClip(item, t0);
+            var clip = null;
+            for (var j = 0; j < tr.clips.numItems; j++) if (Math.abs(tr.clips[j].start.seconds - g.tl_in) < 0.05) clip = tr.clips[j];
+            if (!clip) { errs.push('trecho ' + (i + 1) + ': não entrou na trilha'); continue; }
+            placed++;
+            var lvl = claudioLevelParam(clip);
+            if (!lvl) { errs.push('trecho ' + (i + 1) + ': sem o controle Volume › Nível'); continue; }
+            lvl.setTimeVarying(true);
+            // keyframe times are on the clip's media clock: in point + time since the clip started on the timeline
+            for (var k = 0; k < g.keys.length; k++) {
+                claudioKey(lvl, clip.inPoint.seconds + (g.keys[k][0] - clip.start.seconds), claudioDbToLevel(g.keys[k][1]));
+                keys++;
+            }
+        } catch (eS) { errs.push('trecho ' + (i + 1) + ': ' + eS); }
+    }
+    try { item.clearInPoint(); item.clearOutPoint(); } catch (eC) {}
+    var o = []; for (var e = 0; e < errs.length && e < 10; e++) o.push(q(errs[e]));
+    return '{' + head + ',"ok":' + (placed > 0 ? 'true' : 'false') + ',"track":"A' + (ai + 1) + '","placed":' + placed +
+           ',"segments":' + S.segments.length + ',"keys":' + keys + ',"errors":[' + o.join(',') + ']}';
+}
+function claudioPlaceMusic(planPath) {
+    try {
+        var f = new File(planPath);
+        if (!f.exists) return '{"ok":false,"error":' + q('plano não encontrado: ' + planPath) + '}';
+        $.evalFile(f);
+        var P = CLAUDIO_MUSIC, p = app.project;
+        var orig = p.activeSequence ? p.activeSequence.sequenceID : null, out = [];
+        for (var i = 0; i < P.sequences.length; i++) {
+            try { out.push(claudioMusicOne(P.sequences[i])); }
+            catch (e1) { out.push('{"sequence":' + q(P.sequences[i].sequence) + ',"ok":false,"error":' + q(e1.toString()) + '}'); }
+        }
+        if (orig) { try { p.openSequence(orig); } catch (e2) {} }
+        return '{"ok":true,"results":[' + out.join(',') + ']}';
+    } catch (e) {
+        return '{"ok":false,"error":' + q(e.toString()) + '}';
+    }
+}

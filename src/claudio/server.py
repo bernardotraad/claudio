@@ -1156,6 +1156,38 @@ def add_sfx(nle_xml: str, out_xml: str = None, whoosh: bool = True, pops: bool =
 
 
 @mcp.tool()
+def music_brief(nle_xmls: list) -> list:
+    """SOUNDTRACK step 1, per sequence (FCP XMLs the panel exported now): exact length, share of speech (→ instrumental,
+    a bed under the voice), cut pace, music already in the cut, and the search constraints (instrumental, BPM range,
+    energy, minimum duration) for the Storyblocks connector. Then ask the editor, in ONE message: mood/genre (propose
+    one from the content and the client profile), one track for all sequences or one each, and whether music already
+    there stays. Show 3–5 Storyblocks options per sequence (title, BPM, duration, preview link), recommend one."""
+    from claudio import music
+    return [music.brief(x) for x in nle_xmls]
+
+
+@mcp.tool()
+def fetch_music(url: str, job: str, title: str = None) -> dict:
+    """SOUNDTRACK step 2: put the chosen track in <job>/#trilhas — a download link (Storyblocks: the URL its download
+    tool returns, after the editor picked the track) or a local file of the editor's. Named by `title`."""
+    from claudio import music
+    return music.fetch(url, job, title)
+
+
+@mcp.tool()
+def music_plan(job: str, sequences: list) -> dict:
+    """SOUNDTRACK step 3, all sequences in one plan: sequences = [{nle_xml, music (fetch_music path), sequence_id?
+    (from the panel), mode? ('auto' · 'fim' = the song's real ending on the end of the cut · 'inicio' · 'janela' = the
+    best stretch), start? (seconds of the song, forces the entry), duck? (default true), gain_db? (editor's level)}].
+    Level from measured loudness: music ~18 LU under the speech, ~6 LU under in pauses ≥ 2.5 s, −14 LUFS when there
+    is no speech; Volume keyframes ramp down before each line. Writes <job>/#trilhas/trilha <stamp>.claudio-trilha.jsx:
+    write its full path in the answer — the panel places each song on a NEW audio track of its sequence (backup first).
+    Never import or place the music through the Premiere MCP."""
+    from claudio import music
+    return music.plan(job, sequences)
+
+
+@mcp.tool()
 def event_recap(project: str, footage: str, music: str, duration: float = 45, aspect: str = '9:16', pace: str = 'fast',
                 music_start: float = None, name: str = None, end_card: str = None, audio: str = 'mute',
                 faces: bool = True) -> dict:
@@ -1327,8 +1359,9 @@ marked "(Recomendado)" with a one-line reason). Skip what the request already an
    style · discreet · no — captions may be better made in the NLE) · Which NLE (Premiere · Resolve).
 5. MUSIC FIRST: user's track · one from the folder · a licensed track from Storyblocks · no music (direct sound / the
    show itself). For Storyblocks (when its connector is available): search_audio by the mood/genre/BPM the editor gave,
-   show 3–5 options (title, BPM, duration, link), and only after they pick one get_download_url — they download it into
-   the job's music folder; never claim a track is licensed for a use you didn't check. music_map → one line:
+   show 3–5 options (title, BPM, duration, link), and only after they pick one get_download_url → fetch_music puts it in
+   <job>/#trilhas; never claim a track is licensed for a use you didn't check. Music for a cut that is ALREADY on the
+   timeline: music_brief → choose → fetch_music → music_plan (the panel places it on a new audio track, ducked). music_map → one line:
    BPM (+ half-time reading), sections, drop, silences. music_windows(duration) → offer the 2–3 best stretches.
 6. PACE & SOUND (one call): pace (follow the music · calm · medium · fast) · cuts on beat or bar · original sound
    (speech in front, music ducked · low ambience · music only) · opening/closing (hook in 3 s, end card file, CTA).
