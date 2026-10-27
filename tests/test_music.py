@@ -38,6 +38,15 @@ def test_envelope_ducks_under_speech_and_holds_short_pauses():
     assert k[0][0] == 0.0 and k[-1][0] == 20.0
 
 
+def test_closing_card_comes_up_near_the_voice():
+    k = music.envelope([(0.5, 22.5)], 0.0, 28.0, -24.0, -12.0, -8.0, (0.0, 28.0))
+    at = lambda t: music._at(k, t, None)
+    assert at(10.0) == -24.0 and at(27.0) == -8.0          # vinheta: 5.5 s without speech at the end
+    assert at(0.0) == -24.0                                  # 0.5 s before the first line is not an opening
+    k = music.envelope([(5.0, 10.0), (20.0, 26.0)], 0.0, 28.0, -24.0, -12.0, -8.0, (0.0, 28.0))
+    assert music._at(k, 1.0, None) == -8.0 and music._at(k, 15.0, None) == -12.0 and music._at(k, 27.9, None) == -12.0   # 2 s after the last line: just a pause
+
+
 def test_fades_on_the_ends():
     k = music.with_fades([(0.0, -10.0), (30.0, -10.0)], 0.0, 30.0, 1.0, 2.0)
     assert k[0] == (0.0, music.FLOOR_DB) and k[-1] == (30.0, music.FLOOR_DB)
@@ -50,8 +59,9 @@ def test_fit_ending_lands_on_the_end_of_the_cut(song):
     s = f['segments'][0]
     assert abs(s['src_out'] - 39.0) < 0.4                      # the audible end, not the silence after it
     assert abs(s['tl_in'] + (s['src_out'] - s['src_in']) - 25.0) < 0.01
-    assert 0 <= s['tl_in'] < 2.1                               # enters on a downbeat at most a bar late
-    assert abs((s['src_in'] * 2) - round(s['src_in'] * 2)) < 0.06   # on the beat grid (0.5 s)
+    assert 0 <= s['tl_in'] <= music.ENTRY_SNAP                 # music from the start of the cut, never a bar late
+    on_grid = abs((s['src_in'] * 2) - round(s['src_in'] * 2)) < 0.06
+    assert on_grid or (s['tl_in'] == 0 and f['fade_in'] == 1.0)    # on a downbeat, or faded in from 0 s
 
 
 @needs_ffmpeg

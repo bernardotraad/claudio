@@ -256,7 +256,7 @@ async function placeMusic(p, b) {
   const plan = (n) => P.sequences.find((s) => s.sequence === n) || {};
   const rows = res.map((x) => {
     const q = plan(x.sequence);
-    return x.ok ? `| ${x.sequence} | ${q.title || ''} | **${x.track}** | ${q.under_db === q.gaps_db ? `${q.gaps_db} dB (sem ducking)` : `${q.under_db} dB sob a fala · ${q.gaps_db} dB nos respiros`} | ${x.keys} |`
+    return x.ok ? `| ${x.sequence} | ${q.title || ''} | **${x.track}** | ${q.under_db === q.gaps_db ? `${q.gaps_db} dB (sem ducking)` : `${q.under_db} dB sob a fala · ${q.gaps_db} dB nos respiros` + (q.ends_db != null && q.ends_db !== q.gaps_db ? ` · ${q.ends_db} dB na abertura/vinheta` : '')} | ${x.keys} |`
       + ((x.errors || []).length ? ` ${x.errors.join('; ')}` : '')
       : `| ${x.sequence} | — | — | não colocada: ${x.error || (x.errors || []).join('; ')} | — |`;
   });

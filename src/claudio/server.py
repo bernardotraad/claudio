@@ -1179,8 +1179,8 @@ def music_plan(job: str, sequences: list) -> dict:
     """SOUNDTRACK step 3, all sequences in one plan: sequences = [{nle_xml, music (fetch_music path), sequence_id?
     (from the panel), mode? ('auto' · 'fim' = the song's real ending on the end of the cut · 'inicio' · 'janela' = the
     best stretch), start? (seconds of the song, forces the entry), duck? (default true), gain_db? (editor's level)}].
-    Level from measured loudness: music ~18 LU under the speech, ~6 LU under in pauses ≥ 2.5 s, −14 LUFS when there
-    is no speech; Volume keyframes ramp down before each line. Writes <job>/#trilhas/trilha <stamp>.claudio-trilha.jsx:
+    Level from measured loudness: music ~18 LU under the speech, ~6 LU under in pauses ≥ 2.5 s, ~2 LU under on an
+    opening/closing card with no speech (≥ 3 s), −14 LUFS when there is no speech at all; Volume keyframes ramp down before each line. Writes <job>/#trilhas/trilha <stamp>.claudio-trilha.jsx:
     write its full path in the answer — the panel places each song on a NEW audio track of its sequence (backup first).
     Never import or place the music through the Premiere MCP."""
     from claudio import music

@@ -17,12 +17,15 @@ from claudio import core
 
 UNDER_SPEECH_LU = 18.0      # music this far below the speech while someone talks
 GAP_LU = 6.0                # …and this far below it in the breathing room between lines
+ENDS_LU = 2.0               # opening / closing card with no speech (≥ ENDS_MIN s): the music comes up near the voice
+ENDS_MIN = 3.0
 NO_SPEECH_LUFS = -14.0      # a cut without speech: the music is the mix (social platforms' target)
 MIN_GAP = 2.5               # a pause shorter than this stays ducked (no pumping between sentences)
 PRE, DOWN, POST, UP = 0.15, 0.35, 0.25, 0.8    # duck lands PRE s before the voice over DOWN s; comes back over UP s
 SILENT_DB = -45.0
 MAX_GAIN = 15.0             # Premiere's clip Volume tops out at +15 dB
 FLOOR_DB = -40.0            # level at the outer ends of a fade
+ENTRY_SNAP = 0.25           # a downbeat this close after the needed start is taken (music starts that late)
 
 
 def _safe(s):
@@ -171,7 +174,8 @@ def audible(path, sr=8000, win=0.05):
 
 def fit(path, duration, mode='auto', start=None):
     """Where the song plays on a cut of `duration` s, as segments {src_in, src_out, tl_in} (+ fade_in/fade_out):
-      fim     its real ending lands on the end of the cut; it enters on the first downbeat after the needed start
+      fim     its real ending lands on the end of the cut; it enters at 0 s (on a downbeat if one is that close,
+              else faded in over 1 s)
       inicio  from the top of the song, faded out at the end of the cut
       janela  the best stretch (music_windows: downbeats, drop inside, ends on a section change), faded out
       auto    fim when the song is at most ~2.5× the cut, else janela
@@ -181,7 +185,6 @@ def fit(path, duration, mode='auto', start=None):
     m = montage.music_map(path)
     a0, a1 = audible(path)
     db = [d for d in m['downbeats'] if a0 - 0.05 <= d < a1]
-    bar = m['beat_sec'] * 4                              # meter is assumed 4/4 by music_map
     D = a1 - a0
     if mode == 'auto':
         mode = 'fim' if D <= 2.5 * duration else 'janela'
@@ -202,7 +205,9 @@ def fit(path, duration, mode='auto', start=None):
                 'joins': [s['tl_in'] for s in segs[1:]]}
     if mode == 'fim':
         need = a1 - duration
-        cand = [d for d in db if need - 0.02 <= d <= need + bar]
+        # a downbeat right at the needed start → enter on it; otherwise from 0 s with a 1 s fade-in (waiting for the next
+        # downbeat left the first 2 s of the INC 9 Robson reel without music)
+        cand = [d for d in db if need - 0.02 <= d <= need + ENTRY_SNAP]
         s = cand[0] if cand else max(a0, need)
         return {'mode': 'fim', 'segments': [{'src_in': round(s, 3), 'src_out': round(a1, 3), 'tl_in': round(s - need, 3)}],
                 'fade_in': 0.05 if cand or s <= a0 + 0.05 else 1.0, 'fade_out': 0.0}
@@ -225,7 +230,7 @@ def _lufs(x):
 
 
 def levels(path, segs, tl, has_speech, speech_lufs=None):
-    """Clip levels in dB: (under the speech, in the gaps). Measured loudness of the part of the song that plays vs the
+    """Clip levels in dB: (under the speech, in the gaps, on an opening/closing card). Measured loudness of the part of the song that plays vs the
     speech in the cut; without speech the song alone goes to NO_SPEECH_LUFS."""
     from claudio import qc
     mus = np.concatenate([qc._clip_audio(path, s['src_in'], s['src_out']) for s in segs])
@@ -237,19 +242,21 @@ def levels(path, segs, tl, has_speech, speech_lufs=None):
         except Exception:
             speech_lufs = None
     if mu is None:
-        return 0.0, 0.0, {'music_lufs': None, 'speech_lufs': speech_lufs}
+        return 0.0, 0.0, 0.0, {'music_lufs': None, 'speech_lufs': speech_lufs}
     if not has_speech:
         g = min(MAX_GAIN, NO_SPEECH_LUFS - mu)
-        return round(g, 1), round(g, 1), {'music_lufs': mu, 'speech_lufs': None}
+        return round(g, 1), round(g, 1), round(g, 1), {'music_lufs': mu, 'speech_lufs': None}
     sp = speech_lufs if speech_lufs is not None else -16.0          # speech not measurable (not indexed): a normal voice
     under = min(MAX_GAIN, sp - UNDER_SPEECH_LU - mu)
     up = min(MAX_GAIN, sp - GAP_LU - mu)
-    return round(under, 1), round(up, 1), {'music_lufs': mu, 'speech_lufs': speech_lufs}
+    ends = min(MAX_GAIN, sp - ENDS_LU - mu)
+    return round(under, 1), round(up, 1), round(ends, 1), {'music_lufs': mu, 'speech_lufs': speech_lufs}
 
 
-def envelope(spans, t0, t1, under, up):
+def envelope(spans, t0, t1, under, up, ends=None, cut=None):
     """Volume keyframes [(timeline s, dB)] between t0 and t1: `up` in the gaps, `under` while someone speaks; pauses
-    shorter than MIN_GAP stay down."""
+    shorter than MIN_GAP stay down. Before the first line / after the last one, when that stretch of the cut (`cut` =
+    its start, end) is at least ENDS_MIN s — the opening, the closing card — the music goes to `ends`."""
     merged = []
     for a, b in spans:
         if b < t0 or a > t1:
@@ -260,10 +267,17 @@ def envelope(spans, t0, t1, under, up):
             merged.append([a, b])
     if under == up or not merged:
         return [(t0, up), (t1, up)] if not merged else [(t0, under), (t1, under)]
+    c0, c1 = cut or (t0, t1)
+    head = ends if ends is not None and merged[0][0] - c0 >= ENDS_MIN else up
+    tail = ends if ends is not None and c1 - merged[-1][1] >= ENDS_MIN else up
     k = []
-    for a, b in merged:
-        k += [(a - PRE - DOWN, up), (a - PRE, under), (b + POST, under), (b + POST + UP, up)]
-    pts = [(t0, _at(k, t0, up))] + [(t, v) for t, v in k if t0 < t < t1] + [(t1, _at(k, t1, up))]
+    for n, (a, b) in enumerate(merged):
+        if n == 0 and a - PRE - DOWN <= c0 + 0.3:          # the cut opens on the voice: down from the first frame
+            k += [(c0, under)]
+        else:
+            k += [(a - PRE - DOWN, head if n == 0 else up), (a - PRE, under)]
+        k += [(b + POST, under), (b + POST + UP, tail if n == len(merged) - 1 else up)]
+    pts = [(t0, _at(k, t0, head))] + [(t, v) for t, v in k if t0 < t < t1] + [(t1, _at(k, t1, tail))]
     out = []
     for t, v in pts:                                    # drop the middle of a flat run
         if len(out) >= 2 and out[-1][1] == v and out[-2][1] == v:
@@ -300,18 +314,19 @@ def plan_sequence(nle_xml, music, mode='auto', start=None, sequence_id=None, wor
     path = core.local_path(music)
     f = fit(path, dur, mode, start)
     spans, unindexed = speech_spans(nle_xml, tl, words) if duck else ([], [])
-    under, up, meas = levels(path, f['segments'], tl, bool(spans))
+    under, up, ends, meas = levels(path, f['segments'], tl, bool(spans))
     if gain_db is not None:                              # the editor's own level: same duck depth around it
-        under, up = round(float(gain_db) - (up - under), 1), float(gain_db)
+        g = float(gain_db)
+        under, ends, up = round(g - (up - under), 1), round(min(MAX_GAIN, g + ends - up), 1), g
     segs = []
     for k, s in enumerate(f['segments']):
         t0, t1 = s['tl_in'], s['tl_in'] + s['src_out'] - s['src_in']
-        keys = envelope(spans, t0, t1, under, up)
+        keys = envelope(spans, t0, t1, under, up, ends, (0.0, dur))
         keys = with_fades(keys, t0, t1, f['fade_in'] if k == 0 else 0, f['fade_out'] if k == len(f['segments']) - 1 else 0)
         segs.append({**s, 'tl_out': round(t1, 3), 'keys': keys})
     ducked = sum(1 for a, b in spans if b > 0 and a < dur)
     return {'sequence': tl['name'], 'id': sequence_id, 'music': core.nle_path(path), 'title': os.path.splitext(os.path.basename(path))[0],
-            'mode': f['mode'], 'segments': segs, 'joins': f.get('joins', []), 'under_db': under, 'gaps_db': up,
+            'mode': f['mode'], 'segments': segs, 'joins': f.get('joins', []), 'under_db': under, 'gaps_db': up, 'ends_db': ends,
             'speech_lufs': meas['speech_lufs'], 'music_lufs': meas['music_lufs'], 'speech_spans': ducked,
             'not_indexed_speech': unindexed, 'duration': round(dur, 2)}
 
@@ -326,7 +341,7 @@ def plan(job, sequences, words=None):
     stamp = datetime.datetime.now().strftime('%Y%m%d-%H%M%S')
     p = os.path.join(d, f'trilha {stamp}.claudio-trilha.jsx')
     open(p, 'w', encoding='utf-8').write('var CLAUDIO_MUSIC = ' + json.dumps({'sequences': out}, ensure_ascii=False) + ';\n')
-    summary = [{k: s[k] for k in ('sequence', 'title', 'mode', 'under_db', 'gaps_db', 'speech_spans', 'joins', 'not_indexed_speech')}
+    summary = [{k: s[k] for k in ('sequence', 'title', 'mode', 'under_db', 'gaps_db', 'ends_db', 'speech_spans', 'joins', 'not_indexed_speech')}
                | {'starts_at': s['segments'][0]['tl_in'], 'song_from': s['segments'][0]['src_in']} for s in out]
     return {'plan': core.nle_path(p), 'sequences': summary,
             'next': 'escreva o caminho do plano na resposta: o painel coloca a música numa trilha de áudio NOVA de cada '
