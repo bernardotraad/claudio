@@ -579,7 +579,8 @@ def _retime(orig, new_text):
                 e0 = s0 + 0.12 * (j2 - j1)
             step = (e0 - s0) / max(j2 - j1, 1)
             out += [{'w': nw[j1 + q], 's': round(s0 + q * step, 3), 'e': round(s0 + (q + 1) * step, 3)} for q in range(j2 - j1)]
-    return out
+    from claudio import captions
+    return captions.amounts_at_once(out)
 
 
 _TOK = re.compile(r"[\w'’-]+", re.U)
@@ -686,6 +687,8 @@ def corrected_timeline_words(nle_xml, corrected=None, fix=None, remember=True):
         for a, b in (fix or {}).items():
             w['w'] = re.sub(re.escape(a), b, w['w'], flags=re.I)
     out.sort(key=lambda w: w['s'])
+    from claudio import captions
+    captions.amounts_at_once(out)                   # also "R$" + "750" as the transcript wrote them
     return {**tw, 'words': out, 'corrections_applied': sum(1 for s in sent if corrected.get(s['id']) and corrected[s['id']].strip() != s['text']),
             'learned_vocabulary': sorted(set(learned))}
 

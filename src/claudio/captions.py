@@ -74,6 +74,29 @@ def _is_num(w):
     return bool(b) and (any(ch.isdigit() for ch in b) or b in NUMBER_WORDS or b in ('r$', '$'))
 
 
+_MAGNITUDE = {'mil', 'milhão', 'milhões', 'bilhão', 'bilhões'}
+
+
+def amounts_at_once(W):
+    """A written amount ("R$ 750", "R$ 3.500", "R$ 55 mil") shows whole on the first word of its speech: "R$" alone
+    while "setecentos e cinquenta reais" is still being said is suspense nobody wants on a price. Every token of the
+    run comes in on the run's first word and goes out on its last. In place; returns W."""
+    money = lambda k: W[k]['w'].strip().upper() in ('R$', '$', 'US$') or any(ch.isdigit() for ch in W[k]['w'])
+    i = 0
+    while i < len(W):
+        j = i
+        while j < len(W) and (money(j) or j > i and _bare(W[j]['w']) in _MAGNITUDE):
+            j += 1
+            if re.search(r'[,.;:?!…]$', W[j - 1]['w']):
+                break                                   # "R$ 750, e entrada…": the amount ends at its comma
+        if j - i > 1:
+            s, e = W[i]['s'], max(w['e'] for w in W[i:j])
+            for w in W[i:j]:
+                w['s'], w['e'] = s, e
+        i = max(j, i + 1)
+    return W
+
+
 def _in_number(W, i):
     """Is the break after word i inside a spoken number/amount ("vinte e | quatro", "R$ | 750", "setenta | e duas")?"""
     a, b = W[i]['w'], W[i + 1]['w']
