@@ -1107,15 +1107,27 @@ def premiere_captions(prproj: str, sequence: str, nle_xml: str = None, track: st
 
 
 @mcp.tool()
-def clean_speech(nle_xml: str, out_xml: str = None, max_pause: float = 0.45, fillers: bool = True,
+def clean_speech(nle_xml: str, out_xml: str = None, pace: str = 'apertado', max_pause: float = None, fillers: bool = True,
+                 notes: bool = True, crossfade: bool = True, zoom: bool = False, punch: list = None, preview: bool = False,
                  extra_fillers: list = None, keep_tracks: list = None, dialogue_track: str = 'A1') -> dict:
-    """Tighten a sequence the editor already cut: pauses longer than max_pause between words and hesitation sounds
-    ("ãh", "hum", a drawn-out "é…") come out, rippled across every track so picture, b-roll and speech stay in sync;
-    music beds (audio-only files that are not the dialogue) keep playing untouched. Writes a NEW sequence
-    "<name> (limpo)" next to the XML and lists every cut. Whisper often leaves hesitations out of the transcript, so
-    the pauses are the reliable part. Give the editor the XML path (the panel shows the import button)."""
+    """Tighten a sequence the editor already cut: long pauses and hesitation sounds ("ãh", "hum", a drawn-out "é…")
+    come out, rippled across every track so picture, b-roll and speech stay in sync; music beds (audio-only files that
+    are not the dialogue) keep playing untouched. Writes a NEW sequence "<name> (limpo)" next to the XML and lists
+    every cut. Give the editor the XML path (the panel shows the import button).
+    pace: apertado (pause > 0.45 s → 0.25 s, the default) · medio (0.7 → 0.4) · solto (1.0 → 0.6, vlog/event);
+    preview=True only reports what each pace would cut and save — show it when the editor is unsure.
+    notes: cuts what was said for the editor, not the audience — set commands on their own ("Ação.", "três, dois,
+    um, valendo"), an utterance that talks to the editor ("editor, põe o drone aqui") and an announced restart ("vou
+    de novo", "errei", with the abandoned attempt when the next one opens the same way); each leaves a marker.
+    "aqui entra…" without the word editor only gets a yellow marker to check.
+    crossfade: a 2-frame audio crossfade on every join a cut made, so joins don't click.
+    zoom=True: the pieces of one shot after a cut alternate 100 % / 107.5 % (reads as a second camera); a new shot
+    opens at 100 %. punch = [[from, to], …] seconds on THIS sequence's clock: that line pushed in to 115 %, back
+    right after. Propose punch lines yourself (the one that lands: price, payoff, strong claim — about one per
+    20–30 s of a short, from caption_sentences' tl_s/tl_e) and only pass the ones the editor approved."""
     from claudio import cleanup
-    return cleanup.clean_speech(nle_xml, out_xml, max_pause, fillers, extra_fillers or (), keep_tracks, dialogue_track)
+    return cleanup.clean_speech(nle_xml, out_xml, max_pause, fillers, extra_fillers or (), keep_tracks, dialogue_track,
+                                pace, notes, crossfade, zoom, punch, preview)
 
 
 @mcp.tool()

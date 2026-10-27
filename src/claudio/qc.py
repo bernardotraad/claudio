@@ -114,6 +114,7 @@ def qc_timeline(nle_xml, platform=None, seq_size=None):
     for (a, la), (b, lb) in zip(levels, levels[1:]):
         if abs(la - lb) > 6:
             add('aviso', b['tl_in'], 'salto de volume entre falas', f"{a['name']} {la:.0f} dB → {b['name']} {lb:.0f} dB (ajustar ganho)")
+    voice_issues(tl, add, a1, auds)
     # delivery
     if platform:
         pf = PLATFORMS.get(platform.lower())
@@ -127,6 +128,67 @@ def qc_timeline(nle_xml, platform=None, seq_size=None):
             'summary': {'erros': sum(x['severity'] == 'erro' for x in issues), 'avisos': sum(x['severity'] == 'aviso' for x in issues)},
             'issues': issues,
             'markers_hint': 'add each issue as a marker in the NLE (Premiere add_marker / Resolve add_marker) so the editor sees it in place'}
+
+
+# ───────────────────────────── how the voice sounds ─────────────────────────────
+MUFFLED_DB = -20       # energy above 3 kHz vs the whole voice: ~−10…−15 dB clean, ~−22 dB with the lav under a jacket
+
+
+def _stereo(path, s, e, sr=48000):
+    """(L, R) float samples of a source range at full bandwidth (the index keeps only 16 kHz mono)."""
+    import subprocess
+    raw = subprocess.run(['ffmpeg', '-v', 'error', '-ss', f'{s:.3f}', '-t', f'{e - s:.3f}', '-i', core.local_path(path), '-vn',
+                          '-ac', '2', '-ar', str(sr), '-f', 's16le', '-'], capture_output=True).stdout
+    x = np.frombuffer(raw, np.int16).astype(np.float32) / 32768.0
+    return x[0::2], x[1::2]
+
+
+def voice_report(path, s, e, sr=48000):
+    """How a stretch of speech sounds, measured: the share of energy above 3 kHz (a covered / badly placed mic loses
+    it) and whether left and right are two different mics summed (comb filtering: "lata", "debaixo d'água")."""
+    L, R = _stereo(path, s, min(e, s + 25), sr)
+    if len(L) < sr:
+        return None
+    m = (L + R) / 2
+    spec = np.abs(np.fft.rfft(m * np.hanning(len(m)))) ** 2
+    fr = np.fft.rfftfreq(len(m), 1 / sr)
+    tot = spec[fr > 80].sum() + 1e-12
+    band = lambda lo, hi=sr: float(10 * np.log10(spec[(fr >= lo) & (fr < hi)].sum() / tot + 1e-12))
+    lv = lambda x: float(20 * np.log10(np.sqrt(np.mean(x ** 2)) + 1e-9))
+    both = lv(L) > -45 and lv(R) > -45
+    corr = float(np.corrcoef(L, R)[0, 1]) if both else None
+    return {'below_300_db': round(band(80, 300), 1), 'above_3k_db': round(band(3000), 1), 'above_6k_db': round(band(6000), 1),
+            'lr_corr': None if corr is None else round(corr, 2), 'left_db': round(lv(L), 1), 'right_db': round(lv(R), 1)}
+
+
+def voice_issues(tl, add, a1, auds):
+    """QC lines about the voice itself: muffled (lav covered), two different mics on L/R, and a near-silent clip
+    boosted into hiss by its gain."""
+    seen = set()
+    for i in a1:
+        if i['path'] in seen or not i['enabled'] or not os.path.exists(i['path']):
+            continue
+        seen.add(i['path'])
+        try:
+            r = voice_report(i['path'], i['src_in'], i['src_out'])
+        except Exception:
+            continue
+        if not r:
+            continue
+        if r['above_3k_db'] < MUFFLED_DB:
+            add('aviso', i['tl_in'], 'voz abafada', f"{i['name']}: agudos (>3 kHz) {r['above_3k_db']} dB do total (limpa ≈ −10…−15) — "
+                f"lapela coberta pela roupa ou mal posicionada? EQ: passa-alta 80 Hz, −3 dB em 250 Hz, +3 dB em 3,5 kHz, +2 dB shelf em 10 kHz")
+        if r['lr_corr'] is not None and r['lr_corr'] < 0.5:
+            add('aviso', i['tl_in'], 'dois microfones diferentes em L/R', f"{i['name']}: correlação L/R {r['lr_corr']} — somados dão "
+                f"som de lata/eco; use um canal só (stereo_fix)")
+    for i in auds:
+        g = float(i.get('gain', 1.0) or 1.0)
+        if not i['path'] or not i['enabled'] or g < 2.0:                    # < +6 dB
+            continue
+        lv, _ = _speech_db(i['path'], i['src_in'], i['src_out'])
+        if lv is not None and lv < -50:
+            add('aviso', i['tl_in'], 'clipe quase mudo com ganho alto', f"{i['name']}: {lv:.0f} dBFS na fonte com +{20 * np.log10(g):.0f} dB "
+                f"— vira chiado; volte para 0 dB")
 
 
 # ───────────────────────────── loudness of the mix + music ducking ─────────────────────────────

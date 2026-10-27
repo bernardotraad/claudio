@@ -43,3 +43,71 @@ def test_clean_speech(tmp_path, monkeypatch):
     for w in WORDS:
         if w['w'] != 'ãh':
             assert any(a_ - 0.01 <= w['s'] and w['e'] <= b_ + 0.01 for a_, b_ in kept), w
+
+
+def _run(tmp_path, monkeypatch, words, **kw):
+    monkeypatch.setattr(core, 'build_index', lambda p, *a, **k: {'p': p})
+    monkeypatch.setattr(core, 'load_words', lambda idx: [dict(w) for w in words] if idx['p'].endswith('A.mp4') else [])
+    return cleanup.clean_speech(str(_xml(tmp_path)), **kw)
+
+
+def _w(text, t0=0.5, step=0.3, pauses=()):
+    out, t = [], t0
+    for i, x in enumerate(text.split()):
+        t += dict(pauses).get(i, 0)
+        out.append({'w': x, 's': round(t, 3), 'e': round(t + step - 0.05, 3)})
+        t += step
+    return out
+
+
+def test_the_article_um_is_not_a_filler():
+    W = _w('tem um empreendimento novo')
+    assert not cleanup.is_filler(W[1], W[0]['e'], W[2]['s'])
+
+
+def test_set_commands_notes_and_restarts_come_out_with_markers(tmp_path, monkeypatch):
+    W = _w('Ação. Você que paga aluguel errei Você que paga aluguel e sente que vai embora. '
+           'Editor põe o drone aqui. Clique no link.', t0=0.3, step=0.22, pauses={1: 0.6, 5: 0.6, 6: 0.6, 16: 0.6, 21: 0.6})
+    r = _run(tmp_path, monkeypatch, W)
+    kinds = [n['what'] for n in r['notes_cut']]
+    assert 'claquete' in kinds and 'nota' in kinds and 'recomeço' in kinds
+    names = [m['name'] for m in r['markers']]
+    assert 'Nota pro editor' in names and 'Recomeço removido' in names
+    assert '<marker>' in open(r['path'], encoding='utf-8').read()
+    said = ' '.join(n['said'] for n in r['notes_cut'])
+    assert 'Você que paga aluguel / errei' in said and 'drone' in said
+
+
+def test_maybe_note_is_only_flagged():
+    notes = cleanup.spoken_notes(_w('e aqui entra a varanda gourmet com churrasqueira'))
+    assert notes and not notes[0]['cut'] and notes[0]['marker'][0].startswith('Nota pro editor?')
+
+
+def test_joins_get_a_crossfade_and_jump_cuts_zoom(tmp_path, monkeypatch):
+    r = _run(tmp_path, monkeypatch, WORDS, zoom=True)
+    x = open(r['path'], encoding='utf-8').read()
+    assert r['crossfades'] >= 1 and x.count('<transitionitem>') == r['crossfades']
+    assert 'KGAudioTransCrossFade3dB' in x
+    assert r['zoom']['jump'] >= 1 and '<value>107.50</value>' in x
+    r2 = _run(tmp_path, monkeypatch, WORDS, crossfade=False)
+    assert '<transitionitem>' not in open(r2['path'], encoding='utf-8').read()
+
+
+def test_punch_in_holds_one_line(tmp_path, monkeypatch):
+    r = _run(tmp_path, monkeypatch, WORDS, punch=[[5.2, 6.9]])
+    assert r['zoom']['punch'] == 1 and '<value>115.00</value>' in open(r['path'], encoding='utf-8').read()
+
+
+def test_pacing_presets_and_preview(tmp_path, monkeypatch):
+    r = _run(tmp_path, monkeypatch, WORDS, preview=True)
+    assert set(r['ritmos']) == {'apertado', 'medio', 'solto'}
+    assert r['ritmos']['apertado']['economiza_s'] >= r['ritmos']['solto']['economiza_s']
+    tight = _run(tmp_path, monkeypatch, WORDS, pace='apertado')
+    loose = _run(tmp_path, monkeypatch, WORDS, pace='solto')
+    assert tight['after_s'] < loose['after_s']
+
+
+def test_punch_split_leaves_no_sliver():
+    from claudio.cleanup import _split
+    assert _split([(0, 5), (6, 10)], [4.9, 6.07]) == [(0, 5), (6, 10)]
+    assert _split([(0, 5)], [2, 3]) == [(0, 2), (2, 3), (3, 5)]

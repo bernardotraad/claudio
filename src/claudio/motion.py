@@ -261,6 +261,9 @@ def timeline_words(nle_xml, tracks=('A1',)):
         return words
     live = [i for i in tl['items'] if i['path'] and i['enabled']]
     words = collect([i for i in live if i['track'] in tracks])
+    if words and not words[0].get('lyrics'):        # read, not transcribed: no "Ação.", "ãh", "Eu Eu"
+        from claudio import captions
+        words = captions.clean_for_reading(words)
     if not words:                                   # the same song on two tracks (L/R split) counts once
         once = {(i['path'], i['tl_in'], i['src_in']): i for i in live if i['track'].startswith('A') and i['track'] not in tracks}
         words = collect(list(once.values()), only_lyrics=True)
@@ -535,7 +538,11 @@ def caption_sentences(nle_xml):
     for it in sorted([i for i in tl['items'] if i['track'] == 'A1' and i['path'] and i['enabled']], key=lambda i: i['tl_in']):
         try:
             idx = core.build_index(it['path'])
-            ws = core.words_in(core.load_words(idx), it['src_in'], it['src_out'], None if (idx.get('speech') or {}).get('lyrics') else idx)
+            lyr = (idx.get('speech') or {}).get('lyrics')
+            ws = core.words_in(core.load_words(idx), it['src_in'], it['src_out'], None if lyr else idx)
+            if not lyr:
+                from claudio import captions
+                ws = captions.clean_for_reading(ws)
         except Exception:
             continue
         fixes = _load_fixes(it['path'])

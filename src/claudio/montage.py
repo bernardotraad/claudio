@@ -851,6 +851,10 @@ def export_edit_fcp7(fit, out_path, lang='pt'):
     E = core._esc
     files, vitems, aitems, mitems = {}, [], {1: [], 2: []}, {1: [], 2: []}
     amb_db = float(fit.get('ambient_db', -16))
+    prev_a = {}                                       # channel → (end frame, out frame, media frames) of its last clip
+    xfade = ('<transitionitem><start>{0}</start><end>{1}</end><alignment>center</alignment>' + rate +
+             '<effect><name>Cross Fade (+3dB)</name><effectid>KGAudioTransCrossFade3dB</effectid><effectcategory>Dissolve</effectcategory>'
+             '<effecttype>transition</effecttype><mediatype>audio</mediatype></effect></transitionitem>')
 
     def file_el(path, info):
         if path in files:
@@ -904,6 +908,10 @@ def export_edit_fcp7(fit, out_path, lang='pt'):
         if s.get('gain_db') is not None:
             db = float(s['gain_db'])
         for ch_ in range(1, ach + 1):
+            pe = prev_a.get(ch_)                       # two takes butted: 2 frames of crossfade, so the join doesn't click
+            if pe and pe[0] == s['tl_in_f'] and cin >= 1 and pe[1] + 1 <= pe[2]:
+                aitems[ch_].append(xfade.format(s['tl_in_f'] - 1, s['tl_in_f'] + 1))
+            prev_a[ch_] = (s['tl_out_f'], cout, int(info['duration'] * F))
             aitems[ch_].append(f'<clipitem id="c{n}-a{ch_}">{common}<file id="{files[p]}"/><sourcetrack><mediatype>audio</mediatype>'
                                f'<trackindex>{ch_}</trackindex></sourcetrack>{level(db)}{links}</clipitem>')
     layers = {}

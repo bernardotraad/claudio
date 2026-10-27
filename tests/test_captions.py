@@ -63,3 +63,12 @@ def test_two_lines_balanced():
     for t in texts(W, max_chars=42, lines=2):
         assert t.count('\n') <= 1
         assert all(len(l) <= 46 for l in t.split('\n'))
+
+
+def test_clean_for_reading():
+    W = words('Ação. Eu Eu tenho a pa parcela muito muito boa empre- empreendimento ãh com um quarto.', pauses={1: 0.5})
+    t = ' '.join(w['w'] for w in captions.clean_for_reading(W))
+    assert t == 'Eu tenho a parcela muito muito boa empreendimento com um quarto.'
+    # "ação" inside a sentence is a word
+    W = words('uma ação do governo')
+    assert len(captions.clean_for_reading(W)) == 4

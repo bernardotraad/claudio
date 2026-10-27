@@ -366,19 +366,37 @@ async function localJob(label, fn) {
   localBusy = false; document.body.classList.remove('busy'); toolStart(null); $('#status').textContent = '';
 }
 let localBusy = false;
+// "Limpar falas": pauses, hesitations and what was said for the editor come out; zoom=true also alternates 100/107.5 %
+// on the jump cuts (offered as a second button under the result, like the import)
+const cleanSpeech = (zoom, xml) => localJob(zoom ? 'limpando as falas (com zoom)' : 'limpando as falas', async () => {
+  const x = xml || await exportActive(); if (!x) return;
+  const r = await runLocal('clean', { nle_xml: x, zoom });
+  if (!r.ok || r.error) return add('local err', r.error || 'falhou');
+  const fl = (r.fillers_cut || []).map((f) => `"${f.word}" em ${dur(f.at)}`);
+  const nt = (r.notes_cut || []).map((n) => `${n.what} em ${dur(n.at)}: "${n.said}"`);
+  const mk = (r.markers || []).length;
+  const z = r.zoom || {};
+  const m = add('local', `**${r.pauses_cut} pausa(s)** e **${fl.length} vício(s)** a menos: ${dur(r.before_s)} → **${dur(r.after_s)}** (−${r.removed_s.toFixed(1)} s).` +
+    (fl.length ? `\n\nVícios: ${fl.slice(0, 12).join(', ')}` : '') +
+    (nt.length ? `\n\nFalas pro editor/set que saíram: ${nt.slice(0, 8).join(' · ')}` : '') +
+    (mk ? `\n\n${mk} marcador(es) na sequência nova (vermelho = saiu, amarelo = conferir).` : '') +
+    (r.crossfades ? `\n\n${r.crossfades} crossfade(s) de 2 quadros nas emendas (sem clique).` : '') +
+    (zoom ? `\n\nZoom: ${z.jump || 0} pedaço(s) em 107,5% nos jump cuts.` : '') +
+    ((r.music_tracks_kept || []).length ? `\n\nMúsica sem cortes: ${r.music_tracks_kept.join(', ')}.` : '') +
+    (r.note ? `\n\n_${r.note}_` : '') + droppedLine(r) + `\n\nSequência nova: **${r.sequence}** · XML: \`${r.nle_path}\``);
+  importButtons(m, r.nle_path);
+  if (!zoom) {
+    const b = document.createElement('button');
+    b.className = 'import';
+    b.textContent = 'Refazer com zoom nos jump cuts (100/107,5%)';
+    b.onclick = () => { b.disabled = true; cleanSpeech(true, x); };
+    m.appendChild(document.createElement('br'));
+    m.appendChild(b);
+  }
+});
 const dur = (s) => clock(+s);
 const LOCAL = {
-  clean: () => localJob('limpando as falas', async () => {
-    const x = await exportActive(); if (!x) return;
-    const r = await runLocal('clean', { nle_xml: x });
-    if (!r.ok || r.error) return add('local err', r.error || 'falhou');
-    const fl = (r.fillers_cut || []).map((f) => `"${f.word}" em ${dur(f.at)}`);
-    const m = add('local', `**${r.pauses_cut} pausa(s)** e **${fl.length} vício(s)** a menos: ${dur(r.before_s)} → **${dur(r.after_s)}** (−${r.removed_s.toFixed(1)} s).` +
-      (fl.length ? `\n\nVícios: ${fl.slice(0, 12).join(', ')}` : '') +
-      ((r.music_tracks_kept || []).length ? `\n\nMúsica sem cortes: ${r.music_tracks_kept.join(', ')}.` : '') +
-      (r.note ? `\n\n_${r.note}_` : '') + droppedLine(r) + `\n\nSequência nova: **${r.sequence}** · XML: \`${r.nle_path}\``);
-    importButtons(m, r.nle_path);
-  }),
+  clean: () => cleanSpeech(false),
   sfx: () => localJob('sonorizando', async () => {
     const x = await exportActive(); if (!x) return;
     const r = await runLocal('sfx', { nle_xml: x, job: jobFolder() });

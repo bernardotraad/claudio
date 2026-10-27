@@ -484,10 +484,49 @@ def trim_clip(c, a, b, wa, wb, uid=None):
     return cc
 
 
-def write_layers(root, top, layers, ctx, out_path, name, seq_id='sequence-claudio', duration=None, extra_tracks=None):
+def scale_clip(c, factor):
+    """Multiply a video clip item's Scale by factor (a Basic Motion filter is added at 100 % when it has none).
+    False when the scale is keyframed (left alone)."""
+    for f in c.findall('filter'):
+        e = f.find('effect')
+        if e is None or e.findtext('effectid') != 'basic':
+            continue
+        for prm in e.findall('parameter'):
+            if prm.findtext('parameterid') == 'scale':
+                if prm.find('keyframe') is not None:
+                    return False
+                v = prm.find('value')
+                v.text = f'{float(v.text or 100) * factor:.2f}'
+                return True
+        e.append(ET.fromstring(f'<parameter><parameterid>scale</parameterid><name>Scale</name><valuemin>0</valuemin>'
+                               f'<valuemax>1000</valuemax><value>{100 * factor:.2f}</value></parameter>'))
+        return True
+    flt = ET.fromstring('<filter><effect><name>Basic Motion</name><effectid>basic</effectid><effectcategory>motion</effectcategory>'
+                        '<effecttype>motion</effecttype><mediatype>video</mediatype><parameter><parameterid>scale</parameterid>'
+                        f'<name>Scale</name><valuemin>0</valuemin><valuemax>1000</valuemax><value>{100 * factor:.2f}</value>'
+                        '</parameter></effect></filter>')
+    kids = list(c)
+    at = next((k for k, ch in enumerate(kids) if ch.tag in ('link', 'marker', 'filter', 'labels', 'comments')), len(kids))
+    c.insert(at, flt)
+    return True
+
+
+def _xfade(at_f, frames, rate_el):
+    h = frames // 2
+    return ET.fromstring(f'<transitionitem><start>{at_f - h}</start><end>{at_f + frames - h}</end><alignment>center</alignment>'
+                         f'{ET.tostring(rate_el, encoding="unicode") if rate_el is not None else ""}'
+                         '<effect><name>Cross Fade (+3dB)</name><effectid>KGAudioTransCrossFade3dB</effectid>'
+                         '<effectcategory>Dissolve</effectcategory><effecttype>transition</effecttype><mediatype>audio</mediatype>'
+                         '</effect></transitionitem>')
+
+
+def write_layers(root, top, layers, ctx, out_path, name, seq_id='sequence-claudio', duration=None, extra_tracks=None,
+                 markers=(), audio_xfade=None, shift=None):
     """Write `layers` ({kind: [(track template, [(clipitem, start s, end s)])]}, as flat_timeline returns them, after
     any cutting/moving) as ONE new sequence in its own FCP7 XML. extra_tracks: {kind: [raw <track> xml strings]}
-    appended above the others (new audio for SFX, …). Links to clips that no longer exist are dropped."""
+    appended above the others (new audio for SFX, …). Links to clips that no longer exist are dropped.
+    markers: [{s, name, comment, color}] added to the sequence (shift(t) moves the ones it already had, after a ripple).
+    audio_xfade: ([frame, …], n) — an n-frame crossfade wherever two audio clips butt at one of those frames."""
     F = _rate(top)
     seq = copy.deepcopy(top)
     seq.set('id', seq_id)
@@ -504,7 +543,13 @@ def write_layers(root, top, layers, ctx, out_path, name, seq_id='sequence-claudi
             if not items:
                 continue
             t = copy.deepcopy(tpl)
+            joins = set(audio_xfade[0]) if audio_xfade and kind == 'audio' else set()
+            prev_end = None
             for cc, s, e in sorted(items, key=lambda x: x[1]):
+                if joins and prev_end is not None and int(round(s * F)) == prev_end and prev_end in joins:
+                    t.append(_xfade(prev_end, audio_xfade[1], top.find('rate')))
+                    ctx['crossfades'] = ctx.get('crossfades', 0) + 1
+                prev_end = int(round(e * F))
                 cc.find('start').text = str(int(round(s * F)))
                 cc.find('end').text = str(int(round(e * F)))
                 end_f = max(end_f, int(round(e * F)))
@@ -532,6 +577,18 @@ def write_layers(root, top, layers, ctx, out_path, name, seq_id='sequence-claudi
         for lk in list(c.findall('link')):
             if lk.findtext('linkclipref') not in ids:
                 c.remove(lk)
+    for m in seq.findall('marker'):                          # the sequence's own markers follow a ripple
+        if shift:
+            for tag in ('in', 'out'):
+                el = m.find(tag)
+                if el is not None and el.text and int(el.text) >= 0:
+                    el.text = str(int(round(shift(int(el.text) / F) * F)))
+    colors = {'green': 'Green', 'red': 'Red', 'yellow': 'Yellow', 'blue': 'Blue', 'cyan': 'Cyan'}
+    for m in markers or ():
+        el = ET.SubElement(seq, 'marker')
+        for tag, val in (('name', m['name']), ('comment', m.get('comment', '')), ('in', int(round(m['s'] * F))), ('out', -1),
+                         ('color', colors.get(m.get('color'), 'Green'))):
+            ET.SubElement(el, tag).text = str(val)
     if seq.find('duration') is not None:
         seq.find('duration').text = str(int(round(duration * F)) if duration is not None else end_f)
     proj = ET.Element('xmeml', {'version': root.get('version', '4')})
@@ -543,4 +600,4 @@ def write_layers(root, top, layers, ctx, out_path, name, seq_id='sequence-claudi
     return {'path': out_path, 'nle_path': core.nle_path(out_path), 'sequence': name,
             'clips_video': n['video'], 'clips_audio': n['audio'],
             'tracks_video': sum(1 for _, i in layers.get('video', []) if i), 'tracks_audio': sum(1 for _, i in layers.get('audio', []) if i),
-            'dropped': ctx['dropped']}
+            'dropped': ctx['dropped'], 'crossfades': ctx.pop('crossfades', 0)}

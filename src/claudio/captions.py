@@ -230,6 +230,66 @@ def cues(W, max_chars=26, lines=1, max_words=None, fps=30, cuts=(), duration=Non
     return [[b, e - 1, a, z, wrap(W[b:e], max_chars) if lines > 1 else _text(W, b, e)] for (b, e), (a, z) in zip(bl, tm)]
 
 
+# ───────────────────────────── what a reader should not see ─────────────────────────────
+# set commands said on camera: a caption block (and the cut) never shows them — only when said on their own
+SET_WORDS = {'ação', 'acao', 'valendo', 'gravando', 'rodando', 'corta', 'cortou', 'claquete'}
+COUNTDOWN = {'um', 'dois', 'três', 'tres', 'quatro', 'cinco', 'e'}
+# a repeated word that is emphasis, not a stammer ("muito, muito", "não não")
+EMPHATIC = {'muito', 'muita', 'bem', 'mais', 'nunca', 'sempre', 'não', 'sim', 'nada', 'super', 'tão', 'é', 'isso'}
+
+
+def utterances(W, gap=0.3):
+    """[(start, end)] index runs of words said in one go: split at a pause ≥ gap or after . ? !"""
+    out, b = [], 0
+    for i in range(len(W)):
+        if i == len(W) - 1 or W[i + 1]['s'] - W[i]['e'] >= gap or re.search(r'[.?!…]$', W[i]['w']):
+            out.append((b, i + 1))
+            b = i + 1
+    return out
+
+
+def set_commands(W):
+    """Indices of words that are a set command said on its own — "Ação.", "três, dois, um, valendo" — never the
+    "ação" or "corta" of a sentence ("uma ação do governo", "corta o custo")."""
+    out = []
+    for b, e in utterances(W):
+        bare = [_bare(w['w']) for w in W[b:e]]
+        if any(x in SET_WORDS for x in bare) and all(x in SET_WORDS or x in COUNTDOWN for x in bare):
+            out += range(b, e)
+    return out
+
+
+def clean_for_reading(W):
+    """The words a caption shows: the speech as it was meant, not a court transcript. Out go set commands said on
+    their own ("Ação."), hesitation sounds ("ãh", "hum"), a word cut off mid-way ("empre-") and the first of a word
+    said twice in a row ("Eu Eu tenho" → "Eu tenho", "pa parcela" → "parcela") — never a repeat that is emphasis
+    ("muito, muito"). The audio is not touched; times of the words kept stay as they were."""
+    from claudio.cleanup import is_filler
+    drop = set(set_commands(W))
+    for i, w in enumerate(W):
+        b = _bare(w['w'])
+        if not b:
+            continue
+        prev_e, next_s = W[i - 1]['e'] if i else w['s'] - 1, W[i + 1]['s'] if i + 1 < len(W) else w['e'] + 1
+        if is_filler(w, prev_e, next_s) or re.search(r'\w(-|–|—|\.\.\.?|…)$', w['w']) and i + 1 < len(W):
+            drop.add(i)                                 # "ãh", "empre-"
+            continue
+        if i + 1 < len(W) and not re.search(r'[,.;:?!…]$', w['w']) and W[i + 1]['s'] - w['e'] < 0.6:
+            n = _bare(W[i + 1]['w'])
+            if n == b and b not in EMPHATIC and not _is_num(w['w']):
+                drop.add(i)                             # "Eu Eu"
+            elif 2 <= len(b) <= 4 and len(n) > len(b) + 2 and n.startswith(b) and b not in GLUE and b not in NUMBER_WORDS:
+                drop.add(i)                             # "pa parcela"
+    out = []
+    for i, w in enumerate(W):
+        if i in drop:
+            continue
+        if i - 1 in drop and W[i - 1]['w'][:1].isupper() and not w['w'][:1].isupper() and _bare(W[i - 1]['w']) not in SET_WORDS:
+            w = {**w, 'w': w['w'][:1].upper() + w['w'][1:]}   # "Eu eu tenho" keeps its capital
+        out.append(w)
+    return out
+
+
 def srt_time(t):
     t = max(t, 0); h, r = divmod(t, 3600); m, s = divmod(r, 60)
     return f'{int(h):02d}:{int(m):02d}:{int(s):02d},{int(round((s % 1) * 1000)) % 1000:03d}'

@@ -175,8 +175,10 @@ def _out_xml(a, suffix):
 
 def _clean(a):
     from claudio import cleanup
-    return cleanup.clean_speech(a['nle_xml'], _out_xml(a, 'limpo'), float(a.get('max_pause', 0.45)), bool(a.get('fillers', True)),
-                                a.get('extra_fillers') or ())
+    mp = a.get('max_pause')
+    return cleanup.clean_speech(a['nle_xml'], _out_xml(a, 'limpo'), float(mp) if mp else None, bool(a.get('fillers', True)),
+                                a.get('extra_fillers') or (), pace=a.get('pace', 'apertado'), notes=bool(a.get('notes', True)),
+                                crossfade=bool(a.get('crossfade', True)), zoom=bool(a.get('zoom', False)), punch=a.get('punch'))
 
 
 def _sfx(a):
