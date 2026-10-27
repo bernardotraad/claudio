@@ -88,9 +88,19 @@ function clock(sec) {
 // Claude answers in Markdown: render the parts it uses (paragraphs, lists, tables, code, bold/italic, headings),
 // escaping everything first so nothing in a reply can inject HTML into the panel.
 function esc(s) { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+// links ([texto](url) and bare http(s) URLs) become <a>; a click opens them in the default browser (openExternal).
+// Code and links are set aside as placeholders first so bold/italic never reach inside a URL.
 function inline(s) {
-  return esc(s).replace(/`([^`]+)`/g, '<code>$1</code>').replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>')
-    .replace(/(^|[^*\w])\*([^*\n]+)\*(?!\w)/g, '$1<i>$2</i>');
+  const keep = [], put = (h) => `\u0001${keep.push(h) - 1}\u0002`;
+  const a = (url, label) => `<a href="${url}" title="${url}">${label}</a>`;
+  const bare = (u) => { const m = u.match(/^(.*?)([.,;:!?)\]]*)$/); return a(m[1], m[1]) + m[2]; };
+  return esc(s)
+    .replace(/`([^`]+)`/g, (m, c) => put(/^https?:\/\/\S+$/.test(c) ? a(c, `<code>${c}</code>`) : `<code>${c}</code>`))
+    .replace(/\[([^\]\n]+)\]\((https?:\/\/[^\s)"]+)\)/g, (m, t, u) => put(a(u, t)))
+    .replace(/https?:\/\/[^\s<>"\u0001]+/g, (u) => put(bare(u)))
+    .replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>')
+    .replace(/(^|[^*\w])\*([^*\n]+)\*(?!\w)/g, '$1<i>$2</i>')
+    .replace(/\u0001(\d+)\u0002/g, (m, n) => keep[n]);
 }
 // a Premiere label name in a table cell (multicam colours) gets a swatch of that colour
 const LABEL_HEX = { cerulean: '#2ba3dc', mango: '#f0962c', forest: '#5fa94c', magenta: '#d4529f', yellow: '#e6cf3a', violet: '#a68ae0',
@@ -144,12 +154,13 @@ function add(cls, text, keep = true, t = Date.now()) {
   if (keep) { hist.push({ cls, text, t }); saveHist(); }
   const d = document.createElement('div');
   d.className = 'msg ' + cls;
-  if (cls === 'user' || cls.startsWith('claude') || cls.startsWith('local')) {
+  if (cls.startsWith('user') || cls.startsWith('claude') || cls.startsWith('local')) {
     const hd = document.createElement('div'), bd = document.createElement('div');
     hd.className = 'hd'; bd.className = 'bd';
     const when = new Date(t);
-    hd.innerHTML = `<b>${cls === 'user' ? 'você' : cls.startsWith('local') ? 'painel · sem IA' : 'cláudio'}</b><time>${String(when.getHours()).padStart(2, '0')}:${String(when.getMinutes()).padStart(2, '0')}</time>`;
-    if (cls === 'user') bd.textContent = text; else bd.innerHTML = md(text);
+    const who = cls === 'user more' ? 'você · complemento' : cls === 'user' ? 'você' : cls.startsWith('local') ? 'painel · sem IA' : 'cláudio';
+    hd.innerHTML = `<b>${who}</b><time>${String(when.getHours()).padStart(2, '0')}:${String(when.getMinutes()).padStart(2, '0')}</time>`;
+    if (cls.startsWith('user')) bd.textContent = text; else bd.innerHTML = md(text);
     d.append(hd, bd);
   } else {
     d.textContent = text;
@@ -856,11 +867,49 @@ function showImage(type, data) {
   const im = document.createElement('img');
   im.src = `data:${type};base64,${data}`;
   im.title = 'clique para ampliar';
-  im.onclick = () => d.classList.toggle('big');
+  im.onclick = () => zoomImage(im.src);
   d.appendChild(im);
   log.appendChild(d);
   log.scrollTop = log.scrollHeight;
 }
+// the panel is narrow, so "ampliar" is a viewer over the whole panel: fit, click for 100 % (scrolls), Esc/backdrop closes,
+// and "abrir fora" hands it to the system viewer to zoom for real
+function zoomImage(src) {
+  const box = document.createElement('div'), im = document.createElement('img'), bar = document.createElement('div');
+  box.id = 'zoom'; bar.className = 'zbar';
+  im.src = src; im.title = 'clique: tamanho real / ajustar';
+  const btn = (label, fn) => { const b = document.createElement('button'); b.textContent = label; b.onclick = (e) => { e.stopPropagation(); fn(); }; bar.appendChild(b); };
+  btn('abrir fora', () => {
+    const m = src.match(/^data:image\/(\w+);base64,(.*)$/);
+    if (!m) return;
+    const f = path.join(os.tmpdir(), `claudio-imagem-${Date.now()}.${m[1] === 'jpeg' ? 'jpg' : m[1]}`);
+    try { fs.writeFileSync(f, Buffer.from(m[2], 'base64')); openExternal(f); } catch (e) {}
+  });
+  btn('✕ fechar', () => close());
+  const close = () => { box.remove(); document.removeEventListener('keydown', onKey); };
+  const onKey = (e) => { if (e.key === 'Escape') close(); };
+  im.onclick = (e) => { e.stopPropagation(); box.classList.toggle('full'); };
+  box.onclick = close;
+  box.append(bar, im);
+  document.body.appendChild(box);
+  document.addEventListener('keydown', onKey);
+}
+// links and images leave the panel through the system: CEP's own call for web links, the OS opener otherwise
+function openExternal(target) {
+  if (/^https?:\/\//i.test(target)) {
+    try { if (window.cep && window.cep.util && window.cep.util.openURLInDefaultBrowser) return window.cep.util.openURLInDefaultBrowser(target); } catch (e) {}
+  }
+  try {
+    if (process.platform === 'win32') cp.spawn('rundll32', ['url.dll,FileProtocolHandler', target], { detached: true, stdio: 'ignore' }).unref();
+    else cp.spawn(process.platform === 'darwin' ? 'open' : 'xdg-open', [target], { detached: true, stdio: 'ignore' }).unref();
+  } catch (e) {}
+}
+log.addEventListener('click', (e) => {
+  const a = e.target.closest && e.target.closest('a[href]');
+  if (!a) return;
+  e.preventDefault();
+  if (/^https?:\/\//i.test(a.href)) openExternal(a.href);
+});
 
 async function send(text) {
   if (!text.trim() || child) return;
@@ -872,7 +921,9 @@ async function send(text) {
   if (before && bk) await saveTracks(before, bk);
   const sid = localStorage.getItem(sessionKey);
   const model = ($('#model') && $('#model').value) || 'sonnet';
-  const args = ['-p', contextBlock(before, bk) + text, '--output-format', 'stream-json', '--verbose', '--model', model,
+  // the message goes in on stdin (stream-json) and stdin stays open while Claude works: what the editor types meanwhile
+  // is written there too (complement) and Claude reads it between tool calls, in the same task. Closed at the result.
+  const args = ['-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose', '--model', model,
                 '--allowedTools', 'mcp__claudio,mcp__premiere-pro,mcp__claude_ai_Vault,mcp__claude_ai_Storyblocks,Read,Glob,Grep',
                 // allowedTools only pre-approves; this BLOCKS shell and file edits from the panel
                 '--disallowedTools', 'Bash,PowerShell,Edit,Write,NotebookEdit',
@@ -880,11 +931,13 @@ async function send(text) {
                 // it every Premiere MCP tool definition is sent up front (~580k tokens, more than fits)
                 '--tools', 'Read,Glob,Grep,ToolSearch', ...mcpArgs(text)];
   if (sid) args.push('--resume', sid);
-  $('#send').disabled = true; $('#stop').disabled = false; document.body.classList.add('busy');
+  $('#send').textContent = 'Complementar'; $('#stop').disabled = false; document.body.classList.add('busy');
+  $('#input').placeholder = 'Faltou algo? Escreva e ele junta à tarefa atual, sem parar…';
   $('#status').textContent = 'pensando…';
   let cur = null, buf = '', why = '', errTail = '';
-  // stdin closed: otherwise claude -p waits 3 s for piped input ("no stdin data received")
-  child = cp.spawn(claudeExe(), args, { cwd: jobFolder(), windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'], env: childEnv() });
+  child = cp.spawn(claudeExe(), args, { cwd: jobFolder(), windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'], env: childEnv() });
+  child.stdin.on('error', () => {});
+  tell(contextBlock(before, bk) + text);
   child.stdout.on('data', (chunk) => {
     buf += chunk.toString();
     let i;
@@ -921,6 +974,8 @@ async function send(text) {
         why = ev.message.content.map((c) => c.text || '').join(' ').trim() || String(ev.error);
       }
       if (ev.type === 'result') {
+        // a complement sent too late for this turn is still in stdin: closing only ends the input, Claude answers it first
+        try { child && child.stdin.end(); } catch (e) {}
         if (ev.is_error && typeof ev.result === 'string' && ev.result.trim()) why = ev.result.trim();
         if (ev.session_id) { localStorage.setItem(sessionKey, ev.session_id); saveHist(); }
         const s = ev.total_cost_usd != null ? ` · US$ ${ev.total_cost_usd.toFixed(2)}` : '';
@@ -930,7 +985,7 @@ async function send(text) {
   });
   child.stderr.on('data', (d) => { const t = d.toString().trim(); if (t) { errTail = (errTail + '\n' + t).slice(-600); $('#status').textContent = t.slice(-160); } });
   child.on('close', (code) => {
-    child = null; $('#send').disabled = false; $('#stop').disabled = true; document.body.classList.remove('busy'); toolStart(null);
+    child = null; $('#send').textContent = 'Enviar'; $('#input').placeholder = PLACEHOLDER; $('#stop').disabled = true; document.body.classList.remove('busy'); toolStart(null);
     if (code && code !== 0) {
       const txt = (why || errTail || '').trim();
       if (/authenticat|oauth|log ?in|not logged|credential/i.test(txt))
@@ -946,7 +1001,24 @@ async function send(text) {
   });
 }
 
-$('#send').onclick = () => { const t = $('#input').value; $('#input').value = ''; send(t); };
+const PLACEHOLDER = $('#input').placeholder;
+function tell(text) {
+  child.stdin.write(JSON.stringify({ type: 'user', message: { role: 'user', content: text } }) + '\n');
+}
+// while Claude works the composer adds to the same task instead of waiting or interrupting
+function complement(text) {
+  if (!text.trim() || !child || !child.stdin.writable) return false;
+  add('user more', text);
+  tell('[Complemento do editor, enviado enquanto você trabalhava — vale para a tarefa atual, sem recomeçar o que já foi feito]\n' + text);
+  return true;
+}
+
+$('#send').onclick = () => {
+  const t = $('#input').value;
+  if (child ? !complement(t) : !t.trim()) return;   // nothing went out: keep what was typed
+  $('#input').value = '';
+  if (!child) send(t);
+};
 $('#input').addEventListener('keydown', (e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); $('#send').click(); } });
 // on the Mac Premiere swallows modifier shortcuts before the panel sees them unless the panel asks for them (36 = Return, 76 = keypad Enter)
 if (process.platform === 'darwin') try {
