@@ -842,16 +842,25 @@ def _board(fit, tiles, tw):
 
 # ───────────────────────────── export to NLE ─────────────────────────────
 def export_edit_fcp7(fit, out_path, lang='pt'):
-    """FCP7 XML of the fitted cut: V1 picture (with Basic Motion scale/centre for reframes), A1/A2 production audio
-    with per-shot levels, A3/A4 music. Clip in/out are expressed in the sequence timebase (FCP7 convention)."""
+    """FCP7 XML of the fitted cut: V1 picture (with Basic Motion scale/centre for reframes), A1 production audio as one
+    stereo track with per-shot levels (dual mono on the next pair for a lav on one side / two different mics), then music.
+    Clip in/out are expressed in the sequence timebase (FCP7 convention)."""
     fps = Fraction(fit['fps']); F = float(fps)
     aspect = fit.get('aspect', '16:9')
     W, H = fit.get('resolution') or RES['final'][aspect]
     rate = core._rate_xml(fps)
     E = core._esc
-    files, vitems, aitems, mitems = {}, [], {1: [], 2: []}, {1: [], 2: []}
+    files, vitems, mitems = {}, [], {1: [], 2: []}
+    aitems = {g: {1: [], 2: []} for g in ('st', 'dm')}   # one stereo track (A1) + dual mono for lav-on-one-side / two mics
     amb_db = float(fit.get('ambient_db', -16))
-    prev_a = {}                                       # channel → (end frame, out frame, media frames) of its last clip
+    prev_a = {}                                       # (group, channel) → (end frame, out frame, media frames) of its last clip
+    group = {}
+    for s in fit['shots']:
+        if s['audio'] != 'mute':
+            info = core.light_index(s['path'], lang)['info']
+            e = s['src_in'] + (s['tl_out_f'] - s['tl_in_f']) / F
+            group[s['n']] = 'st' if core.stereo_ok(info, s['src_in'], e) else 'dm'
+    base = {'st': 1, 'dm': 3 if 'st' in group.values() else 1}
     xfade = ('<transitionitem><start>{0}</start><end>{1}</end><alignment>center</alignment>' + rate +
              '<effect><name>Cross Fade (+3dB)</name><effectid>KGAudioTransCrossFade3dB</effectid><effectcategory>Dissolve</effectcategory>'
              '<effecttype>transition</effecttype><mediatype>audio</mediatype></effect></transitionitem>')
@@ -900,19 +909,20 @@ def export_edit_fcp7(fit, out_path, lang='pt'):
                       f'<parameter><parameterid>center</parameterid><name>Center</name><value><horiz>{offx:.4f}</horiz><vert>{offy:.4f}</vert></value></parameter>'
                       f'</effect></filter>')
         ach = min(info['audio_channels'] or 0, 2) if s['audio'] != 'mute' else 0
+        g = group.get(n, 'dm')
         links = ''.join(f'<link><linkclipref>c{n}-{k}</linkclipref><mediatype>{"video" if k == "v" else "audio"}</mediatype>'
-                        f'<trackindex>{1 if k in ("v", "a1") else 2}</trackindex><clipindex>{n}</clipindex></link>'
+                        f'<trackindex>{1 if k == "v" else base[g] + int(k[1]) - 1}</trackindex><clipindex>{n}</clipindex></link>'
                         for k in ['v'] + ['a1', 'a2'][:ach])
         vitems.append(f'<clipitem id="c{n}-v">{common}{file_el(p, info)}{motion}{links}</clipitem>')
         db = 0.0 if s['audio'] == 'dialogue' else amb_db
         if s.get('gain_db') is not None:
             db = float(s['gain_db'])
         for ch_ in range(1, ach + 1):
-            pe = prev_a.get(ch_)                       # two takes butted: 2 frames of crossfade, so the join doesn't click
+            pe = prev_a.get((g, ch_))                  # two takes butted: 2 frames of crossfade, so the join doesn't click
             if pe and pe[0] == s['tl_in_f'] and cin >= 1 and pe[1] + 1 <= pe[2]:
-                aitems[ch_].append(xfade.format(s['tl_in_f'] - 1, s['tl_in_f'] + 1))
-            prev_a[ch_] = (s['tl_out_f'], cout, int(info['duration'] * F))
-            aitems[ch_].append(f'<clipitem id="c{n}-a{ch_}">{common}<file id="{files[p]}"/><sourcetrack><mediatype>audio</mediatype>'
+                aitems[g][ch_].append(xfade.format(s['tl_in_f'] - 1, s['tl_in_f'] + 1))
+            prev_a[(g, ch_)] = (s['tl_out_f'], cout, int(info['duration'] * F))
+            aitems[g][ch_].append(f'<clipitem id="c{n}-a{ch_}">{common}<file id="{files[p]}"/><sourcetrack><mediatype>audio</mediatype>'
                                f'<trackindex>{ch_}</trackindex></sourcetrack>{level(db)}{links}</clipitem>')
     layers = {}
     for o in fit.get('overlays', []):
@@ -950,7 +960,8 @@ def export_edit_fcp7(fit, out_path, lang='pt'):
     v2 = [x for v in layers.values() for x in v]
     upper = ''.join(f'<track>{"".join(layers.get(k, []))}</track>' for k in range(2, max(layers) + 1)) if layers else ''
     mu = fit.get('music')
-    if mu and mu.get('path'):
+    mu = mu if mu and mu.get('path') else None
+    if mu:
         mp = core.local_path(mu['path'])
         minfo = core.probe(mp)
         mi = int(round(mu['start'] * F)); total_f = fit['shots'][-1]['tl_out_f']
@@ -960,7 +971,8 @@ def export_edit_fcp7(fit, out_path, lang='pt'):
                                f'{file_el(mp, minfo) if ch_ == 1 else f"<file id={chr(34)}{files[mp]}{chr(34)}/>"}'
                                f'<sourcetrack><mediatype>audio</mediatype><trackindex>{min(ch_, max(1, minfo["audio_channels"]))}</trackindex></sourcetrack>'
                                f'{level(float(mu.get("gain_db", -4)))}</clipitem>')
-    tracks = ''.join(f'<track>{"".join(v)}</track>' for v in (aitems[1], aitems[2], mitems[1], mitems[2]) if v)
+    tracks = (core.audio_track_pair(aitems['st'][1], aitems['st'][2]) + core.audio_track_pair(aitems['dm'][1], aitems['dm'][2], False)
+              + core.audio_track_pair(mitems[1], mitems[2], bool(mu) and (minfo.get('audio_channels') or 0) >= 2))
     total_f = fit['shots'][-1]['tl_out_f']
     xml = ('<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE xmeml>\n<xmeml version="4"><sequence id="seq-1">'
            f'<name>{E(fit.get("name", "Cláudio — montagem"))}</name><duration>{total_f}</duration>{rate}'

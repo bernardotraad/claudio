@@ -41,3 +41,24 @@ def test_gain_is_capped_and_keyframes_respected():
     k = ET.fromstring('<clipitem><filter><effect><name>Audio Levels</name><parameter><parameterid>level</parameterid>'
                       '<value>1</value><keyframe><when>0</when><value>1</value></keyframe></parameter></effect></filter></clipitem>')
     assert stereo._set_gain(k, 2.0) is False
+
+
+@needs_ffmpeg
+def test_layout_decides_stereo_track(tmp_path):
+    lav, two, pair = tmp_path / 'lav.mov', tmp_path / 'two.mov', tmp_path / 'pair.mov'
+    ff('-f', 'lavfi', '-i', 'sine=f=440:d=5', '-f', 'lavfi', '-i', 'anullsrc=r=48000:cl=mono:d=5',
+       '-filter_complex', '[0][1]amerge=inputs=2', '-c:a', 'pcm_s16le', '-ar', '48000', str(lav))
+    ff('-f', 'lavfi', '-i', 'anoisesrc=d=5:seed=1', '-f', 'lavfi', '-i', 'anoisesrc=d=5:seed=2',
+       '-filter_complex', '[0][1]amerge=inputs=2', '-c:a', 'pcm_s16le', '-ar', '48000', str(two))
+    ff('-f', 'lavfi', '-i', 'sine=f=440:d=5', '-ac', '2', '-c:a', 'pcm_s16le', '-ar', '48000', str(pair))
+    assert [stereo.layout(str(p), 0, 5) for p in (lav, two, pair)] == ['one_side', 'two_mics', 'stereo']
+
+
+def test_stereo_pair_is_one_premiere_track():
+    from claudio import core
+    x = core.audio_track_pair(['<clipitem id="a1"></clipitem>'], ['<clipitem id="a2"></clipitem>'])
+    root = ET.fromstring(f'<audio>{x}</audio>')
+    assert [t.get('currentExplodedTrackIndex') for t in root] == ['0', '1']
+    assert all(t.get('premiereTrackType') == 'Stereo' and t.get('totalExplodedTrackCount') == '2' for t in root)
+    assert [c.get('premiereChannelType') for c in root.iter('clipitem')] == ['stereo', 'stereo']
+    assert core.audio_track_pair(['<clipitem id="a1"></clipitem>'], ['<clipitem id="a2"></clipitem>'], False).count('Exploded') == 0

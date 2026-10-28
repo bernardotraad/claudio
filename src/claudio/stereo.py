@@ -44,6 +44,32 @@ def channels(path, s, e):
     return x, lv[0], lv[1]
 
 
+def layout(path, s, e):
+    """How the two channels of a source range relate, measured over up to 25 s: 'stereo' (one mic pair, L ≈ R),
+    'one_side' (lav on L or R only), 'two_mics' (two different mics: correlation < 0.5, as in QC) or 'silent'.
+    Decides whether an export puts the clip on ONE stereo track or keeps dual mono. Cached per range."""
+    e = min(e, s + 25)
+    cp = os.path.join(core.cache_dir(core.local_path(path)), 'layout.json')
+    key = f'{s:.2f}_{e:.2f}'
+    cache = json.load(open(cp)) if os.path.exists(cp) else {}
+    if key in cache:
+        return cache[key]
+    x, l, r = channels(path, s, e)
+    if l <= SILENT_DB and r <= SILENT_DB:
+        kind = 'silent'
+    elif l <= SILENT_DB or r <= SILENT_DB or abs(l - r) >= GAP_DB:
+        kind = 'one_side'
+    else:
+        corr = float(np.corrcoef(x[:, 0], x[:, 1])[0, 1]) if len(x) > SR else 1.0
+        kind = 'stereo' if corr >= 0.5 else 'two_mics'
+    cache[key] = kind
+    try:
+        json.dump(cache, open(cp, 'w'))
+    except OSError:
+        pass
+    return kind
+
+
 def _rate(el):
     tb = int(el.findtext('rate/timebase') or 30)
     return tb * 1000 / 1001 if (el.findtext('rate/ntsc') or 'FALSE').upper() == 'TRUE' else float(tb)

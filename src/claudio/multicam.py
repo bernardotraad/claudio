@@ -627,6 +627,7 @@ def export_xml(res, out_path, name='Synced Sequence', labels=None):
         vtracks.append(f'<track>{"".join(items)}</track>')
     alanes = [(c, ln) for c in acams for ln in lanes([n for n in placed if n['cam'] == c], lambda n: n.get('duration_corrected') or n['duration'])]
     for c, lane in alanes:
+        pair = []
         for ch_ in (1, 2):
             items = []
             for n in lane:
@@ -638,8 +639,10 @@ def export_xml(res, out_path, name='Synced Sequence', labels=None):
                              f'<duration>{d}</duration>{rate}<start>{n["start_frame"]}</start><end>{n["start_frame"] + d}</end>'
                              f'<in>0</in><out>{d}</out>{file_el(n, full)}<sourcetrack><mediatype>audio</mediatype>'
                              f'<trackindex>{ch_}</trackindex></sourcetrack>{lab(n)}</clipitem>')
-            if items:
-                atracks.append(f'<track>{"".join(items)}</track>')
+            pair.append(items)
+        # one stereo track per lane when every clip on it is one mic pair; recorders with two mics stay dual mono
+        st = all(core.stereo_ok(n['info'] | {'path': n['path']}, 0.0, min(n['duration'], 600.0)) for n in lane)
+        atracks.append(core.audio_track_pair(*pair, stereo=st))
     total = max(n['start_frame'] + int(round((n.get('duration_corrected') or n['duration']) * F)) for n in placed)
     W, H = next(((n['info']['width'], n['info']['height']) for n in placed if n['kind'] == 'video'), (1920, 1080))
     seq = (f'<sequence id="{uuid.uuid4()}"><name>{E(name)}</name><duration>{total}</duration>{rate}'

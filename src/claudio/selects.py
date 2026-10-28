@@ -151,7 +151,9 @@ def export_selects_xml(sel, out_path, gap_frames=12, name='Cláudio — selects'
                 f'</effect></filter>')
 
     def sequence(title, items):
-        v, a1, a2, rec = [], [], [], 0
+        v, rec = [], 0
+        a = {g: ([], []) for g in ('st', 'dm')}     # one stereo track + dual mono (lav on one side / two mics)
+        group = ['st' if core.stereo_ok(infos[it['path']], it['in'], it['out']) else 'dm' for it in items]
         for k, it in enumerate(items):
             p = it['path']; i = infos[p]
             fin = int(round(it['in'] * F)); fout = max(fin + 1, int(round(it['out'] * F)))
@@ -164,12 +166,12 @@ def export_selects_xml(sel, out_path, gap_frames=12, name='Cláudio — selects'
             cid = f'{title[:6]}-{k}'
             links = ''.join(f'<link><linkclipref>{cid}-{x}</linkclipref></link>' for x in ['v'] + [f'a{c}' for c in range(1, ach + 1)])
             v.append(f'<clipitem id="{cid}-v">{common}{file_el(p)}{motion(p)}{mk}{links}</clipitem>')
-            for c, lst in ((1, a1), (2, a2)):
+            for c, lst in zip((1, 2), a[group[k]]):
                 if c <= ach:
                     lst.append(f'<clipitem id="{cid}-a{c}">{common}<file id="{fid[p]}"/><sourcetrack><mediatype>audio</mediatype>'
                                f'<trackindex>{c}</trackindex></sourcetrack>{links}</clipitem>')
             rec += d + gap_frames
-        at = ''.join(f'<track>{"".join(l)}</track>' for l in (a1, a2) if l)
+        at = core.audio_track_pair(*a['st']) + core.audio_track_pair(*a['dm'], stereo=False)
         return (f'<sequence id="{uuid.uuid4()}"><name>{E(title)}</name><duration>{max(rec, 1)}</duration>{rate}'
                 f'<timecode>{rate}<string>01:00:00:00</string><frame>{round(F) * 3600}</frame><displayformat>NDF</displayformat></timecode>'
                 f'<media><video><format><samplecharacteristics>{rate}<width>{W}</width><height>{H}</height>'

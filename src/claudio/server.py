@@ -1311,7 +1311,8 @@ def edit_storyboard(project: str, version: int = None) -> list:
 
 def export_edit(project: str, out_path: str = None, version: int = None) -> dict:
     """Export an edit version as FCP7 XML for finishing: V1 spine, V2 b-roll (with Basic Motion scale/centre for the
-    reframe), A1/A2 production audio with per-shot levels, A3/A4 music. Premiere: do NOT import the .xml through the Premiere MCP (importFiles on an FCP XML crashes Premiere) — give the editor the path and ask them to import it (File › Import / Ctrl+I);
+    reframe), A1 production audio as ONE stereo track with per-shot levels (clips with a lav on one side or two different
+    mics on L/R go dual mono on the next pair), then music. Premiere: do NOT import the .xml through the Premiere MCP (importFiles on an FCP XML crashes Premiere) — give the editor the path and ask them to import it (File › Import / Ctrl+I);
     Resolve: import_timeline_from_file(xml). Captions/titles are not in the XML (re-create them in the NLE or burn
     from the render).
     The sequence and the .xml are named after edit["name"] (+ " vN" when the name has no version), so ALWAYS give the

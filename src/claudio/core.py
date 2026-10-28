@@ -2058,6 +2058,29 @@ def _esc(s):
     return str(s).replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;').replace('"', '&quot;')
 
 
+def audio_track_pair(left, right, stereo=True):
+    """FCP7 XML has no stereo track: one track per channel, so Premiere imports L on A1 and R on A2. Premiere's own
+    extension (what it writes on export) marks the two as halves of ONE stereo track — like a sequence made in Premiere.
+    stereo=False (mono sources, lav on one side, two different mics) keeps dual mono."""
+    if not stereo or not left or not right:
+        return ''.join(f'<track>{"".join(t)}</track>' for t in (left, right) if t)
+    return ''.join(f'<track currentExplodedTrackIndex="{k}" totalExplodedTrackCount="2" premiereTrackType="Stereo">'
+                   + ''.join(t).replace('<clipitem id=', '<clipitem premiereChannelType="stereo" id=')
+                   + f'<outputchannelindex>{k + 1}</outputchannelindex></track>' for k, t in enumerate((left, right)))
+
+
+def stereo_ok(info, s=0.0, e=None):
+    """A source range can sit on a stereo track: two channels of one mic pair (both live, correlated) or silence."""
+    if min(info.get('audio_channels') or 0, 2) < 2:
+        return False
+    from claudio import stereo
+    e = (info.get('duration') or s + 25) if e is None else e
+    try:
+        return stereo.layout(info['path'], s, e) in ('stereo', 'silent')
+    except Exception:
+        return False
+
+
 def resolve_plan(plan, lang='pt'):
     """Normalise plan clips: index each source, convert seconds→frames (snapping if asked)."""
     out = []
@@ -2082,7 +2105,10 @@ def export_fcp7(plan, out_path, lang='pt'):
     W = plan.get('width') or clips[0]['info']['width']; H = plan.get('height') or clips[0]['info']['height']
     rate = _rate_xml(seq_fps)
     files_done, fid = {}, {}
-    v_items, a_items = [], {1: [], 2: []}
+    v_items, a_items = [], {g: {1: [], 2: []} for g in ('st', 'dm')}   # one stereo track + dual mono (lav on one side / two mics)
+    group = {n: 'st' if stereo_ok(c['info'], c['clk'].sec(c['in_frame']), c['clk'].sec(c['out_frame'])) else 'dm'
+             for n, c in enumerate(clips, 1) if c['info']['audio_channels']}
+    base = {'st': 1, 'dm': 3 if 'st' in group.values() else 1}
     rec = 0
     for n, c in enumerate(clips, 1):
         info = c['info']
@@ -2113,16 +2139,17 @@ def export_fcp7(plan, out_path, lang='pt'):
                           for l in read_log(c['idx']) if c['in_frame'] <= c['clk'].frame(l['s']) < c['out_frame'])
         common = (f'<name>{label}</name><duration>{info["frames"]}</duration>{rate}'
                   f'<start>{rec}</start><end>{rec + dur}</end><in>{c["in_frame"]}</in><out>{c["out_frame"]}</out>')
+        g = group.get(n, 'dm')
         links = ''.join(f'<link><linkclipref>clip-{n}-{k}</linkclipref><mediatype>{"video" if k == "v" else "audio"}</mediatype>'
-                        f'<trackindex>{1 if k in ("v", "a1") else 2}</trackindex><clipindex>{n}</clipindex></link>'
+                        f'<trackindex>{1 if k == "v" else base[g] + int(k[1]) - 1}</trackindex><clipindex>{n}</clipindex></link>'
                         for k in (['v'] + (['a1', 'a2'][:min(info['audio_channels'], 2)] if info['audio_channels'] else [])))
         v_items.append(f'<clipitem id="clip-{n}-v">{common}{ref}{markers}{links}</clipitem>')
         for ch in range(1, min(info['audio_channels'] or 0, 2) + 1):
-            a_items[ch].append(f'<clipitem id="clip-{n}-a{ch}">{common}<file id="{fid[key]}"/>'
+            a_items[g][ch].append(f'<clipitem id="clip-{n}-a{ch}">{common}<file id="{fid[key]}"/>'
                                f'<sourcetrack><mediatype>audio</mediatype><trackindex>{ch}</trackindex></sourcetrack>{links}</clipitem>')
         rec += dur
     name = _esc(plan.get('name', 'Cláudio'))
-    audio_tracks = ''.join(f'<track>{"".join(a_items[ch])}</track>' for ch in (1, 2) if a_items[ch])
+    audio_tracks = audio_track_pair(a_items['st'][1], a_items['st'][2]) + audio_track_pair(a_items['dm'][1], a_items['dm'][2], False)
     xml = ('<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE xmeml>\n<xmeml version="4"><sequence id="seq-1">'
            f'<name>{name}</name><duration>{rec}</duration>{rate}'
            f'<timecode>{rate}<string>01:00:00:00</string><frame>{round(float(seq_fps)) * 3600}</frame><displayformat>NDF</displayformat></timecode>'
