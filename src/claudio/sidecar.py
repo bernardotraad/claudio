@@ -10,7 +10,7 @@ Sections between <!-- claudio:auto --> markers are regenerated; anything written
 """
 import datetime, json, os, re
 
-from claudio import core
+from claudio import core, profile
 
 AUTO_BEGIN, AUTO_END = '<!-- claudio:auto:begin -->', '<!-- claudio:auto:end -->'
 
@@ -210,9 +210,10 @@ def project_digest(folder, max_chars=18000):
     what is said (most frequent words, first lines per clip), what was seen (annotations), takes, b-roll."""
     import collections
     root = core.local_path(folder)
-    vids = []
+    vids, work = [], profile.work_dirs()
     for dp, dn, fn in os.walk(root):
-        dn[:] = [x for x in dn if x.lower() not in core.PROXY_DIRS and not x.startswith(('_claudio', '_decupa', '.', '#'))]
+        dn[:] = [x for x in dn if x.lower() not in core.PROXY_DIRS and not x.startswith(('_claudio', '_decupa'))
+                 and not profile.skip_dir(x, work)]
         vids += [os.path.join(dp, f) for f in sorted(fn) if os.path.splitext(f)[1].lower() in core.VIDEO_EXT and not core.is_proxy(os.path.join(dp, f))]
     clips, words, cams, colors, total, speech_s, not_indexed = [], collections.Counter(), collections.Counter(), collections.Counter(), 0.0, 0.0, []
     for p in vids:

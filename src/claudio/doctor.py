@@ -59,6 +59,12 @@ def check():
     add(OK, 'motor de transcrição', 'ElevenLabs Scribe (pago)' if stt == 'elevenlabs' else
         'Whisper local' + (' — Scribe escolhido mas sem chave' if core.env('STT') == 'elevenlabs' else
                            (' (Scribe: {"stt": "elevenlabs"} em ~/.config/claudio/settings.json)' if has_key else '')))
+    from claudio import clients, profile
+    prof = profile.summary()
+    f = prof['pastas']
+    folders = f"brutos {f['brutos']} · projeto {f['projeto']} · trilhas {f['trilhas']} · legendas {f['legendas']} · clientes {core.nle_path(clients.clients_dir(create=False))}"
+    add(OK if prof['file'] else WARN, 'perfil do editor', (core.nle_path(prof['file']) + ' — ' if prof['file'] else '') + folders +
+        ('' if prof['file'] else '\n       pastas neutras; para as suas, crie ~/.config/claudio/perfil.json (veja docs/arquitetura.md)'))
     claude = shutil.which('claude') or next((p for p in [os.path.expanduser('~/.local/bin/claude'), '/opt/homebrew/bin/claude', '/usr/local/bin/claude'] if os.path.exists(p)), None)
     if core.IS_WSL and not claude:
         win = '/mnt/c/Users/' + os.environ.get('USER', '') + '/.local/bin/claude.exe'

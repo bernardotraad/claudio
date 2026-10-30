@@ -1,11 +1,11 @@
 """Soundtrack for a cut that is already on the timeline: the AI chooses the track with the editor (Storyblocks or a file
-of theirs); everything after that is deterministic — download into <job>/#trilhas, fit the song to the sequence (its
+of theirs); everything after that is deterministic — download into the job's music folder (profile 'trilhas'), fit the song to the sequence (its
 real ending lands on the end of the cut, the start on a downbeat), set the level from measured loudness and duck it
 under speech with Volume keyframes. The panel lays it on a NEW audio track of each live sequence (claudioPlaceMusic),
 never on a track that has clips, never through an XML round trip (MOGRT captions would not survive it).
 
   brief(nle_xml)          what the cut needs: length, how much of it is speech, pace, music already in it
-  fetch(url, job, title)  download (or copy) the chosen track into <job>/#trilhas
+  fetch(url, job, title)  download (or copy) the chosen track into the job's music folder
   fit(path, duration)     segments of the song on the timeline (+ fades)
   plan(job, sequences)    one .claudio-trilha.jsx for all the sequences, applied by the panel in one go
 """
@@ -13,7 +13,7 @@ import datetime, json, os, re, shutil, urllib.parse, urllib.request
 
 import numpy as np
 
-from claudio import core
+from claudio import core, profile
 
 UNDER_SPEECH_LU = 18.0      # music this far below the speech while someone talks
 GAP_LU = 6.0                # …and this far below it in the breathing room between lines
@@ -119,10 +119,9 @@ EXT_BY_TYPE = {'audio/mpeg': '.mp3', 'audio/mp3': '.mp3', 'audio/wav': '.wav', '
 
 
 def fetch(url, job, title=None):
-    """Put the chosen track in <job>/#trilhas: download a URL (Storyblocks' signed link) or copy a local file. The same
+    """Put the chosen track in the job's music folder (profile 'trilhas'): download a URL (Storyblocks' signed link) or copy a local file. The same
     file is not fetched twice. Returns its path as the NLE sees it, plus duration."""
-    d = os.path.join(core.local_path(job), '#trilhas')
-    os.makedirs(d, exist_ok=True)
+    d = profile.folder('trilhas', job, create=True)
     src_local = None if re.match(r'^https?://', url or '', re.I) else core.local_path(url)
     if src_local:
         if not os.path.isfile(src_local):
@@ -333,11 +332,10 @@ def plan_sequence(nle_xml, music, mode='auto', start=None, sequence_id=None, wor
 
 def plan(job, sequences, words=None):
     """One plan for several sequences: [{nle_xml, music, mode?, start?, sequence_id?, duck?, gain_db?}] →
-    <job>/#trilhas/trilha <stamp>.claudio-trilha.jsx (the panel places it: new audio track per sequence, backups first)."""
+    <trilhas>/trilha <stamp>.claudio-trilha.jsx (the panel places it: new audio track per sequence, backups first)."""
     out = [plan_sequence(s['nle_xml'], s['music'], s.get('mode') or 'auto', s.get('start'), s.get('sequence_id'),
                          words, s.get('duck', True), s.get('gain_db')) for s in sequences]
-    d = os.path.join(core.local_path(job), '#trilhas')
-    os.makedirs(d, exist_ok=True)
+    d = profile.folder('trilhas', job, create=True)
     stamp = datetime.datetime.now().strftime('%Y%m%d-%H%M%S')
     p = os.path.join(d, f'trilha {stamp}.claudio-trilha.jsx')
     open(p, 'w', encoding='utf-8').write('var CLAUDIO_MUSIC = ' + json.dumps({'sequences': out}, ensure_ascii=False) + ';\n')

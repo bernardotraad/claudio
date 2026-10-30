@@ -17,6 +17,7 @@
   stt         {"set"?: "elevenlabs" | "whisper"}   transcription engine (Scribe on/off), saved in settings.json
   stt_check   {"paths", "prproj"?}                 per clip: indexed, speech, engine, duration (+ sequences with captions)
   retranscribe {"path"}                            redo ONE clip's transcript with the chosen engine (picture kept)
+  profile     {}                                   the editor's folders (perfil.json over the defaults)
 
 Paths can be Windows paths (D:\\...) — they are translated on WSL — and come back as the editor's paths.
 """
@@ -30,7 +31,7 @@ def _status(a):
 
 
 def client_for(folder):
-    """The client profile whose name appears in the job's path ("…\\2026-10-19 INC CORRETORES 9\\BRUTOS" → INC)."""
+    """The client profile whose name appears in the job's path ("…\\2026-10-19 ACME 9\\brutos" → ACME)."""
     from claudio import clients, core
     import re as _re
     path = core.local_path(folder).lower()
@@ -109,9 +110,10 @@ def _sync(a):
 def _multicam_plan(a):
     """Cameras and recorders of a job from its folders, without AI: every folder with videos is a camera (named after
     the folder + the camera model), folders with only audio files are external recorders. Colours: the multicam palette."""
-    from claudio import core, multicam
+    from claudio import core, multicam, profile
     root = core.local_path(a['folder'])
-    skip = lambda n: n.startswith(('#', '_', '.')) or n.lower() in core.PROXY_DIRS
+    work = profile.work_dirs()
+    skip = lambda n: n.startswith('_') or profile.skip_dir(n, work) or n.lower() in core.PROXY_DIRS
     cams, ext = {}, []
     for dp, dn, fn in os.walk(root):
         dn[:] = sorted(x for x in dn if not skip(x))
@@ -159,14 +161,14 @@ def _describe(a):
 
 
 def _out_xml(a, suffix):
-    """Where a new sequence from the panel goes: next to the job's project (#projeto), never inside claudio_backups
+    """Where a new sequence from the panel goes: next to the job's project, never inside the backups folder
     (the panel keeps only the last 30 files there), named after the sequence."""
-    from claudio import core, nle_read
+    from claudio import core, nle_read, profile
     if a.get('out_xml'):
         return core.local_path(a['out_xml'])
     src = core.local_path(a['nle_xml'])
     d = os.path.dirname(src)
-    if os.path.basename(d).lower() == 'claudio_backups':
+    if os.path.basename(d).lower() == profile.get('pastas.backups').lower():
         d = os.path.dirname(d)
     name = nle_read.read_fcp7(src)['name'] or os.path.splitext(os.path.basename(src))[0]
     import re as _re
@@ -190,8 +192,8 @@ def _sfx(a):
 
 def _from_premiere(a):
     """The caption as the editor left it in Premiere (track C1 of the active sequence, read from the saved .prproj),
-    written as <sequence>_revisada.srt in #legendas. None when the sequence has no caption track."""
-    from claudio import core, motion, nle_read
+    written as <sequence>_revisada.srt in the job's captions folder. None when the sequence has no caption track."""
+    from claudio import core, motion, nle_read, profile
     if not (a.get('prproj') and a.get('sequence')):
         return None, []
     try:
@@ -200,9 +202,9 @@ def _from_premiere(a):
         return None, []
     if not cues:
         return None, []
-    job = a.get('job') or os.path.dirname(os.path.dirname(core.local_path(a['prproj'])))
+    job = a.get('job') or profile.job_of(a['prproj'])
     name = re.sub(r'[\\/:*?"<>|]', '-', a['sequence'])
-    p = nle_read.write_srt(cues, os.path.join(core.local_path(job), '#legendas', f'{name}_revisada.srt'))
+    p = nle_read.write_srt(cues, os.path.join(profile.folder('legendas', job), f'{name}_revisada.srt'))
     learned = []
     if a.get('nle_xml'):
         try:
@@ -214,16 +216,17 @@ def _from_premiere(a):
 
 def _srt_in(job, a=None):
     """The caption to use: the caption track the editor fixed in Premiere, else the newest *revisada*.srt in the
-    job's #legendas, else the newest .srt there."""
-    from claudio import core
+    job (captions folder first), else the newest .srt there."""
+    from claudio import core, profile
     p, _ = _from_premiere(a or {})
     if p:
         return p
     if not job:
         return None
     best = []
+    skip = {n.lower() for n in profile.raw_names()} | {'proxy', 'proxies'}
     for dp, dn, fn in os.walk(core.local_path(job)):
-        dn[:] = [d for d in dn if not d.startswith(('_', '.')) and d.lower() not in ('brutos', 'proxy', 'proxies')]
+        dn[:] = [d for d in dn if not d.startswith(('_', '.')) and d.lower() not in skip]
         if os.path.relpath(dp, core.local_path(job)).count(os.sep) > 2:
             dn[:] = []
         for f in fn:
@@ -243,13 +246,13 @@ def _mogrt_styles(a):
 
 
 def _mogrt(a):
-    from claudio import core, mogrt
+    from claudio import core, mogrt, profile
     prof = client_for(a.get('job') or a['nle_xml']) or {}
     srt, learned = a.get('srt'), []
     if srt == 'auto':
         srt, learned = _from_premiere(a)
         srt = srt or _srt_in(a.get('job'))
-    out = a.get('out_dir') or (os.path.join(core.local_path(a['job']), '#legendas') if a.get('job') else None)
+    out = a.get('out_dir') or (profile.folder('legendas', a['job']) if a.get('job') else None)
     if out:
         os.makedirs(core.local_path(out), exist_ok=True)
     r = mogrt.caption_mogrt(a['nle_xml'], a.get('style', 'social'), a.get('aspect'), a.get('accent', '#4ea1ff'), srt,
@@ -296,7 +299,12 @@ def _retranscribe(a):
     return {'engine': sp.get('engine'), 'stt_error': sp.get('stt_error'), 'words': sp.get('n_words', 0)}
 
 
-ACTIONS = {'stt': _stt, 'stt_check': _stt_check, 'retranscribe': _retranscribe, 'clean': _clean, 'sfx': _sfx, 'mogrt': _mogrt, 'mogrt_styles': _mogrt_styles, 'describe': _describe, 'multicam_plan': _multicam_plan, 'status': _status, 'index': _index, 'stereo': _stereo, 'flatten': _flatten, 'qc': _qc, 'sync': _sync}
+def _profile(a):
+    from claudio import profile
+    return profile.summary()
+
+
+ACTIONS = {'profile': _profile, 'stt': _stt, 'stt_check': _stt_check, 'retranscribe': _retranscribe, 'clean': _clean, 'sfx': _sfx, 'mogrt': _mogrt, 'mogrt_styles': _mogrt_styles, 'describe': _describe, 'multicam_plan': _multicam_plan, 'status': _status, 'index': _index, 'stereo': _stereo, 'flatten': _flatten, 'qc': _qc, 'sync': _sync}
 
 
 def main():

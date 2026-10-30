@@ -8,7 +8,7 @@ One indexer per folder at a time (the status file holds the pid). Clips already 
 """
 import argparse, hashlib, json, os, sys, time, traceback
 
-from claudio import core, sidecar
+from claudio import core, profile, sidecar
 
 JOBS = os.path.join(core.CACHE, 'jobs')
 STAGE_W = {'probe': (0.0, 0.02), 'audio': (0.02, 0.08), 'picture': (0.10, 0.65), 'speech': (0.75, 0.25)}
@@ -96,9 +96,10 @@ def launch_detached(folder, vocabulary=None, lang='pt'):
 
 def list_videos(folder):
     root = core.local_path(folder)
-    out = []
+    out, work = [], profile.work_dirs()
     for dp, dn, fn in os.walk(root):
-        dn[:] = [x for x in dn if x.lower() not in core.PROXY_DIRS and not x.startswith(('_claudio', '_decupa', '.', '#'))]
+        dn[:] = [x for x in dn if x.lower() not in core.PROXY_DIRS and not x.startswith(('_claudio', '_decupa'))
+                 and not profile.skip_dir(x, work)]
         out += [os.path.join(dp, f) for f in sorted(fn) if os.path.splitext(f)[1].lower() in core.VIDEO_EXT
                 and not f.startswith('._') and not core.is_proxy(os.path.join(dp, f))]
     return out
@@ -108,10 +109,10 @@ def list_media(folder):
     """What "Analisar material" indexes: every video plus loose audio (songs, recorders, voice notes). Skips the
     claudio_*/decupa_* folders the tools write (drift-corrected copies of the recorder)."""
     root = core.local_path(folder)
-    out = []
+    out, work = [], profile.work_dirs()
     for dp, dn, fn in os.walk(root):
         dn[:] = [x for x in dn if x.lower() not in core.PROXY_DIRS
-                 and not x.startswith(('_claudio', '_decupa', '.', '#', 'claudio_', 'decupa_'))]
+                 and not x.startswith(('_claudio', '_decupa', 'claudio_', 'decupa_')) and not profile.skip_dir(x, work)]
         out += [os.path.join(dp, f) for f in sorted(fn) if os.path.splitext(f)[1].lower() in core.MEDIA_EXT
                 and not f.startswith('._') and not core.is_proxy(os.path.join(dp, f))]
     return out

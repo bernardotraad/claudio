@@ -36,7 +36,7 @@ cartão ─► ingest ─► decupagem (.md ao lado de cada clipe) ─► visão
 
 | Etapa | Ferramentas | |
 | --- | --- | --- |
-| Descarregar | `ingest_card` | Cópia verificada (xxHash64 copiando e relendo o destino) para `BRUTOS/<câmera>`, `00 AUDIO`, `03 FOTOS`, `#projeto`, `#trilhas`. Nunca sobrescreve (outro cartão com os mesmos nomes vai pra `CARD_n`) e nunca mexe no cartão. Depois indexa. |
+| Descarregar | `ingest_card` | Cópia verificada (xxHash64 copiando e relendo o destino) para as pastas do [perfil](#perfil-do-editor) (`brutos/<câmera>`, `brutos/audio`, `brutos/fotos`, `projeto`, `trilhas`). Nunca sobrescreve (outro cartão com os mesmos nomes vai pra `CARD_n`) e nunca mexe no cartão. Depois indexa. |
 | Indexar | `index_folder`, `index_status` | Em processo próprio (segue mesmo com o chat ou o Premiere fechados), com barra de progresso. Usa proxies (`Proxy/` ou `Proxies/`) quando existem, e GPU (NVDEC) ou só keyframes no 4K pesado. Grava **`<clipe>.md`** + contact sheet ao lado de cada vídeo e **`_CLAUDIO.md`** por pasta. |
 | Entender | `project_digest`, `save_project_overview` | Lê todos os `.md` e escreve **`_VISAO_GERAL.md`**. Pergunta a duração do vídeo e a trilha (música específica ou mood/gênero) e propõe 2–4 direcionamentos. |
 | Olhar | `contact_sheet`, `timeline_strip`, `frames`, `reframe_preview`, `multicam_monitor` | Imagens reais do material, com TC e a fala do instante. |
@@ -328,7 +328,7 @@ Reinicie o Premiere → **Janela › Extensões › Cláudio, o Editor**.
 
 ## Como usar
 
-1. Monte o projeto no Premiere/Resolve e **salve o `.prproj` dentro de `<trabalho>/#projeto/`**: o painel acha a pasta
+1. Monte o projeto no Premiere/Resolve e **salve o `.prproj` dentro da pasta de projeto do trabalho** (`<trabalho>/projeto/`, ou o nome do seu [perfil](#perfil-do-editor)): o painel acha a pasta
    do material a partir dele.
 2. Abra o painel **Cláudio** e clique em **Analisar material**. A barra mostra o progresso. Pode fechar o painel, o
    Claude Desktop ou o Premiere: a indexação continua.
@@ -361,8 +361,8 @@ BMD Film) parece lavado de propósito: a correção de cor é sua, no NLE.
 | ao lado de cada vídeo | `<clipe>.md` (técnico, cor, cenas, takes, transcrição) e `_claudio/<clipe>.jpg` |
 | em cada pasta de material | `_CLAUDIO.md` (tabela da pasta + progresso) e `_claudio/progress.json` |
 | na raiz do trabalho | `_VISAO_GERAL.md`, `_ingest.md` / `_ingest.json` |
-| `#projeto/` | XMLs (selects, sync, versões da montagem), `claudio_overlays/` (legendas, overlays, narração) e `<projeto>.claudio-chat.json` (conversa do painel) |
-| vault: `trabalho/clientes/` (sem vault: `~/Documents/Claudio/clientes`) | perfis de cliente (`<cliente>.md`, com frontmatter do vault) |
+| `projeto/` (nome do perfil) | XMLs (selects, sync, versões da montagem), `claudio_overlays/` (legendas, overlays, narração) e `<projeto>.claudio-chat.json` (conversa do painel) |
+| `clientes` do perfil, senão `<vault>/trabalho/clientes/`, senão `~/Documents/Claudio/clientes` | perfis de cliente (`<cliente>.md`, com frontmatter do vault) |
 | `~/.cache/claudio/` | índices (transcrição, métricas, áudio). Apagar só força uma nova análise. |
 
 O que você escrever nos `.md` fora dos marcadores `<!-- claudio:auto -->` nunca é apagado.
@@ -382,8 +382,9 @@ O que você escrever nos `.md` fora dos marcadores `<!-- claudio:auto -->` nunca
 | Variável | Padrão | |
 | --- | --- | --- |
 | `CLAUDIO_CACHE` | `~/.cache/claudio` | índices |
-| `CLAUDIO_CLIENTS` | `<vault>/trabalho/clientes` | perfis de cliente |
-| `CLAUDIO_VAULT` | `D:\bernardo\vault` / `~/vault` | vault Obsidian onde ficam os perfis |
+| `CLAUDIO_PROFILE` | `~/.config/claudio/perfil.json` | [perfil do editor](#perfil-do-editor) |
+| `CLAUDIO_CLIENTS` | `clientes` do perfil | perfis de cliente |
+| `CLAUDIO_VAULT` | `vault` do perfil | vault Obsidian onde ficam os perfis |
 | `CLAUDIO_MOTION_SKILL` | `~/.claude/skills/motion-designer` | skill de motion |
 | `CLAUDIO_WHISPER` / `CLAUDIO_MLX_MODEL` | `large-v3-turbo` | modelo de transcrição |
 | `CLAUDIO_FFMPEG_GPU` | `~/.local/opt/ffmpeg-*/bin/ffmpeg` | ffmpeg com CUDA |
@@ -406,7 +407,39 @@ permissão) cai no Whisper e fica anotado em `stt_error` no índice. Voltar para
 No painel, o **14 Transcrição Scribe** liga/desliga o Scribe e lista as sequências do projeto com fala em A1, **lidas
 como estão agora na timeline** (não de XML salvo), com as legendadas que ainda usam o Whisper já marcadas. "Refazer com
 o Scribe" retranscreve só esses clipes (sem IA), exporta cada sequência marcada naquele momento e pede à IA a revisão de
-gramática e um `<sequência> (scribe).srt` em `#legendas` para cada uma — sem mexer nas sequências.
+gramática e um `<sequência> (scribe).srt` na pasta de legendas para cada uma — sem mexer nas sequências.
+
+### Perfil do editor
+
+O Cláudio não tem nome de pasta fixo: ele lê `~/.config/claudio/perfil.json`. Sem esse arquivo, usa os nomes neutros
+abaixo. Escreva só o que muda; o `claudio-doctor` mostra o perfil ativo.
+
+```json
+{
+ "pastas": {
+  "brutos": "BRUTOS", "audio": "BRUTOS/00 AUDIO", "fotos": "BRUTOS/03 FOTOS",
+  "projeto": "#projeto", "trilhas": "#trilhas", "legendas": "#legendas",
+  "overlays": "#projeto/claudio_overlays", "backups": "claudio_backups"
+ },
+ "vault": "D:\\vault",
+ "clientes": "D:\\vault\\trabalho\\clientes"
+}
+```
+
+| Chave | Padrão | |
+| --- | --- | --- |
+| `pastas.brutos` | `brutos` | material de câmera (`<brutos>/<câmera>/`) |
+| `pastas.audio` / `pastas.fotos` | `brutos/audio` / `brutos/fotos` | gravadores externos / fotos |
+| `pastas.projeto` | `projeto` | projeto do NLE, XMLs, selects, sync |
+| `pastas.trilhas` | `trilhas` | música |
+| `pastas.legendas` | `legendas` | `.srt`, overlay de legenda, planos de MOGRT |
+| `pastas.overlays` | `projeto/claudio_overlays` | lower thirds, títulos, cartelas |
+| `pastas.backups` | `claudio_backups` | backups de sequência do painel, ao lado do projeto do NLE |
+| `vault` | — | vault Obsidian: perfis de cliente seguem as regras dele |
+| `clientes` | `<vault>/trabalho/clientes` ou `~/Documents/Claudio/clientes` | perfis de cliente |
+
+As pastas são relativas à pasta do trabalho (`/` separa níveis). Pastas que começam com `#` e as pastas de trabalho do
+perfil nunca são indexadas como material. O painel lê o perfil ao abrir: depois de mudar o arquivo, reabra o painel.
 
 ## Limitações
 

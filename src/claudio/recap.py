@@ -7,7 +7,7 @@ from fractions import Fraction
 
 import numpy as np
 
-from claudio import core, montage
+from claudio import core, montage, profile
 
 VIDEO_EXT = ('.mp4', '.mov', '.mxf', '.mts', '.m4v', '.avi', '.mkv')
 
@@ -16,9 +16,9 @@ def _videos(folder_or_paths):
     if isinstance(folder_or_paths, (list, tuple)):
         return [core.local_path(p) for p in folder_or_paths]
     d = core.local_path(folder_or_paths)
-    out = []
+    out, work = [], profile.work_dirs()
     for root, dirs, files in os.walk(d):
-        dirs[:] = [x for x in dirs if not x.startswith(('_', '#', '.')) and x.lower() not in ('proxy', 'proxies')]
+        dirs[:] = [x for x in dirs if not x.startswith('_') and not profile.skip_dir(x, work) and x.lower() not in ('proxy', 'proxies')]
         out += [os.path.join(root, f) for f in sorted(files) if f.lower().endswith(VIDEO_EXT) and not core.is_proxy(os.path.join(root, f))]
     return sorted(out)
 

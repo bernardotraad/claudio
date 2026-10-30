@@ -81,7 +81,7 @@ def test_plan_two_sequences(tmp_path, song):
     r = music.plan(str(tmp_path), [{'nle_xml': a, 'music': song, 'sequence_id': '1'}, {'nle_xml': b, 'music': song, 'duck': False}],
                    words=words)
     p = r['plan']
-    assert p.endswith('.claudio-trilha.jsx') and '#trilhas' in p
+    assert p.endswith('.claudio-trilha.jsx') and '/trilhas/' in p.replace('\\', '/')
     txt = open(music.core.local_path(p), encoding='utf-8').read()
     P = json.loads(re.match(r'var CLAUDIO_MUSIC = (.*);\s*$', txt, re.S).group(1))
     s1, s2 = P['sequences']
@@ -98,4 +98,4 @@ def test_plan_two_sequences(tmp_path, song):
 def test_fetch_copies_a_local_file(tmp_path, song):
     r = music.fetch(song, str(tmp_path), 'Minha: trilha')
     assert 'error' not in r and r['path'].endswith('Minha- trilha.wav')
-    assert (tmp_path / '#trilhas' / 'Minha- trilha.wav').exists()
+    assert (tmp_path / 'trilhas' / 'Minha- trilha.wav').exists()

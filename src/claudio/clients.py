@@ -1,10 +1,10 @@
 """claudio.clients — one profile per client, so the next job starts where the last one ended.
 
   <clients>/<slug>.md   human-readable (and agent-readable) profile; the machine part lives in a JSON block inside the
-                        same file, so there is one file to sync/edit. Folder: $CLAUDIO_CLIENTS, else
-                        <vault>/trabalho/clientes when the Obsidian vault is found ($CLAUDIO_VAULT, D:\\bernardo\\vault,
-                        ~/vault), else ~/Documents/Claudio/clientes. In the vault the page follows its rules: frontmatter
-                        (tipo: cliente), kebab-case file name, linked from trabalho/clientes/README.md.
+                        same file, so there is one file to sync/edit. Folder: $CLAUDIO_CLIENTS, else "clientes" in
+                        perfil.json, else <vault>/trabalho/clientes when the profile names an Obsidian vault
+                        ($CLAUDIO_VAULT or "vault"), else ~/Documents/Claudio/clientes. In the vault the page follows its
+                        rules: frontmatter (tipo: cliente), kebab-case file name, linked from the folder's README.md.
 
   profile fields: vocabulary · formats (aspect, duration, platform) · end_card (file, in/out) · music (tracks/folder
   used, style) · captions · structure (hook/body/CTA…) · house_style (measured from finished timelines) · notes ·
@@ -12,26 +12,26 @@
 """
 import datetime, json, os, re, statistics
 
-from claudio import core
+from claudio import core, profile
 
 BEGIN, END = '<!-- claudio:profile', 'claudio:profile -->'
 
 
 def vault_dir():
-    cands = [core.env('VAULT'), '/mnt/d/bernardo/vault', 'D:\\bernardo\\vault', os.path.expanduser('~/vault')]
-    for c in cands:
+    for c in (core.env('VAULT'), profile.get('vault')):
         if c and os.path.isfile(os.path.join(core.local_path(c), 'CLAUDE.md')) and os.path.isdir(os.path.join(core.local_path(c), 'trabalho')):
             return core.local_path(c)
     return None
 
 
-def clients_dir():
-    d = core.env('CLIENTS')
+def clients_dir(create=True):
+    d = core.env('CLIENTS') or profile.get('clientes')
     if not d:
         v = vault_dir()
         d = os.path.join(v, 'trabalho', 'clientes') if v else os.path.expanduser(os.path.join('~', 'Documents', 'Claudio', 'clientes'))
     d = core.local_path(d)
-    os.makedirs(d, exist_ok=True)
+    if create:
+        os.makedirs(d, exist_ok=True)
     return d
 
 

@@ -66,12 +66,22 @@ function loadHist() {
   add('meta', `conversa anterior recarregada (${h.messages.length} mensagens) — o Claude continua de onde parou`, false);
 }
 
+// the editor's job folders (claudio.profile: perfil.json over these defaults), read once from claudio-run at start
+let PROF = { pastas: { brutos: 'brutos', audio: 'brutos/audio', fotos: 'brutos/fotos', projeto: 'projeto', trilhas: 'trilhas',
+  legendas: 'legendas', overlays: 'projeto/claudio_overlays', backups: 'claudio_backups' },
+  raw_names: ['brutos', 'BRUTOS', 'VIDEOS', 'VÍDEOS', 'RAW', 'FOOTAGE', 'MATERIAL', 'CARTOES', 'CARTÕES'] };
+
 function jobFolder() {
-  // Bernardo's layout: <job>/#projeto/<name>.prproj  → work from <job>
+  // <job>/<projeto>/<name>.prproj  → work from <job> (a '#…' folder counts as the project folder too)
   if (!ctx.project) return os.homedir();
   let d = path.dirname(ctx.project);
-  if (path.basename(d).startsWith('#')) d = path.dirname(d);
+  const b = path.basename(d).toLowerCase();
+  if (b.startsWith('#') || b === PROF.pastas.projeto.split('/').pop().toLowerCase()) d = path.dirname(d);
   return d;
+}
+
+function jobPath(name, ...rest) {
+  return path.join(jobFolder(), ...PROF.pastas[name].split('/'), ...rest);
 }
 
 function claudeExe() {
@@ -304,8 +314,8 @@ function importButtons(d, text) {
 }
 
 function rawFolder() {
-  // BRUTOS is the convention; other jobs use VIDEOS / RAW / FOOTAGE / MATERIAL
-  const names = ['BRUTOS', 'VIDEOS', 'VÍDEOS', 'RAW', 'FOOTAGE', 'MATERIAL', 'CARTOES', 'CARTÕES'];
+  // the profile's footage folder first; other jobs use VIDEOS / RAW / FOOTAGE / MATERIAL
+  const names = PROF.raw_names.map((n) => n.toUpperCase());
   try {
     const dirs = fs.readdirSync(jobFolder(), { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => d.name);
     const hit = names.map((n) => dirs.find((d) => d.toUpperCase() === n)).find(Boolean);
@@ -316,22 +326,22 @@ function rawFolder() {
 
 const QUICK = {
   index: () => `Analise o material bruto deste trabalho: index_folder na pasta "${rawFolder()}" (mostre o progresso). Se houver perfil do cliente (client_profile), use o vocabulário dele. No fim, me diga em 4–6 linhas o que tem no material.`,
-  selects: () => `Faça as selects deste trabalho com make_selects (pasta "${rawFolder()}", XML em "${path.join(jobFolder(), '#projeto', 'claudio_selects.xml')}") e escreva o caminho completo do XML (o painel mostra o botão de importar) — não importe XML pelo MCP do Premiere. Depois me resuma as escolhas.`,
+  selects: () => `Faça as selects deste trabalho com make_selects (pasta "${rawFolder()}", XML em "${jobPath('projeto', 'claudio_selects.xml')}") e escreva o caminho completo do XML (o painel mostra o botão de importar) — não importe XML pelo MCP do Premiere. Depois me resuma as escolhas.`,
   notes: () => `Com o XML da sequência ativa ("${ctx.sequence || ''}") que o painel já exportou (está no contexto), rode compare_with_nle contra a última versão entregue pelo Cláudio deste trabalho, e me mostre o que eu mudei e as notas (marcadores) que deixei. Não aplique nada ainda: proponha e espere meu ok.`,
   qc: () => `Faça o QC da sequência ativa ("${ctx.sequence || ''}", ${ctx.frame_size || ''}) antes de eu exportar: rode qc_timeline no XML da sequência ativa que o painel já exportou (está no contexto). Liste os problemas e pergunte se quero que você marque cada um como marcador na timeline.`,
   status: () => `Rode index_status e me diga o progresso em uma linha.`,
   overview: () => `Faça a visão geral do projeto: project_digest na pasta "${rawFolder()}", entenda sobre o que é o trabalho, salve com save_project_overview em "${jobFolder()}" e me resuma em 4–6 linhas. Depois me pergunte a duração aproximada do vídeo final e a trilha (uma música específica ou um mood/gênero) e proponha 2–4 direcionamentos concretos a partir do material. Eu escolho um ou explico a minha ideia.`,
-  captions: () => `Legendas da sequência ativa ("${ctx.sequence || ''}", ${ctx.frame_size || ''}). Use o XML da sequência ativa que o painel já exportou (está no contexto) e siga os passos: 1) caption_sentences e corrija SÓ a gramática (concordância, regência, crase, pontuação), sem mudar as palavras do falante nem nomes de marca — me mostre a tabela fala → legenda; 2) caption_style_preview (aspect conforme o frame da sequência; se houver perfil do cliente, passe client) e me pergunte qual estilo; 3) com a minha escolha, gere SÓ o .srt (captions_srt com style = o estilo escolhido, e client se houver perfil — os blocos saem por frase, no tamanho de linha desse estilo) em "${path.join(jobFolder(), '#legendas')}" com o nome da sequência e coloque-o na sequência como trilha de legenda (Premiere MCP create_caption_track; se não der, me diga o caminho para eu arrastar). NÃO gere o overlay ainda: eu reviso palavras e tempo na trilha de legenda do Premiere e aperto "Overlay da legenda revisada" ou "Legenda MOGRT" (o Cláudio lê a trilha direto do projeto, não precisa exportar o .srt). Termine dizendo o estilo escolhido.`,
-  captions_final: () => `A legenda da sequência ativa ("${ctx.sequence || ''}", ${ctx.frame_size || ''}) foi revisada por mim no Premiere (o painel acabou de salvar o projeto). Leia a legenda direto da sequência com premiere_captions(prproj "${ctx.project || ''}", sequence "${ctx.sequence || ''}", nle_xml = o XML da sequência ativa do contexto): ela grava <sequência>_revisada.srt em #legendas e aprende o que eu corrigi no texto. Só se a sequência não tiver trilha de legenda, use o .srt revisado mais recente de "${path.join(jobFolder(), '#legendas')}" (se houver dúvida entre arquivos, me pergunte). Gere o overlay com caption_overlay(srt=esse arquivo), usando o XML da sequência ativa do contexto e o estilo escolhido antes nesta conversa (se não souber, pergunte). Não refaça correções do transcript: o texto e os tempos do .srt são os meus. Saída em "${path.join(jobFolder(), '#legendas')}". NÃO coloque o .mov na timeline pelo MCP do Premiere: escreva o caminho completo do .mov na resposta — o painel mostra o botão "Colocar overlay", que cria a trilha nova no topo e põe o clipe em 0 s por sobrescrita, sem mexer em mais nada.`,
-  multicam: () => `Multicâmera deste trabalho, no lugar do PluralEyes. 1) Liste as pastas de "${jobFolder()}" (material de câmera e áudio; ignore #projeto e proxies) e proponha o mapeamento: cada pasta de câmera vira uma câmera com nome curto (ex.: "CAM A — A7III"), e gravadores externos (Zoom, mesa, lapela) vão em external_audio. Proponha uma cor de label do Premiere por câmera e uma para o áudio externo (Cerulean, Mango, Forest, Magenta, Yellow, Violet, Teal, Rose, Caribbean…) numa tabela câmera → pasta → nº de clipes → cor, e ME PERGUNTE antes de rodar. 2) Com o meu ok, rode sync_multicam (correct_drift true, labels com as cores, out_xml "${path.join(jobFolder(), '#projeto', 'claudio_sync.xml')}"). 3) Resuma: clipes posicionados, os aproximados (sem áudio em comum, posicionados pelo relógio da câmera) e o drift do gravador. 4) Confira com multicam_monitor em 2 ou 3 momentos em que todas as câmeras estão rodando e me diga se algo parece fora de sincronia. 5) Escreva o caminho completo do XML (o painel mostra o botão de importar; não importe pelo MCP do Premiere) e explique o próximo passo: a "Synced Sequence" chega com V1..Vn por câmera e cada câmera (vídeo, áudio e bin) na sua cor; dali eu corto direto ou crio uma Multi-Camera Source Sequence.`,
-  recap: () => `Recap / aftermovie deste evento. 1) Confira se o material de "${rawFolder()}" está indexado (index_status; se não, index_folder e espere). 2) Me pergunte, numa chamada só: duração (15 · 30 · 45 · 60 s), formato (9:16 · 16:9 · 4:5), ritmo (rápido · médio · hype) e a música (uma da pasta do trabalho, um arquivo meu, ou opções do Storyblocks pelo mood). 3) Com as respostas, rode event_recap (project "${path.join(jobFolder(), '#projeto')}", footage "${rawFolder()}", name com o nome do evento) e depois edit_storyboard — OLHE e troque o que não estiver bom (planos fora de foco, repetidos, sem gente) com build_edit. 4) export_edit e escreva o caminho do XML (o painel mostra o botão de importar). Resuma em 3–5 linhas o que entrou e por quê.`,
+  captions: () => `Legendas da sequência ativa ("${ctx.sequence || ''}", ${ctx.frame_size || ''}). Use o XML da sequência ativa que o painel já exportou (está no contexto) e siga os passos: 1) caption_sentences e corrija SÓ a gramática (concordância, regência, crase, pontuação), sem mudar as palavras do falante nem nomes de marca — me mostre a tabela fala → legenda; 2) caption_style_preview (aspect conforme o frame da sequência; se houver perfil do cliente, passe client) e me pergunte qual estilo; 3) com a minha escolha, gere SÓ o .srt (captions_srt com style = o estilo escolhido, e client se houver perfil — os blocos saem por frase, no tamanho de linha desse estilo) em "${jobPath('legendas')}" com o nome da sequência e coloque-o na sequência como trilha de legenda (Premiere MCP create_caption_track; se não der, me diga o caminho para eu arrastar). NÃO gere o overlay ainda: eu reviso palavras e tempo na trilha de legenda do Premiere e aperto "Overlay da legenda revisada" ou "Legenda MOGRT" (o Cláudio lê a trilha direto do projeto, não precisa exportar o .srt). Termine dizendo o estilo escolhido.`,
+  captions_final: () => `A legenda da sequência ativa ("${ctx.sequence || ''}", ${ctx.frame_size || ''}) foi revisada por mim no Premiere (o painel acabou de salvar o projeto). Leia a legenda direto da sequência com premiere_captions(prproj "${ctx.project || ''}", sequence "${ctx.sequence || ''}", nle_xml = o XML da sequência ativa do contexto): ela grava <sequência>_revisada.srt em ${PROF.pastas.legendas} e aprende o que eu corrigi no texto. Só se a sequência não tiver trilha de legenda, use o .srt revisado mais recente de "${jobPath('legendas')}" (se houver dúvida entre arquivos, me pergunte). Gere o overlay com caption_overlay(srt=esse arquivo), usando o XML da sequência ativa do contexto e o estilo escolhido antes nesta conversa (se não souber, pergunte). Não refaça correções do transcript: o texto e os tempos do .srt são os meus. Saída em "${jobPath('legendas')}". NÃO coloque o .mov na timeline pelo MCP do Premiere: escreva o caminho completo do .mov na resposta — o painel mostra o botão "Colocar overlay", que cria a trilha nova no topo e põe o clipe em 0 s por sobrescrita, sem mexer em mais nada.`,
+  multicam: () => `Multicâmera deste trabalho, no lugar do PluralEyes. 1) Liste as pastas de "${jobFolder()}" (material de câmera e áudio; ignore ${PROF.pastas.projeto}, ${PROF.pastas.trilhas}, ${PROF.pastas.legendas} e proxies) e proponha o mapeamento: cada pasta de câmera vira uma câmera com nome curto (ex.: "CAM A — A7III"), e gravadores externos (Zoom, mesa, lapela) vão em external_audio. Proponha uma cor de label do Premiere por câmera e uma para o áudio externo (Cerulean, Mango, Forest, Magenta, Yellow, Violet, Teal, Rose, Caribbean…) numa tabela câmera → pasta → nº de clipes → cor, e ME PERGUNTE antes de rodar. 2) Com o meu ok, rode sync_multicam (correct_drift true, labels com as cores, out_xml "${jobPath('projeto', 'claudio_sync.xml')}"). 3) Resuma: clipes posicionados, os aproximados (sem áudio em comum, posicionados pelo relógio da câmera) e o drift do gravador. 4) Confira com multicam_monitor em 2 ou 3 momentos em que todas as câmeras estão rodando e me diga se algo parece fora de sincronia. 5) Escreva o caminho completo do XML (o painel mostra o botão de importar; não importe pelo MCP do Premiere) e explique o próximo passo: a "Synced Sequence" chega com V1..Vn por câmera e cada câmera (vídeo, áudio e bin) na sua cor; dali eu corto direto ou crio uma Multi-Camera Source Sequence.`,
+  recap: () => `Recap / aftermovie deste evento. 1) Confira se o material de "${rawFolder()}" está indexado (index_status; se não, index_folder e espere). 2) Me pergunte, numa chamada só: duração (15 · 30 · 45 · 60 s), formato (9:16 · 16:9 · 4:5), ritmo (rápido · médio · hype) e a música (uma da pasta do trabalho, um arquivo meu, ou opções do Storyblocks pelo mood). 3) Com as respostas, rode event_recap (project "${jobPath('projeto')}", footage "${rawFolder()}", name com o nome do evento) e depois edit_storyboard — OLHE e troque o que não estiver bom (planos fora de foco, repetidos, sem gente) com build_edit. 4) export_edit e escreva o caminho do XML (o painel mostra o botão de importar). Resuma em 3–5 linhas o que entrou e por quê.`,
   autocut: () => `Corte automático da multicâmera da sequência ativa ("${ctx.sequence || ''}") por quem está falando. O XML e as trilhas estão no contexto. 1) Proponha numa tabela: cada trilha de vídeo → quem ela enquadra (ou "aberto" para o plano geral) e cada pessoa → a trilha de áudio do microfone dela (olhe os nomes dos clipes; se precisar, contact_sheet de um frame de cada câmera) e ME PERGUNTE antes de rodar. 2) Com o meu ok, rode auto_cut_multicam (min_hold 2 s; max_hold 12 s). 3) Me diga quanto tempo ficou em cada câmera e quantos cortes, e escreva o caminho do XML (o painel mostra o botão de importar). As câmeras originais ficam embaixo, desativadas.`,
-  captions_mogrt: () => `Legenda em MOGRT editável da sequência ativa ("${ctx.sequence || ''}", ${ctx.frame_size || ''}). Use o .srt revisado mais recente de "${path.join(jobFolder(), '#legendas')}" se houver (senão faça os passos de caption_sentences e me mostre as correções), o estilo escolhido nesta conversa (se não souber, caption_style_preview e me pergunte) e rode caption_mogrt (out_dir "${path.join(jobFolder(), '#legendas')}"). Escreva o caminho completo do plano .claudio-mogrt.jsx — o painel mostra o botão "Aplicar legendas (MOGRT)".`,
+  captions_mogrt: () => `Legenda em MOGRT editável da sequência ativa ("${ctx.sequence || ''}", ${ctx.frame_size || ''}). Use o .srt revisado mais recente de "${jobPath('legendas')}" se houver (senão faça os passos de caption_sentences e me mostre as correções), o estilo escolhido nesta conversa (se não souber, caption_style_preview e me pergunte) e rode caption_mogrt (out_dir "${jobPath('legendas')}"). Escreva o caminho completo do plano .claudio-mogrt.jsx — o painel mostra o botão "Aplicar legendas (MOGRT)".`,
   vault: () => `Registre este trabalho no vault (conector Vault), seguindo as regras do CLAUDE.md do vault (leia-o com read_note antes): 1) nota do trabalho com cliente, data, pasta "${jobFolder()}", material (câmeras, horas, cor/log, áudio), decisões de montagem desta conversa, versões entregues e onde estão os arquivos (.md da decupagem, XMLs, perfil do cliente); 2) entrada no diário de hoje (append_diary) com um resumo de 2–4 linhas e link pra nota; 3) se o cliente tiver página, linke. Não grave senhas nem dados sensíveis. No fim me diga o que foi escrito.`,
 };
 
 // ── safety net ──────────────────────────────────────────────────────────────────────────────────────────────
-// Before each message: the active sequence's tracks are snapshotted and backed up as FCP XML (#projeto/claudio_backups).
+// Before each message: the active sequence's tracks are snapshotted and backed up as FCP XML (<project folder>/<backups>).
 // After the answer: any clip that was already there and got moved, trimmed or removed is reported, with the backup to
 // import back — and Claude is told on the next message. New clips on new tracks are fine and not reported.
 let lastWarning = '';
@@ -340,7 +350,7 @@ async function snapshot(id) {
 }
 function backupDir() {
   if (!ctx.project) return null;
-  const d = path.join(path.dirname(ctx.project), 'claudio_backups');
+  const d = path.join(path.dirname(ctx.project), PROF.pastas.backups);
   try { fs.mkdirSync(d, { recursive: true }); } catch (e) {}
   return d;
 }
@@ -463,7 +473,7 @@ const cleanSpeech = (zoom, xml) => localJob(zoom ? 'limpando as falas (com zoom)
 const dur = (s) => clock(+s);
 // "Trilha sonora": the editor ticks the sequences, they are exported NOW (each one also a backup), and the AI takes it
 // from there with the Storyblocks connector (the word in the message loads it): brief, choose with the editor,
-// download into #trilhas, one plan that the panel places on new audio tracks
+// download into the music folder, one plan that the panel places on new audio tracks
 async function musicMenu() {
   await readContext();
   let seqs = [];
@@ -524,7 +534,7 @@ const LOCAL = {
     const st = await runLocal('mogrt_styles', { job: jobFolder(), prproj: ctx.project, sequence: ctx.sequence });
     if (!st.ok) return add('local err', st.error);
     const d = add('local', `**Legenda em MOGRT** (editável no Premiere, sem render). ` +
-      (st.srt ? `Vou usar a legenda \`${path.basename(st.srt.replace(/\\/g, '/'))}\` (blocos e tempos dela${/_revisada\.srt$/.test(st.srt) ? ', lida da trilha de legenda da sequência' : ''}).` : 'Não achei legenda na sequência nem .srt revisado em #legendas: uso a transcrição com as correções já aprovadas.') +
+      (st.srt ? `Vou usar a legenda \`${path.basename(st.srt.replace(/\\/g, '/'))}\` (blocos e tempos dela${/_revisada\.srt$/.test(st.srt) ? ', lida da trilha de legenda da sequência' : ''}).` : `Não achei legenda na sequência nem .srt revisado em ${PROF.pastas.legendas}: uso a transcrição com as correções já aprovadas.`) +
       ` Qual estilo?` + (st.recommended ? ` (recomendado: **${st.recommended}**, o do cliente ${st.client})` : ''), false);
     for (const s of st.styles) {
       const b = document.createElement('button'); b.textContent = s + (s === st.recommended ? ' ★' : '');
@@ -681,8 +691,8 @@ async function sttRedo(sel, todo) {
       (xmls.length ? '\n\nAgora a revisão de gramática (IA).' : ''));
   });
   if (!xmls.length) return;
-  const out = path.join(jobFolder(), '#legendas');
-  send(`Legendas refeitas com a transcrição do Scribe (ElevenLabs). As sequências abaixo foram exportadas AGORA do Premiere, do jeito que estão na timeline — use estes XMLs (não os de #projeto/xml nem versões antigas):\n` +
+  const out = jobPath('legendas');
+  send(`Legendas refeitas com a transcrição do Scribe (ElevenLabs). As sequências abaixo foram exportadas AGORA do Premiere, do jeito que estão na timeline — use estes XMLs (não os de ${PROF.pastas.projeto}/xml nem versões antigas):\n` +
     xmls.map((x) => `- "${x.name}": ${x.xml}`).join('\n') +
     `\n\nPara cada uma: 1) caption_sentences(nle_xml) e corrija SÓ a gramática (concordância, regência, crase, pontuação), sem mudar as palavras do falante nem nomes de marca; o Scribe escreve número por extenso — valor, preço, data e porcentagem viram algarismos ("setecentos e cinquenta reais" → "R$ 750"); 2) captions_srt com o mesmo nle_xml, corrected (e client se houver perfil do cliente), out_srt "${out}\\<nome da sequência> (scribe).srt"; 3) uma tabela por sequência só com as falas que mudaram (fala → legenda). Não mexa nas sequências nem na timeline. No fim, liste os .srt e pergunte se quero que você coloque cada um como trilha de legenda NOVA na sua sequência (a legenda antiga fica; eu apago depois de conferir).`);
 }
@@ -728,7 +738,7 @@ async function multicamSync(plan) {
     for (const [n, c] of Object.entries(plan.cameras)) { cameras[n] = c.folder; labels[n] = c.label; }
     if (plan.audio_label) labels.AUDIO = plan.audio_label;
     const r = await runLocal('sync', { cameras, external_audio: (plan.external_audio || []).map((e) => e.folder), labels, music: !!plan.music,
-                                       out_xml: path.join(jobFolder(), '#projeto', 'claudio_sync.xml') });
+                                       out_xml: jobPath('projeto', 'claudio_sync.xml') });
     if (!r.ok) return add('local err', r.error);
     const clips = r.clips || [];
     const placed = clips.filter((c) => c.start_s != null);
@@ -1088,6 +1098,7 @@ function showProgress() {
 }
 setInterval(showProgress, 2000);
 
+runLocal('profile', {}).then((r) => { if (r && r.pastas) PROF = r; }).catch(() => {});
 readContext().then(() => { add('meta', `pasta do trabalho: ${jobFolder()}`, false); showProgress(); });
 runLocal('stt', {}).then(paintStt).catch(() => {});
 ensureBridge().catch(() => {});

@@ -17,7 +17,15 @@ import os, queue, sys, threading, traceback
 from mcp.server.fastmcp import FastMCP, Image
 from claudio import core, montage
 
-mcp = FastMCP('claudio', instructions=__doc__)
+def _folders_line():
+    from claudio import profile
+    f = profile.get('pastas')
+    return ('Job folders (this editor\'s profile, relative to the job): footage ' + f['brutos'] + '/<camera>/ · recorders '
+            + f['audio'] + ' · photos ' + f['fotos'] + ' · NLE project/XMLs ' + f['projeto'] + ' · music ' + f['trilhas']
+            + ' · captions ' + f['legendas'] + ' · overlays ' + f['overlays'] + '. Use these names, never others.')
+
+
+mcp = FastMCP('claudio', instructions=__doc__ + '\n' + _folders_line())
 
 # ── background indexing (GPU work is serialized) with progress the user can follow ──
 import time as _time
@@ -227,7 +235,7 @@ def set_rotation(degrees: int, paths: list[str] = None, folder: str = None) -> d
 
 @mcp.tool()
 async def index_folder(folder: str, ctx: Context, language: str = 'pt', vocabulary: str = None, wait_minutes: float = 10) -> dict:
-    """Index every video and audio file in a folder (card dump / VIDEOS / BRUTOS / AUDIO). Runs in its OWN background process — it keeps going
+    """Index every video and audio file in a folder (card dump / the job's footage folder / audio). Runs in its OWN background process — it keeps going
     if this chat ends or the Premiere panel closes — and skips clips already indexed. Writes <clip>.md + contact sheet
     next to each video and keeps _CLAUDIO.md updated with the progress. Shows live progress here for up to wait_minutes,
     then returns; index_status(folder) reports it any time later.
@@ -659,8 +667,8 @@ def read_premiere_project(prproj: str, sequence: str = None) -> dict:
 async def ingest_card(card: str, job_folder: str, ctx: Context, camera: str = None, index_after: bool = True,
                       vocabulary: str = None, dry_run: bool = False) -> dict:
     """Offload a memory card into the job folder, VERIFIED (xxHash64 while copying, destination read back and hashed
-    again), in the usual layout: BRUTOS/<camera>/ (Sony XML sidecars travel with their clips), BRUTOS/00 AUDIO/,
-    BRUTOS/03 FOTOS/, #projeto/, #trilhas/. Never overwrites (same name + other content → BRUTOS/<camera>/CARD_n/),
+    again), in the job folders of the profile: footage/<camera>/ (Sony XML sidecars travel with their clips), recorders,
+    photos, project, music. Never overwrites (same name + other content → footage/<camera>/CARD_n/),
     never touches the card. Writes _ingest.md/_ingest.json. Then starts indexing (which writes the .md files).
     camera: folder name for this card ("CAM A", "01 HRCS"); default = camera model from the metadata.
     dry_run=True shows the plan without copying. Shows progress."""
@@ -1006,7 +1014,7 @@ async def caption_overlay(nle_xml: str, out_folder: str, ctx: Context, style: st
     timing → premiere_captions reads the track back into <sequence>_revisada.srt). Then that file is the truth: every block appears exactly from its in to its out with the
     editor's text (word pops inside a block follow the transcript); `corrected` is ignored. Without srt: the approved
     grammar corrections (`corrected` from caption_sentences), timings word by word from the transcript.
-    When the editor says the captions were reviewed / corrected in Premiere, ask for (or find in #legendas) the exported
+    When the editor says the captions were reviewed / corrected in Premiere, ask for (or find in the captions folder) the exported
     .srt and use it — never re-derive from the transcript.
     style: social · bold · clean · karaoke · box · minimal · marca. position: bottom · center · top. fix: spelling {"Enki": "INC"}.
     style='marca' = the client's own caption look (box, font, colours, position) from its profile's caption_look
@@ -1091,16 +1099,15 @@ def caption_mogrt(nle_xml: str, style: str = 'social', srt: str = None, correcte
 def premiere_captions(prproj: str, sequence: str, nle_xml: str = None, track: str = 'C1', out_srt: str = None) -> dict:
     """The caption track as the editor fixed it in Premiere (text + timing), read from the saved .prproj — Premiere's
     scripting cannot read captions. Once edited there it is THE caption: use the .srt this writes (default
-    <job>/#legendas/<sequence>_revisada.srt) as `srt` for caption_overlay / caption_mogrt, never regenerate it.
+    <job>/<captions folder>/<sequence>_revisada.srt) as `srt` for caption_overlay / caption_mogrt, never regenerate it.
     With nle_xml (the sequence's XML), what the editor rewrote in a song's lyrics is learned into the song, so its
     next captions come right. The project must be saved first (the panel does it)."""
     import re
-    from claudio import motion, nle_read
+    from claudio import motion, nle_read, profile
     cues = nle_read.premiere_captions(prproj, sequence, track)
     if not cues:
         return {'cues': 0, 'note': f'no caption items on {track} of "{sequence}" (saved project?)'}
-    job = os.path.dirname(os.path.dirname(core.local_path(prproj)))
-    out = out_srt or os.path.join(job, '#legendas', re.sub(r'[\\/:*?"<>|]', '-', sequence) + '_revisada.srt')
+    out = out_srt or os.path.join(profile.folder('legendas', profile.job_of(prproj)), re.sub(r'[\\/:*?"<>|]', '-', sequence) + '_revisada.srt')
     p = nle_read.write_srt(cues, out)
     learned = motion.learn_caption_edits(nle_xml, cues) if nle_xml else []
     return {'srt': core.nle_path(p), 'cues': len(cues), 'first': cues[:3], 'learned_lyric_fixes': learned}
@@ -1168,7 +1175,7 @@ def music_brief(nle_xmls: list) -> list:
 
 @mcp.tool()
 def fetch_music(url: str, job: str, title: str = None) -> dict:
-    """SOUNDTRACK step 2: put the chosen track in <job>/#trilhas — a download link (Storyblocks: the URL its download
+    """SOUNDTRACK step 2: put the chosen track in the job's music folder — a download link (Storyblocks: the URL its download
     tool returns, after the editor picked the track) or a local file of the editor's. Named by `title`."""
     from claudio import music
     return music.fetch(url, job, title)
@@ -1180,7 +1187,7 @@ def music_plan(job: str, sequences: list) -> dict:
     (from the panel), mode? ('auto' · 'fim' = the song's real ending on the end of the cut · 'inicio' · 'janela' = the
     best stretch), start? (seconds of the song, forces the entry), duck? (default true), gain_db? (editor's level)}].
     Level from measured loudness: music ~18 LU under the speech, ~6 LU under in pauses ≥ 2.5 s, ~2 LU under on an
-    opening/closing card with no speech (≥ 3 s), −14 LUFS when there is no speech at all; Volume keyframes ramp down before each line. Writes <job>/#trilhas/trilha <stamp>.claudio-trilha.jsx:
+    opening/closing card with no speech (≥ 3 s), −14 LUFS when there is no speech at all; Volume keyframes ramp down before each line. Writes <music folder>/trilha <stamp>.claudio-trilha.jsx:
     write its full path in the answer — the panel places each song on a NEW audio track of its sequence (backup first).
     Never import or place the music through the Premiere MCP."""
     from claudio import music
@@ -1361,7 +1368,7 @@ marked "(Recomendado)" with a one-line reason). Skip what the request already an
 5. MUSIC FIRST: user's track · one from the folder · a licensed track from Storyblocks · no music (direct sound / the
    show itself). For Storyblocks (when its connector is available): search_audio by the mood/genre/BPM the editor gave,
    show 3–5 options (title, BPM, duration, link), and only after they pick one get_download_url → fetch_music puts it in
-   <job>/#trilhas; never claim a track is licensed for a use you didn't check. Music for a cut that is ALREADY on the
+   the job's music folder; never claim a track is licensed for a use you didn't check. Music for a cut that is ALREADY on the
    timeline: music_brief → choose → fetch_music → music_plan (the panel places it on a new audio track, ducked). music_map → one line:
    BPM (+ half-time reading), sections, drop, silences. music_windows(duration) → offer the 2–3 best stretches.
 6. PACE & SOUND (one call): pace (follow the music · calm · medium · fast) · cuts on beat or bar · original sound
@@ -1389,7 +1396,7 @@ marked "(Recomendado)" with a one-line reason). Skip what the request already an
     captions ALWAYS in 3 steps: caption_sentences → fix grammar only (concordância, regência, crase, pontuação; keep
     the speaker's words) and show the diff → caption_style_preview (user picks the style; recommended starred) →
     captions_srt (editable) and/or caption_overlay(style, corrected); render_overlay for lower thirds / titles / end cards;
-    narration (ElevenLabs — say the cost first — or edge). Save into <job>/#projeto/claudio_overlays and import them on
+    narration (ElevenLabs — say the cost first — or edge). Save into the job's overlays folder and import them on
     a NEW empty video track above every track that has clips (create it); never overwrite or insert onto a track that already has anything (adjustment layers, titles, B-roll) — list the tracks with the Premiere MCP first (audio: a new audio track), at the right time. These are ASSETS for the timeline, not a final render.
 11. Before they finalise: qc_timeline(current XML, platform) → offer the issues as markers; they decide.
 12. Render (render_edit with authorized_by_user=True) ONLY if the user asks for a rendered file. At the end,

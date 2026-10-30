@@ -3,9 +3,9 @@
   ingest(card, job, camera=None)
       • finds the media on the card (Sony PRIVATE/M4ROOT, Canon DCIM, Blackmagic, DJI, GoPro, recorders, photos)
       • copies with a checksum (xxHash64): hashed while copying, the destination is READ BACK and hashed again
-      • lays out the job like Bernardo's projects:  BRUTOS/<camera>/ · BRUTOS/00 AUDIO/ · BRUTOS/03 FOTOS/ ·
-        #projeto/ · #trilhas/   (Sony XML sidecars travel with their clips)
-      • never overwrites: a file with the same name and other content goes to BRUTOS/<camera>/CARD_n/
+      • lays out the job with the profile's folders (claudio.profile): brutos/<camera>/ · audio/ · fotos/ ·
+        projeto/ · trilhas/   (Sony XML sidecars travel with their clips)
+      • never overwrites: a file with the same name and other content goes to brutos/<camera>/CARD_n/
       • never deletes or changes anything on the card
       • writes _ingest.md + _ingest.json (every file, size, hash, verified) in the job folder
 """
@@ -20,7 +20,7 @@ except ImportError:                       # pragma: no cover
     _hasher = lambda: hashlib.blake2b(digest_size=8)
     HASH = 'blake2b64'
 
-from claudio import core
+from claudio import core, profile
 from claudio.multicam import AUDIO_EXT
 
 PHOTO_EXT = {'.arw', '.cr2', '.cr3', '.nef', '.raf', '.dng', '.rw2', '.orf', '.jpg', '.jpeg', '.heic', '.tif', '.tiff'}
@@ -89,8 +89,8 @@ def ingest(card, job, camera=None, progress=lambda *_: None, dry_run=False):
     free = shutil.disk_usage(os.path.dirname(job.rstrip('/')) if not os.path.exists(job) else job).free
     if total * 1.02 > free:
         raise OSError(f'not enough space: need {total / 1e9:.1f} GB, free {free / 1e9:.1f} GB')
-    dirs = {'video': os.path.join(job, 'BRUTOS', cam), 'audio': os.path.join(job, 'BRUTOS', '00 AUDIO'),
-            'photo': os.path.join(job, 'BRUTOS', '03 FOTOS')}
+    dirs = {'video': os.path.join(profile.folder('brutos', job), cam), 'audio': profile.folder('audio', job),
+            'photo': profile.folder('fotos', job)}
     plan = []
     card_sub = None
     for m in sorted(media, key=lambda m: (m['kind'] == 'sidecar', m['src'])):
@@ -129,8 +129,8 @@ def ingest(card, job, camera=None, progress=lambda *_: None, dry_run=False):
         plan.append({**m, 'dst': dst, 'status': 'copiar'})
     if dry_run:
         return {'camera': cam, 'files': len(plan), 'bytes': total, 'plan': [(core.nle_path(p['src']), core.nle_path(p['dst']), p['status']) for p in plan]}
-    for d in ('#projeto', '#trilhas'):
-        os.makedirs(os.path.join(job, d), exist_ok=True)
+    for d in ('projeto', 'trilhas'):
+        profile.folder(d, job, create=True)
     done = [0]
     def tick(n):
         done[0] += n

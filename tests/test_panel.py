@@ -190,3 +190,16 @@ def test_multicam_tracks_reach_claude_as_json(page):
     assert r['json'] == 'E:\\job\\claudio_backups\\seq — trilhas.json'
     assert r['data']['multicam_sources']['MC fonte']['tracks'][1]['clips'][0]['media'].endswith('musica.wav')
     assert 'Trilhas COMPLETAS' in r['ctx'] and 'MULTICAM' in r['ctx'] and r['json'] in r['ctx']
+
+
+@needs_browser
+def test_prompts_use_the_profile_folders(page):
+    """The panel spells no folder: neutral defaults until claudio-run answers, then the editor's perfil.json."""
+    pg, _ = page
+    r = pg.evaluate("""async()=>{await readContext(); const saved=PROF; const out={job: jobFolder(), neutral: QUICK.captions_mogrt()};
+      PROF={...PROF, pastas:{...PROF.pastas, legendas:'#legendas', projeto:'#projeto'}};
+      out.mine=QUICK.captions_mogrt(); out.sync=QUICK.multicam(); PROF=saved; return out;}""")
+    assert r['job'] == 'E:\\job'                                  # <job>/#projeto/x.prproj → <job>
+    assert 'E:\\job\\legendas' in r['neutral'] and '#legendas' not in r['neutral']
+    assert 'E:\\job\\#legendas' in r['mine']
+    assert 'E:\\job\\#projeto\\claudio_sync.xml' in r['sync']

@@ -7,6 +7,7 @@ import pytest
 _CACHE = tempfile.mkdtemp(prefix='claudio-test-cache-')
 os.environ['CLAUDIO_CACHE'] = _CACHE
 os.environ.setdefault('CLAUDIO_GPU', '0')
+os.environ['CLAUDIO_PROFILE'] = os.path.join(_CACHE, 'perfil.json')     # no profile: the neutral defaults, never the machine's
 
 needs_ffmpeg = pytest.mark.skipif(not shutil.which('ffmpeg'), reason='ffmpeg not installed')
 
