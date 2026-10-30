@@ -196,6 +196,17 @@ rodam pelo `claudio-run` ou pela conversa.
    - Conclusão: não trocar o motor de overlay agora. O valor está em `export_edit(target="hyperframes")`: o corte
      inteiro, com o material de verdade, renderizado em MP4 sem NLE — o próximo teste, com um edit real e só com
      autorização para renderizar.
+   - Corte inteiro (2026-10-30, INC 9 "INC - 01 Robson (limpo)", 28 s, 9:16): XML exportado pelo MCP do Premiere →
+     script de teste (`~/spikes/hyperframes/robson/build.py`): ffmpeg prepara cada trecho (corte, LUT da Sony só no
+     log com confiança média/alta, rotação, escala, ganho e keyframes de volume) e o HyperFrames compõe (posição,
+     opacidade, ordem das trilhas, legenda .mov com alpha, áudio). Comparado quadro a quadro com o Premiere
+     (`export_frame`): enquadramento, b-roll reenquadrado, logo, legenda e cortes batem; muda a cor (sem a Lumetri do
+     editor, só o LUT) e faltam os Graphics de texto (endereços da cartela) e o texto dos MOGRT, que o XML não carrega.
+     Tempo: 84 s de preparo + 112 s de render (Chrome sem GPU na WSL), ~620 MB; −16,6 LUFS integrado.
+   - Achado: o Premiere EXPORTA o centro do Basic Motion em pixels da fonte (horiz × largura nativa), medido contra o
+     export_frame (b-roll 231 px = 0,1198 × 1928). O `export_edit` do Cláudio escreve "±1 = meia tela". Os reframes do
+     Cláudio quase sempre têm centro 0, então ainda não é bug confirmado: falta importar no Premiere um XML do Cláudio
+     com reframe de verdade e medir.
 5. **Painel a partir das receitas.** Os botões da etapa MONTAR vêm das receitas instaladas; os prompts saem do `main.js`.
 6. **Receitas novas** (podcast, tutorial, cortes de vídeo longo) e uma pasta `examples/` com material curto de cada
    tipo como suíte de testes, no estilo do `brag`.
