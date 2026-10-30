@@ -1,16 +1,25 @@
 """Cláudio, o Editor (MCP server "claudio") — lets Claude actually SEE and HEAR footage before cutting in Premiere / Resolve.
 
 Run:  python3 server.py            (stdio MCP)
-Workflow the tools are designed for:
+Tools, in the order an edit uses them:
   1. index_media / index_folder   → probe, transcript (word timestamps), cuts, focus/exposure/motion
   2. overview                     → what is in the clip (speech? b-roll? shots, takes, usable windows)
   3. contact_sheet / timeline_strip / frames  → LOOK at the picture (and words + waveform) at exact times
   4. takes (dialogue) · broll (no speech) · find_phrase · find_shot (describe a shot) · people / find_person → evidence-ranked candidates
-  5. annotate                     → write the decupagem log (what you saw) so it persists
+  5. annotate                     → write the logging (what you saw) so it persists
   6. snap_cut → export_timeline / nle_cut_list   → frame-accurate handoff to the Premiere / Resolve MCPs
   7. build_edit → edit_storyboard → export_edit    → a reviewable timeline in Premiere / Resolve (no render)
   Multicam: sync_multicam (PluralEyes-style, from audio) → XML. Every indexed clip gets a <clip>.md next to it.
-  Log footage (S-Log/C-Log/BMD) looks flat on purpose — the user grades it in the NLE. Render only when asked.
+Kind of project (depoimento, recap, beat edit, show multicam, curta…): recipe() — the steps and taste rules are there.
+Rules for every tool:
+  - The timeline AS IT IS: export the sequence first (Premiere MCP export_as_fcp_xml; Resolve export_timeline
+    'FCP_7_XML'); the Cláudio panel already puts that XML in the message.
+  - A tool that writes a sequence writes a NEW one, never the editor's. Write the full path of every .xml / .mov / .jsx
+    you produce: the Cláudio panel shows its import / apply button. Premiere: NEVER import an .xml through the Premiere
+    MCP (importFiles on an FCP XML crashes Premiere) — the editor imports it (Ctrl+I). Resolve: import_timeline_from_file.
+  - Overlays, captions, music: a NEW track above every used one, placed by overwrite; never add_to_timeline / insert
+    (it ripples the sequence) and never onto a track that has anything.
+  - Log footage (S-Log/C-Log/BMD) looks flat on purpose — the editor grades it. Render only when asked.
 """
 import os, queue, sys, threading, traceback
 
@@ -192,9 +201,9 @@ async def _wait_with_progress(ctx, paths, max_wait_s):
 @mcp.tool()
 async def index_media(path: str, ctx: Context, language: str = 'pt', wait_seconds: int = 600, force: bool = False,
                       vocabulary: str = None) -> dict:
-    """Analyse one video (Windows path like D:\\Footage\\A001.mov or Linux path): probe, camera + colour space (log vs
-    Rec.709), audio, picture (cuts, sharpness, motion), transcript with word timestamps. Writes <clip>.md next to the
-    video. Shows progress while it runs; returns when done (or state=running after wait_seconds — index_status)."""
+    """Analyse one video (Windows or Linux path): probe, camera + colour space (log vs Rec.709), audio, picture (cuts,
+    sharpness, motion), word-timed transcript; writes <clip>.md next to it. Returns when done, or state=running after
+    wait_seconds (then index_status)."""
     p = _enqueue(path, language, force, vocabulary) if force or vocabulary or not _is_indexed(path) or core.needs_stt(path) else core.local_path(path)
     await _wait_with_progress(ctx, [p], wait_seconds)
     j = _jobs.get(p, {'state': 'done'})
@@ -213,9 +222,8 @@ def _is_indexed(path):
 
 @mcp.tool()
 def set_rotation(degrees: int, paths: list[str] = None, folder: str = None) -> dict:
-    """Clips shot with the camera on its side (vertical framing) often carry no rotation metadata: if a contact sheet
-    shows people sideways, set 90 (clockwise) / 270 / 180 here. Applies everywhere after: sheets, crops, renders, XML,
-    and the clip's .md (its contact sheet is redrawn upright)."""
+    """Clip shot with the camera on its side and no rotation metadata (people sideways on the contact sheet): set 90
+    (clockwise) / 180 / 270. Applies to sheets, crops, renders, XML and the clip's .md."""
     files = [core.local_path(p) for p in (paths or [])]
     if folder:
         root = core.local_path(folder)
@@ -235,15 +243,11 @@ def set_rotation(degrees: int, paths: list[str] = None, folder: str = None) -> d
 
 @mcp.tool()
 async def index_folder(folder: str, ctx: Context, language: str = 'pt', vocabulary: str = None, wait_minutes: float = 10) -> dict:
-    """Index every video and audio file in a folder (card dump / the job's footage folder / audio). Runs in its OWN background process — it keeps going
-    if this chat ends or the Premiere panel closes — and skips clips already indexed. Writes <clip>.md + contact sheet
-    next to each video and keeps _CLAUDIO.md updated with the progress. Shows live progress here for up to wait_minutes,
-    then returns; index_status(folder) reports it any time later.
-    vocabulary: names the transcript must get right — brand, people, places ("INC Empreendimentos, Juiz de Fora").
-    Spellings the editor fixed in captions are learned per folder and added here automatically; caption tools return
-    them as learned_vocabulary — offer to save them in the client profile (save_client_profile).
-    4K long-GOP footage the GPU can't decode (e.g. Canon HEVC 4:2:2) is analysed from keyframes (~3× faster);
-    proxies (Proxy/ or Proxies/) are used when present; links always point to the originals."""
+    """Index every video and audio file of a folder, in a background process that outlives this chat; skips clips already
+    indexed; writes <clip>.md + contact sheet per clip and _CLAUDIO.md with the progress. Shows progress up to
+    wait_minutes, then index_status. vocabulary: names the transcript must get right (brand, people, places); spellings
+    fixed in captions are learned per folder and come back from caption tools as learned_vocabulary — offer
+    save_client_profile. Proxies are used when present; links point to the originals."""
     import asyncio, subprocess as sp
     from claudio import indexer
     root = core.local_path(folder)
@@ -290,8 +294,8 @@ async def index_folder(folder: str, ctx: Context, language: str = 'pt', vocabula
 
 @mcp.tool()
 def index_status(folder: str = None) -> dict:
-    """Progress of indexing: percentage, clips done/total, current clip and step, speed, minutes left — for a folder or
-    for every recent job. Background folder jobs survive the chat that started them. Tell the user the `progress` line."""
+    """Indexing progress (%, clips done/total, current step, minutes left) of a folder or every recent job. Tell the user
+    the `progress` line."""
     from claudio import indexer
     jobs = [indexer.read_job(folder)] if folder else indexer.all_jobs()
     jobs = [j for j in jobs if j]
@@ -423,12 +427,10 @@ def takes(path: str, pause_gap: float = 0.7, prefer: str = 'last') -> dict:
 
 @mcp.tool()
 def scenes(folder: str = None, paths: list[str] = None, prefer: str = 'last') -> dict:
-    """Cross-clip decupagem of a shoot: reads the slate called out loud ("cena 3, take 2, parte 3 ... ação ...
-    corta"), groups clips by scene/part/shot, takes the performance between 'ação' and 'corta', flags aborted
-    takes ("peraí", "de novo"), compares each take's lines with the consensus version and ranks them
-    (prefer='last' favours later takes). mode tells you whether to judge by lines (dialogue), by performance
-    (improvised) or by picture (no_dialogue). Clips without slate are listed apart (b-roll / candid / chatter).
-    All clips must be indexed (index_folder first)."""
+    """Cross-clip logging of a shoot with spoken slates ("cena 3, take 2 … ação … corta"): groups clips by scene/part/shot,
+    keeps the performance between 'ação' and 'corta', flags aborted takes ("peraí", "de novo"), compares each take's lines
+    with the consensus and ranks them (prefer='last' favours later takes). mode: judge by lines (dialogue), performance
+    (improvised) or picture (no_dialogue). Clips without slate are listed apart. Index first."""
     files = [core.local_path(p) for p in (paths or [])]
     if folder:
         root = core.local_path(folder)
@@ -439,10 +441,9 @@ def scenes(folder: str = None, paths: list[str] = None, prefer: str = 'last') ->
 
 @mcp.tool()
 def broll(path: str, min_len: float = 1.5) -> dict:
-    """No-speech decupagem: splits the picture at hard cuts, then into runs of the same camera behaviour
-    (static / pan_left / pan_right / tilt_up / tilt_down) that are in focus, exposed and not shaky. Returns usable
-    windows (best first) and rejected stretches with the reason (soft/blown/dark/shaky/chaotic). Sharpness is
-    relative to this clip's best focus (1.0 = sharpest 10%). Then LOOK at each window with contact_sheet."""
+    """No-speech logging: the picture split at hard cuts, then into runs of one camera behaviour (static / pan / tilt) that
+    are in focus, exposed and steady. Returns usable windows (best first) and rejected stretches with the reason
+    (soft/blown/dark/shaky/chaotic). Sharpness is relative to the clip's sharpest 10 % (1.0)."""
     return core.broll_windows(_idx(path), min_len)
 
 
@@ -454,11 +455,9 @@ def quality(path: str, start: float, end: float) -> dict:
 
 @mcp.tool()
 def annotate(path: str, start: float, end: float, text: str, tags: list[str] = [], rating: int = None, replace: bool = False) -> list:
-    """Write what you SAW into the clip's decupagem log (persists across sessions and re-indexing; exported as markers
-    in XML; the clip's .md is regenerated from it). e.g. text='close das mãos amassando massa, luz lateral',
-    tags=['broll','close','maos'], rating=4. replace=True rewrites: lines overlapping [start, end] are removed first —
-    use it to correct a description instead of adding a second line. To put names on people across many clips at
-    once, use relabel_logs (no need to rewrite each line)."""
+    """Write what you SAW into the clip's log (persists across sessions and re-indexing, exported as XML markers, the .md
+    is regenerated). e.g. text='close das mãos amassando massa', tags=['broll','close'], rating=4. replace=True first
+    removes the lines overlapping [start, end] — use it to correct. Names across many clips: relabel_logs."""
     idx = _idx(path)
     log = core.annotate(idx, start, end, text, tags, rating, replace=replace)
     try:
@@ -471,9 +470,8 @@ def annotate(path: str, start: float, end: float, text: str, tags: list[str] = [
 
 @mcp.tool()
 def relabel_logs(mapping: dict, folder: str = None, paths: list[str] = None) -> dict:
-    """Replace phrases in the decupagem logs of every clip of a folder (texts and tags, case-insensitive), e.g. put the
-    confirmed names in: {"violonista de jaqueta vermelha": "Rayo", "guitarrista de camisa xadrez": "Izzy"}. Longest
-    phrases first; the .md files are regenerated. No model calls — prefer this to rewriting lines one by one."""
+    """Replace phrases in the logs of every clip of a folder (texts and tags, case-insensitive), e.g. the confirmed names:
+    {"violonista de jaqueta vermelha": "Rayo"}. Longest first; .md files regenerated; no model calls."""
     from claudio import indexer
     files = [core.local_path(p) for p in (paths or [])] or indexer.list_videos(folder)
     changed = {}
@@ -519,22 +517,21 @@ PLAN_DOC = """plan = {"name": "Seq name", "fps": optional "30000/1001", "clips":
 
 
 def nle_cut_list(plan: dict) -> list:
-    """Frame-accurate numbers for each planned clip, ready for the Resolve MCP (insert_to_timeline: start_frame=
-    in_frame, end_frame=end_frame_inclusive, record_frame) or the Premiere MCP (insert/overwrite with in/out
-    seconds). """
+    """Frame-accurate numbers for each planned clip, for the Resolve MCP (insert_to_timeline: start_frame=in_frame,
+    end_frame=end_frame_inclusive, record_frame) or the Premiere MCP (insert/overwrite with in/out seconds)."""
     return core.plan_for_nle(plan)
 
 
 def export_timeline(plan: dict, out_path: str, format: str = 'fcp7xml') -> dict:
-    """Write the cut as a timeline file. format='fcp7xml' (Premiere: do NOT import the .xml through the Premiere MCP (importFiles on an FCP XML crashes Premiere) — give the editor the path and ask them to import it (File › Import / Ctrl+I); Resolve: import_timeline_from_file)
-    or 'edl' (CMX3600). Clip markers from annotate() are included in XML. Returns the path to import (as the NLE sees it). """
+    """Write a cut plan (the `plan` of nle_cut_list) as a timeline file: format 'fcp7xml' (Premiere/Resolve; annotate
+    markers included) or 'edl' (CMX3600). Returns the path as the NLE sees it."""
     out = core.local_path(out_path)
     os.makedirs(os.path.dirname(out), exist_ok=True)
     return core.export_edl(plan, out) if format == 'edl' else core.export_fcp7(plan, out)
 
 
+nle_cut_list.__doc__ += '\n' + PLAN_DOC
 for _f in (nle_cut_list, export_timeline):
-    _f.__doc__ += '\n' + PLAN_DOC
     mcp.tool()(_f)
 
 # ───────────────────────────── montage: from logged footage to a reviewable cut ─────────────────────────────
@@ -545,16 +542,15 @@ _render_jobs = {}
 
 @mcp.tool()
 def music_map(path: str, start: float = 0.0, end: float = None) -> dict:
-    """MUSIC FIRST. Map a song (or any audio, incl. a concert's board mix): tempo (with half/double-time
-    alternatives), beat grid, bar downbeats, energy sections (low/mid/high), the drop, quiet bars. Use it before
-    choosing shots — the song decides where cuts land. Full grid is cached for build_edit."""
+    """Map a song (or any audio, e.g. a concert's board mix): tempo (with half/double-time readings), beat grid, bar
+    downbeats, energy sections, the drop, quiet bars. Cached for build_edit."""
     return montage.music_summary(montage.music_map(path, start, end))
 
 
 @mcp.tool()
 def music_windows(path: str, duration: float, n: int = 3) -> list:
-    """Best stretches of a song for a cut of `duration` seconds: start and end on downbeats, prefer ending on a
-    section change and holding the drop in the first 20–60 %. Offer these to the user before building."""
+    """Best stretches of a song for a cut of `duration` s: start and end on downbeats, ending on a section change, the drop
+    in the first 20–60 %."""
     return montage.music_windows(montage.music_map(path), duration, n)
 
 
@@ -602,16 +598,12 @@ def read_project(project: str) -> dict:
 @mcp.tool()
 async def sync_multicam(cameras: dict, ctx: Context, external_audio: list[str] = None, out_xml: str = None,
                         fps: str = None, correct_drift: bool = True, labels: dict = None, music: bool = False) -> dict:
-    """PluralEyes-style multicam sync from the clips' own audio — no timecode needed.
-    music=True for a MUSIC VIDEO: external_audio is the guide track, every take (full song or parts, played back on
-    set) is aligned against it, overlapping takes are stacked on their own tracks, and takes that fit two places of the
-    song equally (a repeated chorus) come back with also_fits_at_s — ask the editor which one. No drift correction.
-    cameras: {"CAM A": "E:\\\\Show\\\\01 HRCS", "CAM B": "E:\\\\Show\\\\02 BÊ"} (folder or list of files per camera).
-    external_audio: recorder files/folders (board mix, lav recorders) — used as the reference clock when given.
-    Places every clip on one timeline (graph of audio matches + transcript fallback), measures the recorder's clock
-    drift on long clips and writes a corrected copy (<name>_drift_corrected±X.wav in claudio_drift_corrected/), then
-    exports an FCP7 XML like PluralEyes' ("Synced Sequence": V1..Vn = cameras, stereo pairs per camera, recorder on the
-    last pair; one bin per camera). Every camera gets its own Premiere label colour on its video, its audio and its bin clips (external audio too); labels={'CAM A': 'Mango', 'AUDIO': 'Caribbean'} overrides the default palette (Cerulean, Mango, Forest, Magenta, Yellow, Violet, Teal, Rose...; external audio Caribbean). Premiere: do NOT import the .xml through the Premiere MCP (importFiles on an FCP XML crashes Premiere) — give the editor the path and ask them to import it (File › Import / Ctrl+I); Resolve: import_timeline_from_file. Shows progress."""
+    """PluralEyes-style sync from the clips' own audio, no timecode. cameras: {"CAM A": folder or [files], …};
+    external_audio: recorder files/folders (board mix, lavs) — the reference clock when given. Measures and corrects the
+    recorder's drift (copy in claudio_drift_corrected/) and exports an FCP7 "Synced Sequence": V1..Vn = cameras, recorder
+    on the last audio pair, one bin per camera, each camera in its own label colour (labels={'CAM A': 'Mango', 'AUDIO':
+    'Caribbean'} overrides). music=True (music video): external_audio is the guide track, takes are aligned to it and
+    stacked; a take that fits two places (a repeated chorus) comes with also_fits_at_s — ask the editor. Shows progress."""
     import asyncio, json as _j
     from claudio import multicam
     state = {'stage': 'audio', 'f': 0.0}
@@ -653,10 +645,9 @@ def multicam_monitor(sync_json: str, start: float, end: float, columns: int = 8)
 
 @mcp.tool()
 def read_premiere_project(prproj: str, sequence: str = None) -> dict:
-    """Read the editor's own Premiere project (read-only) to learn how they cut. Without `sequence`: list sequences.
-    With it: the timeline items (track, timeline in/out, source clip + in/out) and the editing patterns — spine shot
-    length, b-roll over speech (count, length, % covered), caption block length, end card. Use these numbers as the
-    house style when building a new edit for the same client/format."""
+    """Read the editor's Premiere project (read-only). Without `sequence`: the sequences. With it: the timeline items and
+    the editing patterns (spine shot length, b-roll over speech, caption block length, end card) — the house style for a
+    new edit of the same client/format."""
     from claudio import nle_read
     if not sequence:
         return {'sequences': nle_read.premiere_sequences(prproj)}
@@ -667,12 +658,10 @@ def read_premiere_project(prproj: str, sequence: str = None) -> dict:
 @mcp.tool()
 async def ingest_card(card: str, job_folder: str, ctx: Context, camera: str = None, index_after: bool = True,
                       vocabulary: str = None, dry_run: bool = False) -> dict:
-    """Offload a memory card into the job folder, VERIFIED (xxHash64 while copying, destination read back and hashed
-    again), in the job folders of the profile: footage/<camera>/ (Sony XML sidecars travel with their clips), recorders,
-    photos, project, music. Never overwrites (same name + other content → footage/<camera>/CARD_n/),
-    never touches the card. Writes _ingest.md/_ingest.json. Then starts indexing (which writes the .md files).
-    camera: folder name for this card ("CAM A", "01 HRCS"); default = camera model from the metadata.
-    dry_run=True shows the plan without copying. Shows progress."""
+    """Offload a memory card into the job's folders (profile), VERIFIED: xxHash64 while copying, destination read back and
+    hashed again; Sony XML sidecars travel with their clips. Never overwrites (same name, other content → <camera>/CARD_n/),
+    never touches the card; writes _ingest.md/.json, then starts indexing. camera: folder name for this card (default:
+    the camera model). dry_run=True shows the plan. Shows progress."""
     import asyncio
     from claudio import ingest
     st = {'f': 0.0}
@@ -695,12 +684,10 @@ async def ingest_card(card: str, job_folder: str, ctx: Context, camera: str = No
 
 @mcp.tool()
 def make_selects(out_xml: str, folder: str = None, paths: list[str] = None, include_single: str = 'auto') -> dict:
-    """What an assistant editor hands over before cutting, for the editor to check in the NLE: SELECTS — falas (best
-    take of every repeated line, slate/recording order, alternates in the marker), SELECTS — falas únicas (lines said
-    once by whoever is on the mic; automatic only for interview-like material), SELECTS — b-roll (usable stretches of
-    no-speech clips), and a bin of every source clip with markers (✅ best / ✗ criticised / alternates / 👁 notes /
-    b-roll). Premiere: do NOT import the .xml through the Premiere MCP (importFiles on an FCP XML crashes Premiere) — give the editor the path and ask them to import it (File › Import / Ctrl+I); Resolve: import_timeline_from_file for each of resolve_xmls.
-    Links point to the ORIGINAL media (the NLE handles proxies)."""
+    """Selects for the editor to check before cutting (FCP7 XML): SELECTS — falas (best take of each repeated line,
+    alternates in the marker), SELECTS — falas únicas (lines said once; interview-like material), SELECTS — b-roll
+    (usable no-speech stretches), and a bin of every source clip with markers (✅ best / ✗ criticised / alternates /
+    👁 notes). Resolve: import each of resolve_xmls. Links point to the original media."""
     from claudio import selects
     files = [core.local_path(p) for p in (paths or [])]
     if folder:
@@ -734,12 +721,10 @@ async def _people(folder, ctx):
 
 @mcp.tool()
 async def people(folder: str, ctx: Context) -> list:
-    """WHO is in the footage: every face and every voice of the folder's clips, clustered so the same person gets one id
-    in all clips — P1, P2… (faces, by screen time) and V1, V2… (voices, by talk time) — with clips, times and sample
-    quotes. Returns a board of the face clusters to LOOK at. Each face cluster may carry suggested_name: the name called
-    in the spoken slate of its clips ("Atenção, vídeo Robson, take 1", "take 1, João") — usually right; show it to the
-    editor to confirm, then save with name_people. Without a slate, use the names the overview found as hints. Likeness, not identity: never assert a name the editor
-    didn't confirm. The first run on a folder takes a few seconds per clip (cached afterwards)."""
+    """WHO is in the footage: faces (P1, P2… by screen time) and voices (V1, V2… by talk time) clustered across the
+    folder's clips, with clips, times and sample quotes, plus a board of the faces to LOOK at. suggested_name comes from
+    the spoken slate ("vídeo Robson, take 1"): show it, let the editor confirm, then name_people. Likeness, not identity:
+    never assert a name the editor didn't confirm. First run: a few seconds per clip (cached)."""
     from claudio import people as P
     res = await _people(folder, ctx)
     img = P.board(res)
@@ -779,12 +764,10 @@ async def find_person(folder: str, who: str, ctx: Context) -> dict:
 
 @mcp.tool()
 async def find_shot(query: str, ctx: Context, folder: str = None, paths: list[str] = None, top: int = 8) -> list:
-    """Find shots by DESCRIBING them — "hands on the guitar neck", "crowd with phones up", "road at sunset", "a man
-    talking to the camera". Write the query in ENGLISH (CLIP). Searches every clip of `folder` (or `paths`) and returns
-    a contact sheet of the best moments (clip · time · score) to LOOK at, plus the windows (start/end/peak, seconds of
-    the source). Scores compare candidates (~0.20 unrelated, ~0.28+ a good match). Clips indexed with index_folder are
-    ready; others are embedded on first search (a few seconds per minute of footage). Confirm with frames/contact_sheet
-    before cutting."""
+    """Find shots by DESCRIBING them in ENGLISH (CLIP): "hands on the guitar neck", "crowd with phones up". Searches every
+    clip of `folder` (or `paths`); returns a contact sheet of the best moments (clip · time · score) and the windows
+    (start/end/peak, source seconds). Scores compare candidates (~0.20 unrelated, ~0.28+ good). Unindexed clips are
+    embedded on first search. Confirm with frames before cutting."""
     import asyncio
     from claudio import visual, indexer
     files = [core.local_path(p) for p in (paths or [])]
@@ -808,10 +791,9 @@ async def find_shot(query: str, ctx: Context, folder: str = None, paths: list[st
 
 @mcp.tool()
 def describe_shots(folder: str = None, paths: list[str] = None) -> dict:
-    """First-pass description of what is seen in every stretch of the clips, WITHOUT spending model calls: framing,
-    place, objects, day/night (CLIP on the visual-search embeddings), who appears (confirmed names) and what is said,
-    written into each clip's log/.md tagged 'auto'. Your own annotate entries are kept. Use it before logging by eye:
-    then look (contact_sheet) only where it matters and annotate to replace the auto lines."""
+    """First-pass description of every stretch of the clips WITHOUT model calls: framing, place, objects, day/night (CLIP),
+    who appears (confirmed names) and what is said, written into each clip's log tagged 'auto' (your annotate entries
+    are kept). Look and annotate only where it matters."""
     from claudio import describe, indexer
     files = [core.local_path(p) for p in (paths or [])] or indexer.list_videos(folder)
     res = describe.describe(files)
@@ -820,25 +802,18 @@ def describe_shots(folder: str = None, paths: list[str] = None) -> dict:
 
 @mcp.tool()
 def stereo_fix(nle_xml: str, normalize: bool = False, out_xml: str = None) -> dict:
-    """Audio that plays on ONE side only (a lav or a single mic recorded on L or R) → plays on BOTH sides. Reads the
-    editor's sequence (FCP7 XML), measures L and R of every audio clip over the part used, and where one side is
-    (near) silent makes both tracks play the live channel (dual mono); two live channels (two mics) are kept.
-    normalize=True also levels every clip with speech to the same dialogue loudness (−18 LUFS per clip, Audio Levels,
-    max +12 dB; muted or keyframed clips untouched). Nested sequences are flattened. Writes a NEW sequence — hand the
-    editor the XML path (panel import button)."""
+    """One-sided audio (a lav on L or R) → both sides: measures L/R of every audio clip over the part used; a (near)
+    silent side plays the live channel (dual mono), two live mics stay. normalize=True also levels speech clips to −18
+    LUFS (max +12 dB; muted or keyframed clips untouched). Nested sequences are flattened."""
     from claudio import stereo
     return stereo.stereo_fix(nle_xml, out_xml, normalize=normalize)
 
 
 @mcp.tool()
 def flatten_timeline(nle_xml: str, out_xml: str = None, name: str = None) -> dict:
-    """Clips straight on the timeline instead of nested sequences. Reads an FCP7 XML of the editor's sequence (Premiere
-    MCP export_as_fcp_xml) and writes a NEW sequence where every nested sequence is replaced by its own clips — each
-    trimmed to the part that is used and placed where it plays, keeping speed, effects, audio levels, labels and
-    links. The editor grades take by take under the adjustment layer without opening nests. Items with no media file
-    (adjustment layers, generated slugs) can't round-trip through XML: they are listed in `dropped` — tell the editor
-    to copy them from the old sequence onto the top track. Hand the editor the XML path (the panel shows the import
-    button); never import XML through the Premiere MCP."""
+    """Nested sequences → their clips straight on the tracks, trimmed to the part used and placed where they play, keeping
+    speed, effects, audio levels, labels and links. Items without media (adjustment layers, slugs) can't round-trip
+    through XML: they are listed in `dropped` — tell the editor to copy them onto the top track."""
     from claudio import nle_read
     src = core.local_path(nle_xml)
     out = core.local_path(out_xml) if out_xml else os.path.splitext(src)[0] + '_sem_aninhadas.xml'
@@ -847,10 +822,8 @@ def flatten_timeline(nle_xml: str, out_xml: str = None, name: str = None) -> dic
 
 @mcp.tool()
 def compare_with_nle(project: str, nle_xml: str, version: int = None) -> dict:
-    """Before changing anything: read the timeline AS IT IS NOW in the NLE (export it first — Premiere:
-    export_as_fcp_xml; Resolve: export_timeline(file, 'FCP_7_XML')) and compare with the version Cláudio delivered:
-    per shot same / trimmed / moved / removed, clips the editor added, and the editor's markers (notes) with the shot
-    each falls on. The editor's manual changes win — build the next version on top of them (adopt_nle_timeline)."""
+    """The NLE timeline AS IT IS NOW vs the version Cláudio delivered: per shot same / trimmed / moved / removed, clips the
+    editor added, and their markers (notes) with the shot each falls on. The editor's changes win: adopt_nle_timeline."""
     from claudio import nle_read
     p = montage.project_dir(project)
     v, fit = montage.load_fit(p, version)
@@ -859,9 +832,8 @@ def compare_with_nle(project: str, nle_xml: str, version: int = None) -> dict:
 
 @mcp.tool()
 def adopt_nle_timeline(project: str, nle_xml: str, version: int = None) -> dict:
-    """Make the editor's current NLE timeline the new base version, exactly as it is (positions, trims, removals, added
-    clips; no beat re-fitting), keeping Cláudio's settings (format, music, captions). Apply the editor's notes on top
-    of THIS version, then export_edit → import as a NEW sequence (never overwrite the editor's)."""
+    """Make the editor's current NLE timeline the new base version, exactly as it is (no beat re-fitting), keeping
+    Cláudio's settings (format, music, captions). Apply notes on top of THIS version, then export_edit."""
     from claudio import nle_read
     import json as _j
     p = montage.project_dir(project)
@@ -880,9 +852,8 @@ def adopt_nle_timeline(project: str, nle_xml: str, version: int = None) -> dict:
 # ───────────────────────────── client profiles · QC ─────────────────────────────
 @mcp.tool()
 def client_profile(name: str) -> dict:
-    """Read a client's profile (vocabulary, formats, end card, music, captions, structure, house style measured from
-    finished edits, notes, past jobs). READ IT FIRST on a new job for a known client: it replaces most intake
-    questions — ask only what is different this time. Returns null profile if the client is new."""
+    """A client's profile (vocabulary, receita, formats, end card, music, captions, structure, house style, notes, past
+    jobs). Read it first for a known client: ask only what is different this time. Null profile = new client."""
     from claudio import clients
     p = clients.load(name)
     return {'profile': p, 'folder': core.nle_path(clients.clients_dir()),
@@ -891,10 +862,9 @@ def client_profile(name: str) -> dict:
 
 @mcp.tool()
 def save_client_profile(name: str, updates: dict, learn_from_prproj: str = None) -> dict:
-    """Create/update a client profile (<clients>/<client>.md — readable by people and agents). updates may hold:
-    vocabulary (str), formats (list), end_card {path,in,out}, music {tracks,style}, captions, structure, notes,
-    jobs [{date,name,folder}] (appended). learn_from_prproj: a finished Premiere project of this client — measures
-    the house style (shot lengths, b-roll coverage, captions, end card) from its finished sequences."""
+    """Create/update a client profile (<clients>/<client>.md). updates: vocabulary (str), receita (recipe name), formats
+    (list), end_card {path,in,out}, music {tracks,style}, captions, structure, notes, jobs [{date,name,folder}] (appended).
+    learn_from_prproj: a finished Premiere project of the client — measures its house style."""
     from claudio import clients
     p = clients.save(name, updates)
     if learn_from_prproj:
@@ -904,13 +874,11 @@ def save_client_profile(name: str, updates: dict, learn_from_prproj: str = None)
 
 @mcp.tool()
 def qc_timeline(nle_xml: str, platform: str = None, sequence_width: int = None, sequence_height: int = None) -> dict:
-    """Check the timeline AS IT IS in the NLE before the editor exports (export it first — Premiere export_as_fcp_xml,
-    Resolve export_timeline FCP_7_XML). Reports only: flash frames, black gaps, overlaps, offline media, disabled
-    clips, clips past their media, same take twice, jump cuts, speech level jumps, clipped source audio, and
-    size/duration vs platform (reels · tiktok · shorts · feed · youtube · youtube4k) — plus the AUDIO of the mix:
-    loudness (LUFS) vs the platform target (−14 social/YouTube, −23 tv, −16 podcast), true peak, and music too loud
-    under speech (`ducking`: where and how many dB to lower the music). Offer to drop each issue as a marker in the
-    NLE; the editor decides what to fix."""
+    """Check the timeline as it is before the editor exports. Reports only: flash frames, black gaps, overlaps, offline
+    media, disabled clips, clips past their media, same take twice, jump cuts, speech level jumps, clipped audio,
+    size/duration vs platform (reels · tiktok · shorts · feed · youtube · youtube4k), mix loudness vs target (−14
+    social/YouTube, −23 tv, −16 podcast), true peak, and music too loud under speech (`ducking`). Offer each issue as a
+    marker; the editor decides."""
     from claudio import qc
     size = (sequence_width, sequence_height) if sequence_width and sequence_height else None
     r = qc.qc_timeline(nle_xml, platform, size)
@@ -924,20 +892,16 @@ def qc_timeline(nle_xml: str, platform: str = None, sequence_width: int = None, 
 # ───────────────────────────── project overview · motion-designer on top of the edit ─────────────────────────────
 @mcp.tool()
 def project_digest(folder: str) -> dict:
-    """AFTER indexing the whole job: everything the logs know, condensed (totals, cameras, colour, minutes of speech,
-    most frequent words, what is said / seen per clip). Read it, understand what the project IS, write the overview
-    with save_project_overview, then ask the user the basics (approximate final duration; soundtrack — a specific
-    track or a mood/genre) and propose 2–4 concrete directions grounded in the material. They pick one or explain their
-    own idea, and the edit starts from there."""
+    """After indexing the whole job: everything the logs know, condensed (totals, cameras, colour, minutes of speech,
+    frequent words, what is said / seen per clip) — to understand what the project is and write save_project_overview."""
     from claudio import sidecar as _s
     return _s.project_digest(folder)
 
 
 @mcp.tool()
 def save_project_overview(job_folder: str, markdown: str) -> dict:
-    """Write <job>/_VISAO_GERAL.md — what the project is about, the material (cameras, hours, colour, sound, people,
-    places, moments), what is strong / missing, the open questions (duration, soundtrack) and the proposed directions.
-    Any agent reads it next time. Text outside the auto markers is kept."""
+    """Write <job>/_VISAO_GERAL.md: what the project is, the material, what is strong / missing, open questions and
+    proposed directions. Text outside the auto markers is kept."""
     from claudio import sidecar as _s
     return {'written': core.nle_path(_s.write_overview(job_folder, markdown))}
 
@@ -953,12 +917,9 @@ def motion_reference(topic: str = None) -> str:
 @mcp.tool()
 async def render_overlay(code: str, name: str, out_folder: str, ctx: Context, aspect: str = '9x16', fps: str = '30000/1001',
                          codec: str = 'png') -> dict:
-    """An overlay ASSET for the edit (lower third, title, animated callout, end card…) made with the motion-designer
-    skill's core on a TRANSPARENT background → .mov with alpha (codec='png': PNG in MOV, seconds and small — the
-    default; codec='prores': ProRes 4444, many minutes at 4K, only if the editor asks for ProRes), ready to import and lay on the top video
-    track at the time it should appear. aspect: 9x16 · 16x9 · 1x1 · 4x5 or WxH (match the sequence). fps: the
-    sequence rate. This is an asset for the timeline, not a render of the video.
-    """
+    """An overlay ASSET (lower third, title, callout, end card…) from the motion-designer core on a TRANSPARENT background
+    → .mov with alpha (codec='png' default, small; 'prores' = ProRes 4444, only if asked). aspect: 9x16 · 16x9 · 1x1 ·
+    4x5 or WxH, and fps: the sequence's."""
     import asyncio
     from claudio import motion
     st = {'f': 0.0}
@@ -975,11 +936,9 @@ async def render_overlay(code: str, name: str, out_folder: str, ctx: Context, as
 
 @mcp.tool()
 def caption_sentences(nle_xml: str) -> dict:
-    """STEP 1 of captions (always): the edit's speech as sentences {id, text, clip, remembered_correction}. Correct ONLY
-    grammar — agreement (concordância), regência, crase, punctuation — keeping the speaker's words, meaning, register
-    and brand names (e.g. "Você sabe quantos já gastou" → "Você sabe quanto já gastou"). Show the user the diff
-    (spoken → caption) and pass the approved {id: text} as `corrected` to the caption tools. Approved corrections are
-    remembered per source clip and come back by themselves next time."""
+    """Captions STEP 1: the edit's speech as sentences {id, text, clip, remembered_correction}. Correct ONLY grammar
+    (concordância, regência, crase, punctuation), keeping the speaker's words, register and brand names; show the diff
+    (spoken → caption) and pass the approved {id: text} as `corrected`. Approved corrections are remembered per clip."""
     from claudio import motion
     return motion.caption_sentences(nle_xml)
 
@@ -987,9 +946,8 @@ def caption_sentences(nle_xml: str) -> dict:
 @mcp.tool()
 def caption_style_preview(nle_xml: str, aspect: str = '9x16', accent: str = '#4ea1ff', corrected: dict = None,
                           fix: dict = None, client: str = None) -> list:
-    """STEP 2 of captions: the same moment of the edit (real footage) with each caption style on it — social, bold,
-    clean, karaoke, box, minimal — and the recommended one starred (from the client profile's caption preference, else
-    the format: vertical → social, horizontal → minimal). Show it and let the user choose (or tweak accent/position)."""
+    """Captions STEP 2: the same moment of the edit with each style on it — social, bold, clean, karaoke, box, minimal —
+    the recommended one starred (client profile, else vertical → social, horizontal → minimal). Let the user choose."""
     from claudio import motion, clients
     pref = None
     if client:
@@ -1004,22 +962,12 @@ async def caption_overlay(nle_xml: str, out_folder: str, ctx: Context, style: st
                           accent: str = '#4ea1ff', corrected: dict = None, uppercase: bool = None, max_words: int = None,
                           position: str = 'bottom', fix: dict = None, codec: str = 'png', client: str = None,
                           dynamic: bool = None, srt: str = None) -> dict:
-    """STEP 4 of captions: render the chosen style over the whole edit as it is NOW (export the sequence as FCP7 XML
-    first) → one transparent .mov the length of the edit (PNG in MOV; codec='prores' for ProRes 4444), to lay on the
-    top video track at 0 — on a NEW track by OVERWRITE (overwrite_clip, or the panel's "Colocar overlay" button when the
-    full .mov path is written in the answer); never add_to_timeline/insert, which ripples the whole sequence right.
-    It comes at the sequence's own resolution (a 4K UHD sequence gets a 3840×2160 overlay with
-    the 1920×1080 layout drawn at 2×), so it goes in at 100 % — never scale it up. aspect: leave empty for the
-    sequence's; pass one only for a different delivery format.
-    srt = the caption the editor REVIEWED in Premiere (STEP 3: captions_srt → caption track → they fix words and
-    timing → premiere_captions reads the track back into <sequence>_revisada.srt). Then that file is the truth: every block appears exactly from its in to its out with the
-    editor's text (word pops inside a block follow the transcript); `corrected` is ignored. Without srt: the approved
-    grammar corrections (`corrected` from caption_sentences), timings word by word from the transcript.
-    When the editor says the captions were reviewed / corrected in Premiere, ask for (or find in the captions folder) the exported
-    .srt and use it — never re-derive from the transcript.
-    style: social · bold · clean · karaoke · box · minimal · marca. position: bottom · center · top. fix: spelling {"Enki": "INC"}.
-    style='marca' = the client's own caption look (box, font, colours, position) from its profile's caption_look
-    (`client`, or found from the job's path); dynamic=True = the social cut of it (words land as spoken, keywords pop)."""
+    """Captions STEP 4: the chosen style rendered over the whole sequence as it is now → one transparent .mov (PNG in MOV;
+    codec='prores' for ProRes 4444) at the sequence's resolution (4K is drawn at 2×): at 0 s, 100 %, never scaled.
+    srt = the caption the editor reviewed (premiere_captions writes it): its blocks, text and timings are the truth and
+    `corrected` is ignored; without srt, `corrected` + transcript timings. style: social · bold · clean · karaoke · box ·
+    minimal · marca (the client's caption_look; `client`, or found from the path); dynamic=True = its social cut.
+    position: bottom · center · top. fix: spellings {"wrong": "right"}. aspect: only for another delivery format."""
     import asyncio
     from claudio import motion
     look = None
@@ -1051,17 +999,12 @@ async def caption_overlay(nle_xml: str, out_folder: str, ctx: Context, style: st
 @mcp.tool()
 def captions_srt(nle_xml: str, out_srt: str, corrected: dict = None, style: str = None, client: str = None,
                  max_chars: int = None, lines: int = None, max_words: int = None, fix: dict = None) -> dict:
-    """STEP 3 of captions — the REVIEW round, before any overlay: editable captions (.srt) of the edit with the approved
-    grammar corrections. Blocks are cut by PHRASE like a subtitler (never across a sentence end, never ending on
-    "de"/"que"/"o", never splitting a number or a name, a breath is where a block ends) and timed on the sequence's
-    frames: in on the first word's voice, out after the last (held long enough to read), chained 2 frames apart,
-    in/out snapped to nearby picture cuts. Pass the chosen `style` (or `client` for its caption look) so the blocks
-    fit that style's line; max_chars (per line) / lines override it. Without style: one line of 26 characters on a
-    vertical sequence, two of 42 on a horizontal one.
-    Put it in Premiere as a caption track (Premiere MCP create_caption_track, or the editor drags the .srt onto the
-    sequence; Resolve: import subtitle), then STOP and let the editor fix words and timing there. The panel's
-    "Overlay da legenda revisada" / premiere_captions read the edited track back — caption_overlay(srt=...) renders
-    exactly it."""
+    """Captions STEP 3, the review round: editable .srt with the approved corrections, cut by phrase like a subtitler
+    (never across a sentence end, never ending on a weak word, never splitting a number or a name; a breath ends a block),
+    timed on the sequence's frames (in on the voice, held to read, chained 2 frames apart, snapped to picture cuts).
+    style (or client) sets the line length; max_chars/lines override (default 1×26 vertical, 2×42 horizontal). Put it in
+    the NLE as a caption track (Premiere MCP create_caption_track or drag; Resolve: import subtitle) and STOP: the editor
+    fixes words and timing there."""
     from claudio import motion
     look = None
     if style == 'marca' or client:
@@ -1076,18 +1019,11 @@ def captions_srt(nle_xml: str, out_srt: str, corrected: dict = None, style: str 
 def caption_mogrt(nle_xml: str, style: str = 'social', srt: str = None, corrected: dict = None, fix: dict = None,
                   client: str = None, accent: str = '#4ea1ff', position: str = 'bottom', aspect: str = None,
                   out_dir: str = None) -> dict:
-    """Captions as EDITABLE Motion Graphics Templates instead of a rendered .mov: the same styles as caption_overlay
-    (social · bold · clean · karaoke · box · minimal · marca, the client's look incl. its dynamic cut), one .mogrt clip
-    per caption block on a NEW top video track. The editor then fixes a word (Essential Graphics › Texto) or trims a
-    clip right in Premiere — no re-render. Builds the template in After Effects the first time (≈1 min, cached), then
-    writes a placement plan (<name>.claudio-mogrt.jsx): tell the editor to click "Aplicar legendas (MOGRT)" in the
-    Cláudio panel (it appears under your message when you write the plan path). Prefer srt = the .srt reviewed in
-    Premiere (blocks and timings are theirs); else `corrected` from caption_sentences. Same steps as caption_overlay
-    before it (sentences → grammar → style choice).
-    Do it LAST: an FCP XML round trip (clean_speech, add_sfx, flatten, stereo…) cannot carry a MOGRT's text, so those
-    tools leave MOGRT captions out of the sequence they write (listed in `dropped`) — apply the captions again there.
-    Templates live in D:\\Documentos\\claudio-ae\\templates (built once per style × format, no protected region:
-    Premiere would squeeze the comp into the clip)."""
+    """Captions as EDITABLE Motion Graphics Templates: the caption_overlay styles (incl. marca and its dynamic cut), one
+    .mogrt clip per block on a new top track — the editor fixes words or trims in Premiere, no re-render. Builds the
+    template in After Effects once per style × format (≈1 min, cached), then writes a placement plan
+    (<name>.claudio-mogrt.jsx). srt = the reviewed .srt (preferred); else `corrected`. Do it LAST: an XML round trip
+    (clean_speech, add_sfx, flatten, stereo…) drops MOGRT text (listed in `dropped`)."""
     from claudio import clients, mogrt, run
     look = None
     if style == 'marca' or client:
@@ -1098,11 +1034,9 @@ def caption_mogrt(nle_xml: str, style: str = 'social', srt: str = None, correcte
 
 @mcp.tool()
 def premiere_captions(prproj: str, sequence: str, nle_xml: str = None, track: str = 'C1', out_srt: str = None) -> dict:
-    """The caption track as the editor fixed it in Premiere (text + timing), read from the saved .prproj — Premiere's
-    scripting cannot read captions. Once edited there it is THE caption: use the .srt this writes (default
-    <job>/<captions folder>/<sequence>_revisada.srt) as `srt` for caption_overlay / caption_mogrt, never regenerate it.
-    With nle_xml (the sequence's XML), what the editor rewrote in a song's lyrics is learned into the song, so its
-    next captions come right. The project must be saved first (the panel does it)."""
+    """The caption track as the editor fixed it in Premiere (text + timing), read from the saved .prproj. Once edited it is
+    THE caption: use the .srt this writes (<captions folder>/<sequence>_revisada.srt) as `srt`, never regenerate it.
+    With nle_xml, lyric fixes are learned into the song. The project must be saved first."""
     import re
     from claudio import motion, nle_read, profile
     cues = nle_read.premiere_captions(prproj, sequence, track)
@@ -1118,21 +1052,14 @@ def premiere_captions(prproj: str, sequence: str, nle_xml: str = None, track: st
 def clean_speech(nle_xml: str, out_xml: str = None, pace: str = 'apertado', max_pause: float = None, fillers: bool = True,
                  notes: bool = True, crossfade: bool = True, zoom: bool = False, punch: list = None, preview: bool = False,
                  extra_fillers: list = None, keep_tracks: list = None, dialogue_track: str = 'A1') -> dict:
-    """Tighten a sequence the editor already cut: long pauses and hesitation sounds ("ãh", "hum", a drawn-out "é…")
-    come out, rippled across every track so picture, b-roll and speech stay in sync; music beds (audio-only files that
-    are not the dialogue) keep playing untouched. Writes a NEW sequence "<name> (limpo)" next to the XML and lists
-    every cut. Give the editor the XML path (the panel shows the import button).
-    pace: apertado (pause > 0.45 s → 0.25 s, the default) · medio (0.7 → 0.4) · solto (1.0 → 0.6, vlog/event);
-    preview=True only reports what each pace would cut and save — show it when the editor is unsure.
-    notes: cuts what was said for the editor, not the audience — set commands on their own ("Ação.", "três, dois,
-    um, valendo"), an utterance that talks to the editor ("editor, põe o drone aqui") and an announced restart ("vou
-    de novo", "errei", with the abandoned attempt when the next one opens the same way); each leaves a marker.
-    "aqui entra…" without the word editor only gets a yellow marker to check.
-    crossfade: a 2-frame audio crossfade on every join a cut made, so joins don't click.
-    zoom=True: the pieces of one shot after a cut alternate 100 % / 107.5 % (reads as a second camera); a new shot
-    opens at 100 %. punch = [[from, to], …] seconds on THIS sequence's clock: that line pushed in to 115 %, back
-    right after. Propose punch lines yourself (the one that lands: price, payoff, strong claim — about one per
-    20–30 s of a short, from caption_sentences' tl_s/tl_e) and only pass the ones the editor approved."""
+    """Tighten a sequence the editor already cut: long pauses and hesitations ("ãh", "hum", a drawn-out "é…") out,
+    rippled across every track; music beds keep playing. NEW sequence "<name> (limpo)" + every cut listed.
+    pace: apertado (pause > 0.45 s → 0.25 s, default) · medio (0.7 → 0.4) · solto (1.0 → 0.6); preview=True only reports
+    each pace. notes: cuts what was said for the editor — set commands ("Ação.", "três, dois, um, valendo"), "editor, …",
+    announced restarts ("vou de novo", "errei", with the abandoned attempt) — each leaves a marker; "aqui entra…" without
+    "editor" only gets a yellow marker. crossfade: 2 frames on every join. zoom=True: pieces of one shot alternate
+    100 / 107.5 %. punch = [[from, to], …] seconds of THIS sequence: that line at 115 % — propose them (price, payoff,
+    strong claim; ~one per 20–30 s) and pass only the ones the editor approved."""
     from claudio import cleanup
     return cleanup.clean_speech(nle_xml, out_xml, max_pause, fillers, extra_fillers or (), keep_tracks, dialogue_track,
                                 pace, notes, crossfade, zoom, punch, preview)
@@ -1141,12 +1068,10 @@ def clean_speech(nle_xml: str, out_xml: str = None, pace: str = 'apertado', max_
 @mcp.tool()
 def auto_cut_multicam(nle_xml: str, cameras: dict, mics: dict, out_xml: str = None, min_hold: float = 2.0,
                       max_hold: float = 12.0, margin_db: float = 6.0) -> dict:
-    """Podcast / interview / panel: cut a SYNCED multicam sequence (sync_multicam's, or the editor's own) by who is
-    speaking, from each person's mic. cameras = {"V1": ["Ana"], "V2": ["Robson"], "V3": []} (a camera with nobody or
-    several people = the wide / two-shot); mics = {"Ana": "A3", "Robson": "A5"} (the track of each person's mic —
-    read_project / the panel context lists them; ask the editor when unsure). The wide on crosstalk and long pauses,
-    a cutaway every max_hold s of one person talking, never a shot shorter than min_hold. NEW sequence: the cut on a
-    new top video track, the camera tracks below DISABLED (alternates one click away), audio untouched."""
+    """Podcast / interview / panel: cut a SYNCED multicam sequence by who is speaking, from each person's mic.
+    cameras = {"V1": ["Ana"], "V2": ["Robson"], "V3": []} (nobody or several people = the wide); mics = {"Ana": "A3"}
+    (ask when unsure). Wide on crosstalk and long pauses, a cutaway every max_hold s, no shot under min_hold. NEW sequence:
+    the cut on a new top track, camera tracks below disabled, audio untouched."""
     from claudio import autocut
     return autocut.auto_cut(nle_xml, cameras, mics, out_xml, min_hold, max_hold, margin_db)
 
@@ -1154,10 +1079,9 @@ def auto_cut_multicam(nle_xml: str, cameras: dict, mics: dict, out_xml: str = No
 @mcp.tool()
 def add_sfx(nle_xml: str, out_xml: str = None, whoosh: bool = True, pops: bool = True, sfx_dir: str = None,
             srt: str = None) -> dict:
-    """Sound design for social cuts: a whoosh landing on every b-roll entry and a light pop when a caption keyword
-    (price, number, brand, the same ones the dynamic captions highlight) is spoken — on a NEW audio track of a copy
-    of the sequence ("<name> (com SFX)"), at −20 / −24 dB, so it is easy to mute or delete. sfx_dir: the editor's own
-    sounds (whoosh*.wav, pop*.wav), else built-in ones. srt: the reviewed captions, so pops follow the final words."""
+    """Sound design for social cuts: a whoosh on every b-roll entry and a light pop on caption keywords (price, number,
+    brand), on a NEW audio track of a copy ("<name> (com SFX)") at −20 / −24 dB. sfx_dir: the editor's sounds
+    (whoosh*.wav, pop*.wav), else built-in. srt: the reviewed captions."""
     from claudio import motion, sfx
     words = motion.srt_timeline_words(nle_xml, srt, remember=False)['words'] if srt else None
     return sfx.add_sfx(nle_xml, out_xml, whoosh, pops, sfx_dir, words)
@@ -1165,32 +1089,29 @@ def add_sfx(nle_xml: str, out_xml: str = None, whoosh: bool = True, pops: bool =
 
 @mcp.tool()
 def music_brief(nle_xmls: list) -> list:
-    """SOUNDTRACK step 1, per sequence (FCP XMLs the panel exported now): exact length, share of speech (→ instrumental,
-    a bed under the voice), cut pace, music already in the cut, and the search constraints (instrumental, BPM range,
-    energy, minimum duration) for the Storyblocks connector. Then ask the editor, in ONE message: mood/genre (propose
-    one from the content and the client profile), one track for all sequences or one each, and whether music already
-    there stays. Show 3–5 Storyblocks options per sequence (title, BPM, duration, preview link), recommend one."""
+    """Soundtrack step 1, per sequence: exact length, share of speech (→ instrumental bed), cut pace, music already there,
+    and search constraints (instrumental, BPM range, energy, minimum duration) for a music-store connector such as
+    Storyblocks. Then ask in ONE message: mood/genre (propose one), one track for all or one each, whether existing music
+    stays; show 3–5 options per sequence and recommend one."""
     from claudio import music
     return [music.brief(x) for x in nle_xmls]
 
 
 @mcp.tool()
 def fetch_music(url: str, job: str, title: str = None) -> dict:
-    """SOUNDTRACK step 2: put the chosen track in the job's music folder — a download link (Storyblocks: the URL its download
-    tool returns, after the editor picked the track) or a local file of the editor's. Named by `title`."""
+    """Soundtrack step 2: put the chosen track in the job's music folder — a download link (the store's, after the editor
+    picked it) or a local file. Named by `title`."""
     from claudio import music
     return music.fetch(url, job, title)
 
 
 @mcp.tool()
 def music_plan(job: str, sequences: list) -> dict:
-    """SOUNDTRACK step 3, all sequences in one plan: sequences = [{nle_xml, music (fetch_music path), sequence_id?
-    (from the panel), mode? ('auto' · 'fim' = the song's real ending on the end of the cut · 'inicio' · 'janela' = the
-    best stretch), start? (seconds of the song, forces the entry), duck? (default true), gain_db? (editor's level)}].
-    Level from measured loudness: music ~18 LU under the speech, ~6 LU under in pauses ≥ 2.5 s, ~2 LU under on an
-    opening/closing card with no speech (≥ 3 s), −14 LUFS when there is no speech at all; Volume keyframes ramp down before each line. Writes <music folder>/trilha <stamp>.claudio-trilha.jsx:
-    write its full path in the answer — the panel places each song on a NEW audio track of its sequence (backup first).
-    Never import or place the music through the Premiere MCP."""
+    """Soundtrack step 3, all sequences in one plan: sequences = [{nle_xml, music (fetch_music path), sequence_id?,
+    mode? ('auto' · 'fim' = the song's real ending on the end of the cut · 'inicio' · 'janela' = best stretch), start?
+    (song seconds), duck? (default true), gain_db?}]. Levels from measured loudness: ~18 LU under speech, ~6 LU under in
+    pauses ≥ 2.5 s, ~2 LU under on a card without speech, −14 LUFS with no speech; Volume keyframes ramp before each line.
+    Writes <music folder>/trilha <stamp>.claudio-trilha.jsx, which the panel applies (new audio track per sequence)."""
     from claudio import music
     return music.plan(job, sequences)
 
@@ -1199,12 +1120,10 @@ def music_plan(job: str, sequences: list) -> dict:
 def event_recap(project: str, footage: str, music: str, duration: float = 45, aspect: str = '9:16', pace: str = 'fast',
                 music_start: float = None, name: str = None, end_card: str = None, audio: str = 'mute',
                 faces: bool = True) -> dict:
-    """Aftermovie / event recap: from a folder of event footage (indexed first with index_folder) and a song, pick the
-    best moments of the night — steady and sharp, loud (crowd, chorus, applause), with people, little talking — the
-    strongest as the hook, the rest in the order they happened with no angle twice in a row, cut on the beat and
-    fitted to `duration`. Saved as the next edit version of `project` (like build_edit). Then edit_storyboard and LOOK:
-    swap any moment that is not right (build_edit with the edited shots), then export_edit. music_start: a downbeat
-    (music_windows); default = the best stretch of that length. audio: 'mute' (music only) or 'ambient'."""
+    """Aftermovie / event recap from indexed event footage and a song: the best moments (steady, sharp, loud — crowd,
+    chorus, applause — with people, little talking), the strongest as the hook, the rest in the order they happened, no
+    angle twice in a row, cut on the beat, fitted to `duration`. Saved as the next edit version of `project`.
+    music_start: a downbeat (default: the best stretch). audio: 'mute' (music only) or 'ambient'."""
     from claudio import recap
     edit, info, fit = recap.recap_edit(footage, music, duration, aspect, pace, music_start, name, end_card, audio, faces)
     if fit is None:
@@ -1228,30 +1147,28 @@ def narration(text: str, out_folder: str, engine: str = 'elevenlabs', voice: str
 
 
 EDIT_DOC = """edit = {
-  "name": "INC — Guilherme v1", "aspect": "9:16" | "16:9" | "1:1" | "4:5", "fps": optional "30000/1001",
-  "music": {"path": "D:\\x\\song.wav", "start": 63.32 (a downbeat, from music_windows), "gain_db": -4, "duck_db": -14,
-            "fade_out": 1.5},
+  "name": "Cliente — Pessoa v1", "aspect": "9:16" | "16:9" | "1:1" | "4:5", "fps": optional "30000/1001",
+  "music": {"path": "D:\\x\\song.wav", "start": 63.32 (a downbeat, music_windows), "gain_db": -4, "duck_db": -14, "fade_out": 1.5},
   "cut_on": "beat" | "downbeat" | "half" | "none",   "pace": "calm" | "medium" | "fast" | "hype",
   "pace_follows_music": true (faster in high-energy sections, slower in low),
   "shots": [                                   # V1 spine, in order
-    {"path": "...C0025.MP4", "in": 9.2, "out": 22.3, "audio": "dialogue", "snap": "speech", "label": "fala 1",
-     "reframe_x": 0.42},                       # dialogue keeps its length; tail stretched to the next beat if the source allows
+    {"path": "...C0025.MP4", "in": 9.2, "out": 22.3, "audio": "dialogue", "snap": "speech", "label": "fala 1", "reframe_x": 0.42},
+                                               # dialogue keeps its length; tail stretched to the next beat if the source allows
     {"path": "...C0031.MP4", "in": 3.0, "out": 9.0, "audio": "ambient", "beats": 4},   # or "len": seconds
-    {"path": "...ASSINATURA.mp4", "in": 5.37, "out": 10.78, "audio": "mute", "label": "end card"}],
-  multicam shot: {"path": "...C0015.MP4", "offset": <multicam_sync offset>, "beats": 8, "reframe_x": "auto", "grade": "auto"}
-  "overlays": [                                # V2 b-roll runs over the spine (speech keeps playing)
-    {"from": 5.2, "to": 13.0, "clips": [{"path": "...FACHADA.mp4", "in": 0, "out": 6}, {"path": "...", "in": 2, "out": 7}]}],
-  "captions": {"enabled": true, "max_words": 4, "uppercase": true, "fix": {"Enki": "INC"}},
-  "texts": [{"text": "Guilherme\nCorretor INC", "at": 0.5, "dur": 2.5, "style": "lower" | "title"}],
+    {"path": "...CARTELA.mp4", "in": 5.37, "out": 10.78, "audio": "mute", "label": "end card"}],
+  multicam shot: {"path": "...C0015.MP4", "offset": <sync_multicam offset>, "beats": 8, "reframe_x": "auto", "grade": "auto"}
+  "overlays": [                                # V2 b-roll over the spine (speech keeps playing)
+    {"from": 5.2, "to": 13.0, "clips": [{"path": "...FACHADA.mp4", "in": 0, "out": 6}]}],
+  "captions": {"enabled": true, "max_words": 4, "uppercase": true, "fix": {"wrong": "right"}},   # render_edit only
+  "texts": [{"text": "Nome\\nCargo", "at": 0.5, "dur": 2.5, "style": "lower" | "title"}],        # render_edit only
   "ambient_db": -16, "fade_in": 0.3, "fade_out": 0.8 }
 Optional per shot/clip: "anchor": "start"|"center"|"end", "zoom", "reframe_y", "gain_db",
 "ext_audio": {"path": "...wav", "offset": <sync_audio offset_sec>}."""
 
 
 def build_edit(project: str, edit: dict) -> dict:
-    """Fit an edit to the beat grid and save it as the next version (<project>/edit_vN.json). Returns the timeline
-    (V1 spine + V2 b-roll with timeline/source times and length in beats) and warnings. Then edit_storyboard to look
-    at it, and export_edit to put it in Premiere/Resolve for the user to review."""
+    """Fit an edit to the beat grid and save it as the next version (<project>/edit_vN.json). Returns the timeline (V1
+    spine + V2 b-roll, timeline/source times, length in beats) and warnings."""
     p = montage.project_dir(project)
     fit = montage.fit_edit(edit)
     v = montage.next_version(p)
@@ -1308,9 +1225,9 @@ def render_edit(project: str, authorized_by_user: bool = False, version: int = N
 
 @mcp.tool()
 def edit_storyboard(project: str, version: int = None) -> list:
-    """Review a cut WITHOUT rendering: one tile per shot and b-roll from the SOURCE frames (rotation + crop applied) and
-    a timeline bar (beats, music sections, b-roll layer). LOOK at it after every build_edit: back-to-back same angle,
-    soft shots, crops cutting heads, b-roll that doesn't match what is said. Log footage looks flat here — expected."""
+    """Review a cut WITHOUT rendering: one tile per shot and b-roll from the SOURCE frames (rotation + crop applied) and a
+    timeline bar (beats, sections, b-roll layer). Look for: same angle back to back, soft shots, crops cutting heads,
+    b-roll that doesn't match the words."""
     p = montage.project_dir(project)
     v, fit = montage.load_fit(p, version)
     return [Image(data=core.to_jpeg(montage.source_storyboard(fit), max_side=3000), format='jpeg'),
@@ -1318,14 +1235,10 @@ def edit_storyboard(project: str, version: int = None) -> list:
 
 
 def export_edit(project: str, out_path: str = None, version: int = None) -> dict:
-    """Export an edit version as FCP7 XML for finishing: V1 spine, V2 b-roll (with Basic Motion scale/centre for the
-    reframe), A1 production audio as ONE stereo track with per-shot levels (clips with a lav on one side or two different
-    mics on L/R go dual mono on the next pair), then music. Premiere: do NOT import the .xml through the Premiere MCP (importFiles on an FCP XML crashes Premiere) — give the editor the path and ask them to import it (File › Import / Ctrl+I);
-    Resolve: import_timeline_from_file(xml). Captions/titles are not in the XML (re-create them in the NLE or burn
-    from the render).
-    The sequence and the .xml are named after edit["name"] (+ " vN" when the name has no version), so ALWAYS give the
-    edit a name that tells it apart in the bin — client — person/subject (e.g. "INC — Estela", "INC — Robson"); never
-    leave it generic when a job has several people."""
+    """An edit version as FCP7 XML for finishing: V1 spine, V2 b-roll (Basic Motion for the reframe), A1 production audio as
+    ONE stereo track with per-shot levels (a one-sided lav or two different mics go dual mono on the next pair), then
+    music. Captions/titles are not in the XML. The sequence and the file are named after edit["name"] (+ " vN"): give
+    every edit a name that tells it apart in the bin — client — person/subject. Edit format: see build_edit."""
     p = montage.project_dir(project)
     v, fit = montage.load_fit(p, version)
     fit = {**fit, 'name': montage.sequence_name(fit, v)}
@@ -1333,8 +1246,8 @@ def export_edit(project: str, out_path: str = None, version: int = None) -> dict
     return montage.export_edit_fcp7(fit, out)
 
 
+build_edit.__doc__ += '\n' + EDIT_DOC
 for _f in (build_edit, export_edit):
-    _f.__doc__ += '\n' + EDIT_DOC
     mcp.tool()(_f)
 
 
@@ -1376,6 +1289,23 @@ Footage: {pasta}. User request: {pedido}.
 5. No recipe fits: recipe("comum") gives the rules every edit follows; work from them and tell the editor this kind
    could become a recipe of their own in the recipes folder recipe() shows.
 """
+
+
+def _drop_schema_titles(o):
+    """pydantic's "title": "Nle Xml" on every argument repeats its name and goes out with every message (~7k chars)."""
+    if isinstance(o, dict):
+        for k in [k for k, v in o.items() if k == 'title' and isinstance(v, str)]:
+            del o[k]                      # a schema's title; an ARGUMENT named title (fetch_music) is a dict and stays
+        for v in o.values():
+            _drop_schema_titles(v)
+    elif isinstance(o, list):
+        for v in o:
+            _drop_schema_titles(v)
+
+
+for _t in mcp._tool_manager.list_tools():
+    _drop_schema_titles(_t.parameters)
+
 
 def main():
     mcp.run()

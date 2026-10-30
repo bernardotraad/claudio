@@ -1,6 +1,6 @@
 # Arquitetura: motor, receitas e perfil
 
-> Aprovada em 2026-10-30. Fases 1 (perfil do workspace) e 2 (receitas) implementadas; as outras ainda não. Objetivo: o Cláudio servir para qualquer tipo de projeto e de
+> Aprovada em 2026-10-30. Fases 1 (perfil do workspace), 2 (receitas) e 3 (docstrings enxutas) implementadas; as outras ainda não. Objetivo: o Cláudio servir para qualquer tipo de projeto e de
 > editor, sem perder nada do fluxo que existe hoje.
 
 ## O problema
@@ -181,8 +181,11 @@ rodam pelo `claudio-run` ou pela conversa.
    6,3 mil para 1,1 mil caracteres. Os prompts dos botões do painel continuam no `main.js` até a fase 5.
    Pasta `receitas/`, ferramenta `recipe`, `montar` genérico. `depoimento` e `recap-evento` primeiro,
    porque são as que você usa. Teste: o INC 9 Robson montado pela receita passa pelas mesmas etapas.
-3. **Docstrings enxutas.** Tirar roteiro, exemplos de cliente e regras de NLE das 55 ferramentas. Meta: cortar
-   mais da metade dos ~26 mil caracteres que vão em toda mensagem.
+3. **Docstrings enxutas.** ✅ 2026-10-30 — o que vai em toda mensagem caiu de 59,6 mil para 40,4 mil caracteres
+   (68 ferramentas: descrições 35,3 → 22,5 mil, esquemas 22,8 → 15,6 mil sem os `title` do pydantic, instruções
+   1,5 → 2,3 mil). As regras repetidas (exportar a timeline antes, sequência nova, caminho completo para o painel, nunca
+   importar XML pelo MCP do Premiere, trilha nova por overwrite) estão uma vez só nas instruções do servidor; roteiro
+   foi para as receitas; sem exemplo de cliente nem caminho pessoal. `test_server` segura o orçamento.
 4. **Destinos.** `export_edit(target=…)`; regras do Premiere juntas em um lugar só; depois, o teste do HyperFrames.
 5. **Painel a partir das receitas.** Os botões da etapa MONTAR vêm das receitas instaladas; os prompts saem do `main.js`.
 6. **Receitas novas** (podcast, tutorial, cortes de vídeo longo) e uma pasta `examples/` com material curto de cada
