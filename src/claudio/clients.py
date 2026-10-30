@@ -6,9 +6,9 @@
                         ($CLAUDIO_VAULT or "vault"), else ~/Documents/Claudio/clientes. In the vault the page follows its
                         rules: frontmatter (tipo: cliente), kebab-case file name, linked from the folder's README.md.
 
-  profile fields: vocabulary · formats (aspect, duration, platform) · end_card (file, in/out) · music (tracks/folder
-  used, style) · captions · structure (hook/body/CTA…) · house_style (measured from finished timelines) · notes ·
-  jobs (history).
+  profile fields: vocabulary · receita (the kind of project they usually order: claudio.recipes) · formats (aspect,
+  duration, platform) · end_card (file, in/out) · music (tracks/folder used, style) · captions · structure
+  (hook/body/CTA…) · house_style (measured from finished timelines) · notes · jobs (history).
 """
 import datetime, json, os, re, statistics
 

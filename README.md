@@ -348,7 +348,8 @@ Reinicie o Premiere → **Janela › Extensões › Cláudio, o Editor**.
 A conversa do painel fica salva ao lado do projeto (`<projeto>.claudio-chat.json`) e volta quando você reabre o
 Premiere: as mensagens aparecem de novo e o Claude continua de onde parou. O **＋** começa uma conversa nova.
 
-Também dá pra fazer tudo pelo terminal do Claude Code, com o prompt guiado `/mcp__claudio__montar`.
+Também dá pra fazer tudo pelo terminal do Claude Code, com o prompt guiado `/mcp__claudio__montar`: ele escolhe a
+[receita](#receitas) do tipo de projeto e segue as etapas dela.
 
 **Regras do Cláudio:** você está sempre no controle. Ele propõe antes de mudar, nunca sobrescreve a sua sequência (cria
 uma nova), não desfaz suas mudanças manuais e só renderiza o vídeo final se você pedir. Material em log (S-Log, C-Log,
@@ -440,6 +441,47 @@ abaixo. Escreva só o que muda; o `claudio-doctor` mostra o perfil ativo.
 
 As pastas são relativas à pasta do trabalho (`/` separa níveis). Pastas que começam com `#` e as pastas de trabalho do
 perfil nunca são indexadas como material. O painel lê o perfil ao abrir: depois de mudar o arquivo, reabra o painel.
+
+### Receitas
+
+Cada tipo de projeto é uma receita: um arquivo Markdown com as perguntas do brief, as etapas, as regras de gosto e os
+padrões (formato, duração, ritmo). O Claude lê a receita pela ferramenta `recipe` só quando vai montar; as regras
+comuns a toda montagem (`_comum.md`: entregar no NLE, rodadas de notas, legendas, QC) vêm junto.
+
+| Receita | Para |
+| --- | --- |
+| `depoimento` | uma ou mais pessoas falando para a câmera, com b-roll, para redes (vertical) |
+| `depoimento-horizontal` | depoimento ou entrevista em 16:9 para YouTube, site ou institucional, com lower thirds |
+| `recap-evento` | aftermovie: melhores momentos no tempo da música |
+| `beat-edit` | só imagem e música, sem fala |
+| `show-multicam` | show ou clipe musical com várias câmeras |
+| `curta-narrativo` | cena roteirizada com claquete falada |
+
+Para criar uma receita sua (ou trocar uma das de cima), ponha um `.md` em `~/.config/claudio/receitas/`
+(`CLAUDIO_RECIPES` aponta outra pasta) com o mesmo formato:
+
+```markdown
+---
+nome: podcast
+titulo: Podcast em vídeo
+quando: conversa gravada com uma câmera por pessoa e um microfone cada
+padroes: {"aspect": "16:9", "pace": "medium"}
+entregas: ["timeline"]
+ferramentas: ["sync_multicam", "auto_cut_multicam", "clean_speech", "qc_timeline"]
+---
+
+## Brief
+1. …
+
+## Etapas
+1. …
+
+## Regras de gosto
+- …
+```
+
+Valores que começam com `[` ou `{` são JSON. Cada `## ` vira uma seção que dá para ler sozinha
+(`recipe("depoimento", "legendas")`). Um cliente pode dizer qual receita costuma pedir (`"receita"` no perfil do cliente).
 
 ## Limitações
 

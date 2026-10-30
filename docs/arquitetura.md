@@ -1,6 +1,6 @@
 # Arquitetura: motor, receitas e perfil
 
-> Aprovada em 2026-10-30. Fase 1 (perfil do workspace) implementada; as outras ainda não. Objetivo: o Cláudio servir para qualquer tipo de projeto e de
+> Aprovada em 2026-10-30. Fases 1 (perfil do workspace) e 2 (receitas) implementadas; as outras ainda não. Objetivo: o Cláudio servir para qualquer tipo de projeto e de
 > editor, sem perder nada do fluxo que existe hoje.
 
 ## O problema
@@ -177,7 +177,9 @@ rodam pelo `claudio-run` ou pela conversa.
    `regras` entram nas fases em que forem usados. `claudio/profile.py` (`profile.get`, `profile.folder`) com os seus valores atuais como
    `perfil.json`; troca das 22 strings fixas (Python e JS). Teste: com o seu perfil, os caminhos gerados são
    idênticos aos de hoje; sem perfil, saem os neutros.
-2. **Receitas.** Pasta `receitas/`, ferramenta `recipe`, `montar` genérico. `depoimento` e `recap-evento` primeiro,
+2. **Receitas.** ✅ 2026-10-30 — as 5 receitas do antigo passo 2 do `MONTAR` + `depoimento-horizontal` + `_comum.md`; o `montar` caiu de
+   6,3 mil para 1,1 mil caracteres. Os prompts dos botões do painel continuam no `main.js` até a fase 5.
+   Pasta `receitas/`, ferramenta `recipe`, `montar` genérico. `depoimento` e `recap-evento` primeiro,
    porque são as que você usa. Teste: o INC 9 Robson montado pela receita passa pelas mesmas etapas.
 3. **Docstrings enxutas.** Tirar roteiro, exemplos de cliente e regras de NLE das 55 ferramentas. Meta: cortar
    mais da metade dos ~26 mil caracteres que vão em toda mensagem.

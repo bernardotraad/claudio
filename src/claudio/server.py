@@ -577,7 +577,8 @@ def reframe_preview(path: str, times: list[float], aspect: str = '9:16', x: floa
 
 @mcp.tool()
 def save_brief(project: str, brief: dict) -> dict:
-    """Store the answers of the intake (see the `montar` prompt) in <project>/brief.json so every version follows them."""
+    """Store the answers of the intake (the recipe's brief) in <project>/brief.json so every version follows them —
+    with "receita": <nome> so a later conversation reloads the same recipe."""
     p = montage.project_dir(project)
     _json.dump(brief, open(os.path.join(p, 'brief.json'), 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
     return {'saved': core.nle_path(os.path.join(p, 'brief.json'))}
@@ -1337,72 +1338,44 @@ for _f in (build_edit, export_edit):
     mcp.tool()(_f)
 
 
+@mcp.tool()
+def recipe(name: str = None, section: str = None) -> dict:
+    """Kinds of project ("receitas"). Without name: the list (nome, titulo, quando it fits, padroes). With name: the
+    recipe to FOLLOW for that edit — brief questions, steps, taste rules, defaults — plus the rules common to every edit.
+    The client profile, the brief and the editor's request override a recipe's defaults. section: one part only
+    ("brief", "etapas", "legendas", "entregar-no-nle"…). The editor's own recipes (~/.config/claudio/receitas) add new
+    kinds or replace a built-in one by name."""
+    from claudio import recipes
+    if not name:
+        return {'receitas': recipes.listing(), 'pasta_do_editor': core.nle_path(recipes.user_dir())}
+    try:
+        r = recipes.load(name, section)
+    except KeyError as e:
+        return {'error': str(e.args[0])}
+    return {'nome': r['nome'], 'padroes': r['meta'].get('padroes') or {}, 'entregas': r['meta'].get('entregas') or [],
+            'origem': r['origem'], 'text': r['text']}
+
+
 @mcp.prompt()
 def montar(pasta: str = '', pedido: str = '') -> str:
-    """Montar uma timeline no Premiere/Resolve a partir do material bruto: entrevista guiada → trilha primeiro →
-    decupagem com imagens → corte no beat → storyboard → timeline no NLE pra você revisar e finalizar."""
+    """Montar uma timeline no Premiere/Resolve a partir do material bruto: escolhe a receita do tipo de projeto
+    (depoimento, recap, beat edit, show multicâmera, curta…) e segue as etapas dela até a timeline no NLE."""
     return MONTAR.format(pasta=pasta or '(ask the user for the footage folder)', pedido=pedido or '(none yet)')
 
 
 MONTAR = """You are assembling a real edit with the claudio MCP (Cláudio, o Editor), TOGETHER with the Premiere Pro / DaVinci Resolve MCP.
 Footage: {pasta}. User request: {pedido}.
 
-Your deliverable is a TIMELINE inside Premiere/Resolve that the user reviews and adjusts with you; they finish it
-themselves (colour/LUT, effects, export). Never render a video unless the user explicitly asks for it.
-Decide from evidence (transcripts, measured quality, images you LOOK at), never from file names.
-Ask in the user's language, ONE step at a time, with AskUserQuestion (max 4 questions per call, best option first
-marked "(Recomendado)" with a one-line reason). Skip what the request already answers.
-
-0. Start right away: index_folder(<footage>, vocabulary=<brand/people/places if known>) — it shows progress and writes a
-   <clip>.md next to every video. If the folder already has _CLAUDIO.md / <clip>.md files, READ them first: the footage
-   is already logged. Several cameras of one event (+ recorder audio)? → sync_multicam first.
-1. Client: client_profile(<client>) — if it exists, it answers most of the questions below (vocabulary, format, end
-   card, music, captions, structure, house style): confirm it in ONE question ("igual da última vez?") and ask only
-   what changed. New client with a finished project → save_client_profile(..., learn_from_prproj=...).
-2. TYPE: "Depoimento / entrevista com b-roll" · "Aftermovie / resumo de evento" · "Beat edit / hype sem fala" ·
-   "Show / clipe musical multicâmera" · "Cena / curta narrativo".
-3. IDEA (plain message): what it is about, the one message, must-have moments/people/lines, who watches.
-   "Você decide" → finish the logging first, then propose 3 ideas grounded in what the footage holds.
-4. SETTINGS (one call): Format (9:16 · 16:9 · 4:5 · 1:1) · Duration (15 · 30 · 60 · 90+ s) · Captions (yes, social
-   style · discreet · no — captions may be better made in the NLE) · Which NLE (Premiere · Resolve).
-5. MUSIC FIRST: user's track · one from the folder · a licensed track from Storyblocks · no music (direct sound / the
-   show itself). For Storyblocks (when its connector is available): search_audio by the mood/genre/BPM the editor gave,
-   show 3–5 options (title, BPM, duration, link), and only after they pick one get_download_url → fetch_music puts it in
-   the job's music folder; never claim a track is licensed for a use you didn't check. Music for a cut that is ALREADY on the
-   timeline: music_brief → choose → fetch_music → music_plan (the panel places it on a new audio track, ducked). music_map → one line:
-   BPM (+ half-time reading), sections, drop, silences. music_windows(duration) → offer the 2–3 best stretches.
-6. PACE & SOUND (one call): pace (follow the music · calm · medium · fast) · cuts on beat or bar · original sound
-   (speech in front, music ducked · low ambience · music only) · opening/closing (hook in 3 s, end card file, CTA).
-6a. OVERVIEW (after everything is indexed): project_digest → understand what the project is → save_project_overview
-   (<job>/_VISAO_GERAL.md) → tell the user in 4–6 lines → ask: approximate final duration; soundtrack (a specific
-   track, or a mood/genre — with a mood and no track, offer Storyblocks options as in step 5) → propose 2–4 concrete
-   directions grounded in the material; they pick one or explain theirs.
-6b. SELECTS first (the editor checks your logging in the NLE before any cut): make_selects → import → ask if the
-   choices of takes / b-roll look right.
-7. LOGGING with your eyes: scenes / takes (best take — usually the last complete one; a take the speaker criticised is
-   out) · broll · find_phrase · find_shot ("hands on the guitar") · contact_sheet on every candidate · timeline_strip for tight speech cuts ·
-   reframe_preview + set_rotation for vertical / sideways cameras · annotate what you saw (it goes into the .md).
-   Colour: footage in log (S-Log, C-Log, BMD Film…) looks flat and washed out — that is NOT a defect, never reject or
-   "fix" it; the user applies LUT/grade in the NLE. Judge focus, framing, action, expression instead.
-8. build_edit(project, edit) → fix every warning → edit_storyboard → LOOK: back-to-back same angle, soft shots, crops
-   cutting heads, b-roll that does not match the words, dead air. Fix and rebuild.
-9. Put it in the NLE as ONE sequence with the clips straight on its tracks — never nest sequences (the editor grades
-   take by take; to join parts, build one edit or run flatten_timeline on the joined sequence): export_edit → Premiere: hand the editor the .xml path to import (Ctrl+I) — never import_media on an .xml, it crashes Premiere · Resolve: import_timeline_from_file(xml) (or
-   nle_cut_list + insert tools). Tell the user in 3–5 lines what you built and why, and ask for notes.
-10. Each round of notes: export the CURRENT timeline from the NLE → compare_with_nle (what the editor changed + their
-    marker notes) → adopt_nle_timeline (their changes become the base) → apply the notes → export_edit → import as a
-    NEW sequence. Never overwrite the editor's sequence; never undo their manual changes.
-10b. Overlays / captions / narration when the piece needs them (motion-designer skill): motion_reference first;
-    captions ALWAYS in 3 steps: caption_sentences → fix grammar only (concordância, regência, crase, pontuação; keep
-    the speaker's words) and show the diff → caption_style_preview (user picks the style; recommended starred) →
-    captions_srt (editable) and/or caption_overlay(style, corrected); render_overlay for lower thirds / titles / end cards;
-    narration (ElevenLabs — say the cost first — or edge). Save into the job's overlays folder and import them on
-    a NEW empty video track above every track that has clips (create it); never overwrite or insert onto a track that already has anything (adjustment layers, titles, B-roll) — list the tracks with the Premiere MCP first (audio: a new audio track), at the right time. These are ASSETS for the timeline, not a final render.
-11. Before they finalise: qc_timeline(current XML, platform) → offer the issues as markers; they decide.
-12. Render (render_edit with authorized_by_user=True) ONLY if the user asks for a rendered file. At the end,
-    save_client_profile(jobs=[...], plus anything learned) so the next job starts from here.
+1. Start right away: index_folder(<footage>) — logging runs in the background while you talk.
+2. client_profile(<client>) if there is a client. A profile with "receita" names the kind of project they usually order.
+3. KIND OF PROJECT: recipe() lists the recipes (nome, titulo, quando). Pick the one that fits the request and the
+   footage; when it is not obvious, ask with AskUserQuestion (best guess first, marked "(Recomendado)"), with the
+   editor's own kind as the free answer.
+4. recipe(<nome>) and FOLLOW it: its brief, steps and taste rules, and the common rules that come with it. Its defaults
+   apply only where the client profile, the brief or the request say nothing. save_brief with "receita": <nome>.
+5. No recipe fits: recipe("comum") gives the rules every edit follows; work from them and tell the editor this kind
+   could become a recipe of their own in the recipes folder recipe() shows.
 """
-
 
 def main():
     mcp.run()
