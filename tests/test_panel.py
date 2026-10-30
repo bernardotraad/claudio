@@ -100,9 +100,10 @@ def test_local_buttons_and_model(page):
     pg, _ = page
     loc = pg.evaluate("[...document.querySelectorAll('#quick button.loc')].map(b=>b.dataset.q)")
     assert set(loc) == {'index', 'qc', 'stereo', 'flatten', 'status', 'multicam', 'describe', 'clean', 'sfx', 'captions_mogrt', 'stt'}
-    # music: a local picker of sequences first, then the AI (Storyblocks) — not marked as "sem IA"
-    assert pg.evaluate("Object.keys(LOCAL).sort().join(',')") == 'captions_mogrt,clean,describe,flatten,index,multicam,music,qc,sfx,status,stereo,stt'
-    assert set(pg.evaluate("[...document.querySelectorAll('#quick button:not(.loc)')].map(b=>b.dataset.q)")) <= set(pg.evaluate("Object.keys(QUICK)")) | {'music'}
+    # music / montar: a local picker first (sequences / recipes), then the AI — not marked as "sem IA"
+    assert pg.evaluate("Object.keys(LOCAL).sort().join(',')") == 'captions_mogrt,clean,describe,flatten,index,montar,multicam,music,qc,sfx,status,stereo,stt'
+    ai = {q for q in pg.evaluate("[...document.querySelectorAll('#quick button:not(.loc)')].map(b=>b.dataset.q)") if not q.startswith('recipe:')}
+    assert ai <= set(pg.evaluate("Object.keys(QUICK)")) | {'music', 'montar'}
     assert pg.evaluate("document.querySelector('#model').value") == 'sonnet'
     pg.evaluate("add('local','**3 clipe(s)** com áudio de um lado só',false)")
     assert 'sem IA' in pg.evaluate("[...document.querySelectorAll('.msg.local .hd b')].pop().textContent")
@@ -203,3 +204,27 @@ def test_prompts_use_the_profile_folders(page):
     assert 'E:\\job\\legendas' in r['neutral'] and '#legendas' not in r['neutral']
     assert 'E:\\job\\#legendas' in r['mine']
     assert 'E:\\job\\#projeto\\claudio_sync.xml' in r['sync']
+
+
+@needs_browser
+def test_montar_buttons_come_from_the_recipes(page):
+    """MONTAR: "Montar com receita" opens the list in the chat; recipes with a "botao" become shortcut buttons, and the
+    numbers follow the order on screen (no WSL here: the built-in fallback is the recap)."""
+    pg, _ = page
+    r = pg.evaluate("""async()=>{
+      const nums=()=>[...document.querySelectorAll('#quick button')].map(b=>b.querySelector('i').textContent+' '+b.querySelector('span').textContent);
+      const before=nums();
+      renderRecipeButtons([{nome:'recap-evento',titulo:'Aftermovie',quando:'evento',botao:{rotulo:'Recap de evento'}},
+                           {nome:'podcast',titulo:'Podcast em vídeo',quando:'conversa',botao:{rotulo:'Podcast'}},
+                           {nome:'depoimento',titulo:'Depoimento',quando:'fala'}]);
+      const after=nums(); await readContext();
+      const prompt=QUICK.recipe({nome:'podcast',titulo:'Podcast em vídeo'});
+      renderRecipeButtons(RECIPES);
+      return {before, after, prompt};}""")
+    assert r['before'][7:11] == ['08 Montar com receita', '09 Selects', '10 Corte por quem fala', '11 Recap de evento']
+    assert r['before'][-1] == '21 Registrar no vault'
+    assert r['after'][10:12] == ['11 Recap de evento', '12 Podcast'] and r['after'][-1] == '22 Registrar no vault'
+    assert 'recipe("podcast")' in r['prompt'] and 'E:\\job\\projeto' in r['prompt']
+    pg.click('#quick button[data-q="montar"]')
+    pg.wait_for_function("document.querySelectorAll('input[name=claudio-recipe]').length > 0")
+    assert pg.evaluate("document.querySelectorAll('input[name=claudio-recipe]').length") == 1     # fallback list

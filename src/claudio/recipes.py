@@ -5,7 +5,8 @@
   _comum.md                           rules every edit follows, sent with every recipe
 
   Frontmatter: `chave: valor`, one per line; a value starting with [ or { is JSON (so the file is still valid YAML for
-  Obsidian). Keys: nome, titulo, quando (when it fits), padroes (defaults), entregas, ferramentas. The body is Markdown;
+  Obsidian). Keys: nome, titulo, quando (when it fits), padroes (defaults), entregas, ferramentas, botao (optional
+  {"rotulo", "dica"}: a shortcut button in the panel's MONTAR group). The body is Markdown;
   each `## ` heading is a section that can be read alone (recipe('depoimento', 'legendas')).
   The recipe plans, the tools execute: no recipe calls code, the model follows it.
 """
@@ -72,7 +73,8 @@ def listing():
             continue
         meta, _ = _read(p)
         out.append({'nome': meta.get('nome') or k, 'titulo': meta.get('titulo', k), 'quando': meta.get('quando', ''),
-                    'padroes': meta.get('padroes') or {}, 'origem': src})
+                    'padroes': meta.get('padroes') or {}, 'origem': src,
+                    'botao': meta['botao'] if isinstance(meta.get('botao'), dict) else None})
     return out
 
 

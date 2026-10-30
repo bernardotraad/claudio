@@ -1,6 +1,6 @@
 # Arquitetura: motor, receitas e perfil
 
-> Aprovada em 2026-10-30. Fases 1 (perfil do workspace), 2 (receitas) e 3 (docstrings enxutas) implementadas; as outras ainda não. Objetivo: o Cláudio servir para qualquer tipo de projeto e de
+> Aprovada em 2026-10-30. Fases 1 (perfil do workspace), 2 (receitas), 3 (docstrings enxutas), 4 (destinos, parte 1) e 5 (painel a partir das receitas) implementadas. Objetivo: o Cláudio servir para qualquer tipo de projeto e de
 > editor, sem perder nada do fluxo que existe hoje.
 
 ## O problema
@@ -209,7 +209,11 @@ rodam pelo `claudio-run` ou pela conversa.
      b-roll inteiro fora do quadro (Position x = 4,43 da largura). `montage.fcp_center` escreve agora o deslocamento
      em pixels da sequência ÷ largura/altura do arquivo (também no clipe girado: a Sony deitada usa a altura do
      arquivo, 2160). Conferido no Premiere: os quatro casos caem a ≤ 2 px; `tests/test_fcp_center.py`.
-5. **Painel a partir das receitas.** Os botões da etapa MONTAR vêm das receitas instaladas; os prompts saem do `main.js`.
+5. **Painel a partir das receitas.** ✅ 2026-10-30 — botão "Montar com receita" (lista no chat, a do cliente
+   marcada) e receitas com `botao` viram atalho no grupo Montar (o Recap saiu do HTML e veio da receita); numeração
+   calculada na tela; prompt genérico "siga a receita X" com as pastas do perfil. Os prompts de etapa (legendas,
+   selects, visão geral, notas, vault, multicam) continuam no `main.js`: são do painel, não de um tipo de projeto.
+   Plano original: Os botões da etapa MONTAR vêm das receitas instaladas; os prompts saem do `main.js`.
 6. **Receitas novas** (podcast, tutorial, cortes de vídeo longo) e uma pasta `examples/` com material curto de cada
    tipo como suíte de testes, no estilo do `brag`.
 

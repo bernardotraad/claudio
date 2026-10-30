@@ -199,21 +199,22 @@
     <button data-q="describe" class="loc" style="--c:var(--violet)"><i>06</i><span>Descrever planos</span></button>
     <button data-q="notes" style="--c:var(--violet)"><i>07</i><span>Ler minhas notas</span></button>
     <h6 style="--c:var(--forest)">montar</h6>
-    <button data-q="selects" style="--c:var(--forest)"><i>08</i><span>Selects</span></button>
-    <button data-q="autocut" style="--c:var(--forest)" title="Corta a multicâmera sincronizada por quem está falando"><i>09</i><span>Corte por quem fala</span></button>
-    <button data-q="recap" style="--c:var(--forest)" title="Aftermovie do evento: melhores momentos no beat da música"><i>10</i><span>Recap de evento</span></button>
-    <button data-q="clean" class="loc" style="--c:var(--forest)" title="Tira pausas e vícios da fala de uma sequência já montada (sequência nova)"><i>11</i><span>Limpar falas</span></button>
-    <button data-q="sfx" class="loc" style="--c:var(--forest)" title="Whoosh nas entradas de b-roll e pop nas palavras-chave (trilha de áudio nova)"><i>12</i><span>SFX nos cortes</span></button>
-    <button data-q="music" style="--c:var(--forest)" title="Escolhe a trilha no Storyblocks com você, baixa na pasta de trilhas do trabalho e coloca numa trilha de áudio nova de cada sequência, com o final da música no fim do corte e ducking sob as falas"><i>13</i><span>Trilha sonora</span></button>
-    <button data-q="flatten" class="loc" style="--c:var(--forest)"><i>14</i><span>Desaninhar</span></button>
+    <button data-q="montar" style="--c:var(--forest)" title="Escolhe a receita do tipo de projeto (depoimento, recap, beat edit…) e monta seguindo as etapas dela"><i>08</i><span>Montar com receita</span></button>
+    <button data-q="selects" style="--c:var(--forest)"><i>09</i><span>Selects</span></button>
+    <button data-q="autocut" style="--c:var(--forest)" title="Corta a multicâmera sincronizada por quem está falando"><i>10</i><span>Corte por quem fala</span></button>
+    <span id="recipe-slot" style="display:contents"><!-- receitas com "botao" (claudio-run recipes) --></span>
+    <button data-q="clean" class="loc" style="--c:var(--forest)" title="Tira pausas e vícios da fala de uma sequência já montada (sequência nova)"><i>12</i><span>Limpar falas</span></button>
+    <button data-q="sfx" class="loc" style="--c:var(--forest)" title="Whoosh nas entradas de b-roll e pop nas palavras-chave (trilha de áudio nova)"><i>13</i><span>SFX nos cortes</span></button>
+    <button data-q="music" style="--c:var(--forest)" title="Escolhe a trilha no Storyblocks com você, baixa na pasta de trilhas do trabalho e coloca numa trilha de áudio nova de cada sequência, com o final da música no fim do corte e ducking sob as falas"><i>14</i><span>Trilha sonora</span></button>
+    <button data-q="flatten" class="loc" style="--c:var(--forest)"><i>15</i><span>Desaninhar</span></button>
     <h6 style="--c:var(--magenta)">legendar</h6>
-    <button data-q="stt" class="loc" style="--c:var(--magenta)" title="Liga/desliga a transcrição pelo ElevenLabs Scribe (pago, tempo da palavra a 1–2 frames da voz) e refaz a legenda das sequências que foram transcritas pelo Whisper"><i>15</i><span id="stt-label">Transcrição Scribe</span></button>
-    <button data-q="captions" style="--c:var(--magenta)"><i>16</i><span>Legendas</span></button>
-    <button data-q="captions_final" style="--c:var(--magenta)" title="Depois de corrigir a legenda na trilha de legenda do Premiere (o Cláudio lê direto da sequência)"><i>17</i><span>Overlay da legenda revisada</span></button>
-    <button data-q="captions_mogrt" class="loc" style="--c:var(--magenta)" title="Uma legenda MOGRT por bloco, editável no Premiere (usa a legenda que você corrigiu na sequência)"><i>18</i><span>Legenda MOGRT</span></button>
+    <button data-q="stt" class="loc" style="--c:var(--magenta)" title="Liga/desliga a transcrição pelo ElevenLabs Scribe (pago, tempo da palavra a 1–2 frames da voz) e refaz a legenda das sequências que foram transcritas pelo Whisper"><i>16</i><span id="stt-label">Transcrição Scribe</span></button>
+    <button data-q="captions" style="--c:var(--magenta)"><i>17</i><span>Legendas</span></button>
+    <button data-q="captions_final" style="--c:var(--magenta)" title="Depois de corrigir a legenda na trilha de legenda do Premiere (o Cláudio lê direto da sequência)"><i>18</i><span>Overlay da legenda revisada</span></button>
+    <button data-q="captions_mogrt" class="loc" style="--c:var(--magenta)" title="Uma legenda MOGRT por bloco, editável no Premiere (usa a legenda que você corrigiu na sequência)"><i>19</i><span>Legenda MOGRT</span></button>
     <h6 style="--c:var(--rose)">entregar</h6>
-    <button data-q="qc" class="loc" style="--c:var(--rose)"><i>19</i><span>QC antes de exportar</span></button>
-    <button data-q="vault" style="--c:var(--rose)"><i>20</i><span>Registrar no vault</span></button>
+    <button data-q="qc" class="loc" style="--c:var(--rose)"><i>20</i><span>QC antes de exportar</span></button>
+    <button data-q="vault" style="--c:var(--rose)"><i>21</i><span>Registrar no vault</span></button>
   </nav>
   <div id="log"></div>
   <div id="prog"><div class="txt"></div><div class="bar"><div class="fill"></div></div></div>

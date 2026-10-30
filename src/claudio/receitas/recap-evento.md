@@ -4,6 +4,7 @@ titulo: Aftermovie / resumo de evento
 quando: material de um evento (festa, show, palestra, lançamento, casamento) e uma música; pouca ou nenhuma fala
 padroes: {"aspect": "9:16", "duracao": 45, "pace": "fast", "audio": "mute", "cut_on": "beat"}
 entregas: ["timeline"]
+botao: {"rotulo": "Recap de evento", "dica": "Aftermovie do evento: melhores momentos no beat da música"}
 ferramentas: ["index_folder", "index_status", "music_map", "music_windows", "event_recap", "edit_storyboard", "build_edit", "export_edit", "qc_timeline"]
 ---
 

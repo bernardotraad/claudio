@@ -64,9 +64,13 @@ Os botões ficam agrupados pela etapa do trabalho, cada grupo com uma cor (● =
 |---|---|
 | **Preparar** | 01 Analisar material ● · 02 Status ● · 03 Áudio estéreo ● · 04 Multicam ● |
 | **Entender** | 05 Visão geral · 06 Descrever planos ● · 07 Ler minhas notas |
-| **Montar** | 08 Selects · 09 Corte por quem fala · 10 Recap de evento · 11 Limpar falas ● · 12 SFX nos cortes ● · 13 Trilha sonora · 14 Desaninhar ● |
-| **Legendar** | 15 Transcrição Scribe ● · 16 Legendas · 17 Overlay da legenda revisada · 18 Legenda MOGRT ● |
-| **Entregar** | 19 QC antes de exportar ● · 20 Registrar no vault |
+| **Montar** | 08 Montar com receita · 09 Selects · 10 Corte por quem fala · 11 Recap de evento · 12 Limpar falas ● · 13 SFX nos cortes ● · 14 Trilha sonora · 15 Desaninhar ● |
+| **Legendar** | 16 Transcrição Scribe ● · 17 Legendas · 18 Overlay da legenda revisada · 19 Legenda MOGRT ● |
+| **Entregar** | 20 QC antes de exportar ● · 21 Registrar no vault |
+
+**Montar com receita** lista as [receitas](#receitas) no chat (a do cliente já marcada, se o perfil dele disser
+`"receita"`) e monta seguindo a escolhida. Uma receita com `botao: {"rotulo": "…", "dica": "…"}` no frontmatter vira um
+botão próprio no grupo Montar, como o **Recap de evento**; os números seguem a ordem na tela.
 
 ---
 
@@ -482,7 +486,7 @@ ferramentas: ["sync_multicam", "auto_cut_multicam", "clean_speech", "qc_timeline
 - …
 ```
 
-Valores que começam com `[` ou `{` são JSON. Cada `## ` vira uma seção que dá para ler sozinha
+Valores que começam com `[` ou `{` são JSON. `botao` (opcional) põe a receita como botão no painel. Cada `## ` vira uma seção que dá para ler sozinha
 (`recipe("depoimento", "legendas")`). Um cliente pode dizer qual receita costuma pedir (`"receita"` no perfil do cliente).
 
 ## Limitações
