@@ -1269,6 +1269,63 @@ def recipe(name: str = None, section: str = None) -> dict:
             'origem': r['origem'], 'text': r['text']}
 
 
+@mcp.tool()
+def learn_from_videos(client: str, folder: str = None, paths: list[str] = None, base: str = None, limit: int = 12,
+                      overwrite: bool = False) -> dict:
+    """Learn a client from videos already delivered, measured WITHOUT AI (local Whisper, never the paid STT): format,
+    duration, cut rate, speech share, first word, end card, face-on-screen share, music bed and burned-in captions
+    (estimates), loudness — p10/median/p90 over the newest `limit` videos of `folder` (or `paths`). Writes the client's
+    recipe (~/.config/claudio/receitas/<client>.md: the numbers + the closest built-in recipe's steps; a dated draft
+    beside it when that file exists, unless overwrite) and the profile's house_style.medido_videos. What isn't a number
+    (structure, tone, what each shot shows, what the client expects) is the `aprender` prompt's job."""
+    from claudio import learn
+    return learn.learn(client, folder, paths, base, limit=limit, overwrite=overwrite)
+
+
+@mcp.tool()
+def save_recipe(name: str, markdown: str) -> dict:
+    """Save a recipe of the editor's own (~/.config/claudio/receitas/<name>.md), e.g. the client's recipe rewritten
+    after learn_from_videos. The Markdown keeps the frontmatter (nome, titulo, quando, padroes, verificar, entregas,
+    ferramentas) and ## sections. Replaces a built-in recipe of the same name for this editor."""
+    from claudio import recipes
+    meta, body = recipes.parse(markdown)
+    missing = [k for k in ('nome', 'titulo', 'quando') if not meta.get(k)]
+    if missing or not body.strip():
+        return {'error': 'frontmatter sem ' + ', '.join(missing) if missing else 'receita sem corpo'}
+    key = recipes._key(name)
+    d = recipes.user_dir(); os.makedirs(d, exist_ok=True)
+    p = os.path.join(d, key + '.md')
+    open(p, 'w', encoding='utf-8').write(markdown if markdown.endswith('\n') else markdown + '\n')
+    return {'saved': core.nle_path(p), 'nome': key, 'sections': list(recipes.sections(body))}
+
+
+@mcp.prompt()
+def aprender(cliente: str = '', pasta: str = '') -> str:
+    """Aprender um cliente novo com vídeos que já foram entregues: mede sem IA (formato, ritmo, fala, legenda,
+    loudness), depois olha os vídeos e escreve a receita do cliente — estrutura, tom, o que ele espera receber."""
+    return APRENDER.format(cliente=cliente or '(ask the editor)', pasta=pasta or '(ask for the folder of finished videos)')
+
+
+APRENDER = """Learn a client from videos the editor already delivered, with the claudio MCP. Client: {cliente}. Finished videos: {pasta}.
+The goal: next time, Cláudio knows what this client's material looks like and what the editor must deliver.
+
+1. learn_from_videos(client, folder) — the numbers, no AI (skip if the editor just ran it from the panel: read the recipe
+   it wrote with recipe(<its name>) and the profile with client_profile).
+2. LOOK at 3–4 representative videos (a typical one, the shortest, the longest, the newest): contact_sheet of the whole
+   video (16 frames) and transcript. Write only what you SEE and HEAR, in the editor's language:
+   structure (what the first 3 s do, the body, the close/CTA, with typical times) · tone and who speaks · what the b-roll
+   shows and when it comes in · captions (style, position, words per block — confirm or correct the estimate) ·
+   graphics, logo, end card · music (style, level under the voice) · the deliverables (format, length, versions).
+3. Ask the editor in ONE message only what can't be seen: what they do by hand vs what Cláudio should deliver,
+   who approves, deadlines, anything the client always asks for or never accepts.
+4. Rewrite the client's recipe and save_recipe(name, markdown): keep the frontmatter (padroes and verificar come from
+   the measurements unless you saw otherwise), keep "## Medido nos vídeos prontos", rewrite "## Brief", "## Etapas",
+   "## Legendas" and "## Regras de gosto" for THIS client. Show the editor the result in 6–10 lines.
+5. With the editor's ok: save_client_profile(client, {{"receita": <name>, "notes": ...}}) so "Montar com receita" opens
+   with it.
+"""
+
+
 @mcp.prompt()
 def montar(pasta: str = '', pedido: str = '') -> str:
     """Montar uma timeline no Premiere/Resolve a partir do material bruto: escolhe a receita do tipo de projeto

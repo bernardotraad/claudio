@@ -100,10 +100,10 @@ def test_local_buttons_and_model(page):
     pg, _ = page
     loc = pg.evaluate("[...document.querySelectorAll('#quick button.loc')].map(b=>b.dataset.q)")
     assert set(loc) == {'index', 'qc', 'stereo', 'flatten', 'status', 'multicam', 'describe', 'clean', 'sfx', 'captions_mogrt', 'stt'}
-    # music / montar: a local picker first (sequences / recipes), then the AI — not marked as "sem IA"
-    assert pg.evaluate("Object.keys(LOCAL).sort().join(',')") == 'captions_mogrt,clean,describe,flatten,index,montar,multicam,music,qc,sfx,status,stereo,stt'
+    # music / montar / aprender: a local form first (sequences / recipes / folder), then maybe the AI — not "sem IA"
+    assert pg.evaluate("Object.keys(LOCAL).sort().join(',')") == 'aprender,captions_mogrt,clean,describe,flatten,index,montar,multicam,music,qc,sfx,status,stereo,stt'
     ai = {q for q in pg.evaluate("[...document.querySelectorAll('#quick button:not(.loc)')].map(b=>b.dataset.q)") if not q.startswith('recipe:')}
-    assert ai <= set(pg.evaluate("Object.keys(QUICK)")) | {'music', 'montar'}
+    assert ai <= set(pg.evaluate("Object.keys(QUICK)")) | {'music', 'montar', 'aprender'}
     assert pg.evaluate("document.querySelector('#model').value") == 'sonnet'
     pg.evaluate("add('local','**3 clipe(s)** com áudio de um lado só',false)")
     assert 'sem IA' in pg.evaluate("[...document.querySelectorAll('.msg.local .hd b')].pop().textContent")
@@ -221,10 +221,24 @@ def test_montar_buttons_come_from_the_recipes(page):
       const prompt=QUICK.recipe({nome:'podcast',titulo:'Podcast em vídeo'});
       renderRecipeButtons(RECIPES);
       return {before, after, prompt};}""")
-    assert r['before'][7:11] == ['08 Montar com receita', '09 Selects', '10 Corte por quem fala', '11 Recap de evento']
-    assert r['before'][-1] == '21 Registrar no vault'
-    assert r['after'][10:12] == ['11 Recap de evento', '12 Podcast'] and r['after'][-1] == '22 Registrar no vault'
+    assert r['before'][7:12] == ['08 Aprender com vídeos prontos', '09 Montar com receita', '10 Selects', '11 Corte por quem fala', '12 Recap de evento']
+    assert r['before'][-1] == '22 Registrar no vault'
+    assert r['after'][11:13] == ['12 Recap de evento', '13 Podcast'] and r['after'][-1] == '23 Registrar no vault'
     assert 'recipe("podcast")' in r['prompt'] and 'E:\\job\\projeto' in r['prompt']
     pg.click('#quick button[data-q="montar"]')
     pg.wait_for_function("document.querySelectorAll('input[name=claudio-recipe]').length > 0")
     assert pg.evaluate("document.querySelectorAll('input[name=claudio-recipe]').length") == 1     # fallback list
+
+
+
+@needs_browser
+def test_learn_form_asks_client_and_folder(page):
+    """Aprender com vídeos prontos: a form in the chat (client, folder, how many), two ways out — without and with AI."""
+    pg, _ = page
+    pg.click('#quick button[data-q="aprender"]')
+    pg.wait_for_function("[...document.querySelectorAll('.msg button')].some(b=>b.textContent==='Medir (sem IA)')")
+    r = pg.evaluate("""()=>{const m=[...document.querySelectorAll('.msg')].pop();
+      return {inputs:m.querySelectorAll('input').length, buttons:[...m.querySelectorAll('button')].map(b=>b.textContent)}}""")
+    assert r['inputs'] == 3 and r['buttons'][-2:] == ['Medir (sem IA)', 'Medir e refinar com IA']
+    p = pg.evaluate("""()=>QUICK.aprender({cliente:'ACME',videos:['a.mp4','b.mp4'],base:'depoimento',receita:'C:\\r\\acme.md',receita_nome:'acme'})""")
+    assert 'recipe("acme")' in p and 'save_recipe("acme"' in p and 'save_client_profile("ACME"' in p

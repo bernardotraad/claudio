@@ -20,6 +20,7 @@
   profile     {}                                   the editor's folders (perfil.json over the defaults)
   recipes     {"job"?}                             the recipes (+ the job's client's usual one) for the panel's buttons
   bench       {"receita"?}                         the local benchmark (~/.config/claudio/benchmark.json), checked without AI
+  learn       {"client", "folder" | "paths", "limit"?, "base"?, "overwrite"?}  a client from delivered videos, without AI
 
 Paths can be Windows paths (D:\\...) — they are translated on WSL — and come back as the editor's paths.
 """
@@ -317,7 +318,13 @@ def _bench(a):
     return bench.run(a.get('receita'))
 
 
-ACTIONS = {'bench': _bench, 'recipes': _recipes, 'profile': _profile, 'stt': _stt, 'stt_check': _stt_check, 'retranscribe': _retranscribe, 'clean': _clean, 'sfx': _sfx, 'mogrt': _mogrt, 'mogrt_styles': _mogrt_styles, 'describe': _describe, 'multicam_plan': _multicam_plan, 'status': _status, 'index': _index, 'stereo': _stereo, 'flatten': _flatten, 'qc': _qc, 'sync': _sync}
+def _learn(a):
+    from claudio import learn
+    return learn.learn(a['client'], a.get('folder'), a.get('paths'), a.get('base'), limit=int(a.get('limit', 12)),
+                       overwrite=bool(a.get('overwrite')))
+
+
+ACTIONS = {'learn': _learn, 'bench': _bench, 'recipes': _recipes, 'profile': _profile, 'stt': _stt, 'stt_check': _stt_check, 'retranscribe': _retranscribe, 'clean': _clean, 'sfx': _sfx, 'mogrt': _mogrt, 'mogrt_styles': _mogrt_styles, 'describe': _describe, 'multicam_plan': _multicam_plan, 'status': _status, 'index': _index, 'stereo': _stereo, 'flatten': _flatten, 'qc': _qc, 'sync': _sync}
 
 
 def main():

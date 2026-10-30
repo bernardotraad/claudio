@@ -63,10 +63,10 @@ Os botões ficam agrupados pela etapa do trabalho, cada grupo com uma cor (● =
 | Etapa | Botões |
 |---|---|
 | **Preparar** | 01 Analisar material ● · 02 Status ● · 03 Áudio estéreo ● · 04 Multicam ● |
-| **Entender** | 05 Visão geral · 06 Descrever planos ● · 07 Ler minhas notas |
-| **Montar** | 08 Montar com receita · 09 Selects · 10 Corte por quem fala · 11 Recap de evento · 12 Limpar falas ● · 13 SFX nos cortes ● · 14 Trilha sonora · 15 Desaninhar ● |
-| **Legendar** | 16 Transcrição Scribe ● · 17 Legendas · 18 Overlay da legenda revisada · 19 Legenda MOGRT ● |
-| **Entregar** | 20 QC antes de exportar ● · 21 Registrar no vault |
+| **Entender** | 05 Visão geral · 06 Descrever planos ● · 07 Ler minhas notas · 08 Aprender com vídeos prontos |
+| **Montar** | 09 Montar com receita · 10 Selects · 11 Corte por quem fala · 12 Recap de evento · 13 Limpar falas ● · 14 SFX nos cortes ● · 15 Trilha sonora · 16 Desaninhar ● |
+| **Legendar** | 17 Transcrição Scribe ● · 18 Legendas · 19 Overlay da legenda revisada · 20 Legenda MOGRT ● |
+| **Entregar** | 21 QC antes de exportar ● · 22 Registrar no vault |
 
 **Montar com receita** lista as [receitas](#receitas) no chat (a do cliente já marcada, se o perfil dele disser
 `"receita"`) e monta seguindo a escolhida. Uma receita com `botao: {"rotulo": "…", "dica": "…"}` no frontmatter vira um
@@ -492,6 +492,19 @@ ferramentas: ["sync_multicam", "auto_cut_multicam", "clean_speech", "qc_timeline
 Valores que começam com `[` ou `{` são JSON. `botao` (opcional) põe a receita como botão no painel; `verificar`
 (opcional) diz o que o benchmark mede no resultado (`plataforma`, `gancho_s`). Cada `## ` vira uma seção que dá para ler sozinha
 (`recipe("depoimento", "legendas")`). Um cliente pode dizer qual receita costuma pedir (`"receita"` no perfil do cliente).
+
+### Aprender um cliente com vídeos prontos
+
+O primeiro passo com um cliente novo: aponte uma pasta de vídeos que você já entregou (de qualquer origem, até de outro
+editor). **Sem IA** (botão **08 Aprender com vídeos prontos** › *Medir*, ou `claudio-run learn`), o Cláudio mede os mais
+novos — formato, duração, corte a cada quantos segundos, quanto é fala, primeira fala, vinheta final, quanto tempo o
+rosto de quem fala aparece, trilha sob a fala e legenda queimada (essas duas são estimativas, sem OCR), loudness — e
+escreve a receita do cliente em `~/.config/claudio/receitas/<cliente>.md`: os números no topo e as etapas da receita
+embutida mais parecida embaixo, para ajustar. A transcrição para medir é sempre a do Whisper local (grátis), mesmo
+com o Scribe ligado. **Com IA** (*Medir e refinar com IA*, ou o prompt `/mcp__claudio__aprender`), o Claude também olha
+os vídeos e reescreve a receita com a estrutura, o tom e o que o cliente espera receber, e pergunta só o que não dá
+para ver. Se a receita do cliente já existe, a nova vira um rascunho datado ao lado; a escolha do perfil não muda sem
+você.
 
 ### Benchmark das receitas
 

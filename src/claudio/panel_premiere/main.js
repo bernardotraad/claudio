@@ -334,6 +334,7 @@ const QUICK = {
   captions: () => `Legendas da sequência ativa ("${ctx.sequence || ''}", ${ctx.frame_size || ''}). Use o XML da sequência ativa que o painel já exportou (está no contexto) e siga os passos: 1) caption_sentences e corrija SÓ a gramática (concordância, regência, crase, pontuação), sem mudar as palavras do falante nem nomes de marca — me mostre a tabela fala → legenda; 2) caption_style_preview (aspect conforme o frame da sequência; se houver perfil do cliente, passe client) e me pergunte qual estilo; 3) com a minha escolha, gere SÓ o .srt (captions_srt com style = o estilo escolhido, e client se houver perfil — os blocos saem por frase, no tamanho de linha desse estilo) em "${jobPath('legendas')}" com o nome da sequência e coloque-o na sequência como trilha de legenda (Premiere MCP create_caption_track; se não der, me diga o caminho para eu arrastar). NÃO gere o overlay ainda: eu reviso palavras e tempo na trilha de legenda do Premiere e aperto "Overlay da legenda revisada" ou "Legenda MOGRT" (o Cláudio lê a trilha direto do projeto, não precisa exportar o .srt). Termine dizendo o estilo escolhido.`,
   captions_final: () => `A legenda da sequência ativa ("${ctx.sequence || ''}", ${ctx.frame_size || ''}) foi revisada por mim no Premiere (o painel acabou de salvar o projeto). Leia a legenda direto da sequência com premiere_captions(prproj "${ctx.project || ''}", sequence "${ctx.sequence || ''}", nle_xml = o XML da sequência ativa do contexto): ela grava <sequência>_revisada.srt em ${PROF.pastas.legendas} e aprende o que eu corrigi no texto. Só se a sequência não tiver trilha de legenda, use o .srt revisado mais recente de "${jobPath('legendas')}" (se houver dúvida entre arquivos, me pergunte). Gere o overlay com caption_overlay(srt=esse arquivo), usando o XML da sequência ativa do contexto e o estilo escolhido antes nesta conversa (se não souber, pergunte). Não refaça correções do transcript: o texto e os tempos do .srt são os meus. Saída em "${jobPath('legendas')}". NÃO coloque o .mov na timeline pelo MCP do Premiere: escreva o caminho completo do .mov na resposta — o painel mostra o botão "Colocar overlay", que cria a trilha nova no topo e põe o clipe em 0 s por sobrescrita, sem mexer em mais nada.`,
   multicam: () => `Multicâmera deste trabalho, no lugar do PluralEyes. 1) Liste as pastas de "${jobFolder()}" (material de câmera e áudio; ignore ${PROF.pastas.projeto}, ${PROF.pastas.trilhas}, ${PROF.pastas.legendas} e proxies) e proponha o mapeamento: cada pasta de câmera vira uma câmera com nome curto (ex.: "CAM A — A7III"), e gravadores externos (Zoom, mesa, lapela) vão em external_audio. Proponha uma cor de label do Premiere por câmera e uma para o áudio externo (Cerulean, Mango, Forest, Magenta, Yellow, Violet, Teal, Rose, Caribbean…) numa tabela câmera → pasta → nº de clipes → cor, e ME PERGUNTE antes de rodar. 2) Com o meu ok, rode sync_multicam (correct_drift true, labels com as cores, out_xml "${jobPath('projeto', 'claudio_sync.xml')}"). 3) Resuma: clipes posicionados, os aproximados (sem áudio em comum, posicionados pelo relógio da câmera) e o drift do gravador. 4) Confira com multicam_monitor em 2 ou 3 momentos em que todas as câmeras estão rodando e me diga se algo parece fora de sincronia. 5) Escreva o caminho completo do XML (o painel mostra o botão de importar; não importe pelo MCP do Premiere) e explique o próximo passo: a "Synced Sequence" chega com V1..Vn por câmera e cada câmera (vídeo, áudio e bin) na sua cor; dali eu corto direto ou crio uma Multi-Camera Source Sequence.`,
+  aprender: (r) => `Rodei sem IA o aprendizado do cliente "${r.cliente}" com ${r.videos.length} vídeos já entregues (receita base: ${r.base}). A receita rascunho está em "${r.receita}" (nome "${r.receita_nome}") e as medidas em house_style.medido_videos do perfil (client_profile("${r.cliente}")). Agora o que não é número: 1) leia recipe("${r.receita_nome}") e o perfil; 2) olhe 3–4 vídeos representativos (o típico, o mais curto, o mais longo, o mais novo) com contact_sheet do vídeo inteiro (16 quadros) e transcript — vídeos: ${r.videos.slice(0, 12).join(', ')}; escreva só o que vê e ouve: estrutura (o que os 3 primeiros segundos fazem, o corpo, o fechamento/CTA, com tempos típicos), tom e quem fala, o que o b-roll mostra e quando entra, a legenda (estilo, posição, palavras por bloco — confirme ou corrija a estimativa), grafismos/logo/cartela, a música, e o que é entregue (formato, duração, versões); 3) numa mensagem só, me pergunte o que não dá para ver (o que eu faço à mão e o que o Cláudio deve entregar, quem aprova, o que o cliente sempre pede ou nunca aceita); 4) reescreva a receita e grave com save_recipe("${r.receita_nome}", markdown) mantendo o frontmatter e a seção "Medido nos vídeos prontos", reescrevendo Brief, Etapas, Legendas e Regras de gosto para ESTE cliente, e me mostre o resultado em 6–10 linhas; 5) com o meu ok, save_client_profile("${r.cliente}", {"receita": "${r.receita_nome}"}).`,
   recipe: (r) => `Monte este trabalho com a receita "${r.titulo}": chame recipe("${r.nome}") e siga o brief, as etapas e as regras dela (as regras comuns vêm junto). Material bruto: "${rawFolder()}". Pasta do trabalho: "${jobFolder()}". Projeto dos edits (o \`project\` do build_edit / event_recap / export_edit): "${jobPath('projeto')}". Se o material ainda não estiver indexado, comece por index_folder e mostre o progresso. Se houver perfil do cliente (client_profile), ele vale acima dos padrões da receita. Escreva o caminho completo de cada XML que gerar (o painel mostra o botão de importar).`,
   autocut: () => `Corte automático da multicâmera da sequência ativa ("${ctx.sequence || ''}") por quem está falando. O XML e as trilhas estão no contexto. 1) Proponha numa tabela: cada trilha de vídeo → quem ela enquadra (ou "aberto" para o plano geral) e cada pessoa → a trilha de áudio do microfone dela (olhe os nomes dos clipes; se precisar, contact_sheet de um frame de cada câmera) e ME PERGUNTE antes de rodar. 2) Com o meu ok, rode auto_cut_multicam (min_hold 2 s; max_hold 12 s). 3) Me diga quanto tempo ficou em cada câmera e quantos cortes, e escreva o caminho do XML (o painel mostra o botão de importar). As câmeras originais ficam embaixo, desativadas.`,
   captions_mogrt: () => `Legenda em MOGRT editável da sequência ativa ("${ctx.sequence || ''}", ${ctx.frame_size || ''}). Use o .srt revisado mais recente de "${jobPath('legendas')}" se houver (senão faça os passos de caption_sentences e me mostre as correções), o estilo escolhido nesta conversa (se não souber, caption_style_preview e me pergunte) e rode caption_mogrt (out_dir "${jobPath('legendas')}"). Escreva o caminho completo do plano .claudio-mogrt.jsx — o painel mostra o botão "Aplicar legendas (MOGRT)".`,
@@ -542,6 +543,46 @@ async function loadRecipes() {
   renderRecipeButtons(RECIPES);
   return r && r.ok ? r : null;
 }
+// ── learn a client from videos already delivered (claudio-run learn: no AI), then optionally the AI pass ──
+function learnLine(r) {
+  const m = r.medido || {}, md = (k, u = '') => (m[k] ? `${m[k].mediana}${u}` : '—');
+  const cap = m.legenda ? `legenda queimada em ${m.legenda.com_legenda_pct}% (blocos de ~${(m.legenda.bloco_s || {}).mediana} s, estimativa)` : 'sem legenda queimada';
+  return `**${r.videos.length} vídeos** medidos · ${m.formato} · duração ${md('duracao_s', ' s')} · corte a cada ${md('corte_a_cada_s', ' s')} · ` +
+    `fala ${md('fala_pct', '%')} · rosto na tela ${md('rosto_pct', '%')} · vinheta final ${md('vinheta_final_s', ' s')} · ${cap} · ${md('lufs', ' LUFS')}` +
+    `\n\nReceita base: **${r.base}**. Rascunho: \`${r.receita}\`` + (r.errors && r.errors.length ? `\n\nSem medir: ${r.errors.join('; ')}` : '');
+}
+async function learnMenu() {
+  await readContext();
+  const d = add('local', 'Aprender um cliente com vídeos já entregues: o Cláudio mede formato, ritmo, fala, legenda e loudness (sem IA, transcrição pelo Whisper local) e escreve a receita do cliente. Com IA, ele também olha os vídeos e escreve estrutura, tom e o que o cliente espera.', false);
+  const field = (label, value, ph) => {
+    const lb = document.createElement('label'); lb.style.cssText = 'display:block;margin-top:6px;font-size:11px';
+    const inp = document.createElement('input'); inp.value = value || ''; inp.placeholder = ph || '';
+    inp.style.cssText = 'width:100%;box-sizing:border-box;margin-top:2px';
+    lb.append(label, inp); d.appendChild(lb); return inp;
+  };
+  const client = field('Cliente', '', 'nome do cliente (o mesmo do perfil)');
+  const folder = field('Pasta dos vídeos entregues', '', 'D:\\...\\exportados');
+  const limit = field('Quantos vídeos (os mais novos)', '12');
+  if (window.cep && window.cep.fs && window.cep.fs.showOpenDialogEx) {
+    const pick = document.createElement('button'); pick.textContent = 'Escolher pasta…';
+    pick.onclick = () => { const r = window.cep.fs.showOpenDialogEx(false, true, 'Vídeos já entregues ao cliente', folder.value || jobFolder()); if (r && r.data && r.data[0]) folder.value = r.data[0]; };
+    d.appendChild(pick);
+  }
+  const run = (withAI) => async () => {
+    if (!client.value.trim() || !folder.value.trim()) return add('local err', 'Preencha o cliente e a pasta.', false);
+    d.querySelectorAll('button, input').forEach((x) => (x.disabled = true));
+    let res = null;
+    await localJob('aprendendo com os vídeos prontos', async () => {
+      res = await runLocal('learn', { client: client.value.trim(), folder: folder.value.trim(), limit: parseInt(limit.value, 10) || 12 });
+      if (!res.ok || res.error) { add('local err', res.error || 'falhou'); res = null; return; }
+      add('local', learnLine(res));
+    });
+    if (res && withAI) send(QUICK.aprender(res));
+  };
+  for (const [t, ai] of [['Medir (sem IA)', false], ['Medir e refinar com IA', true]]) {
+    const b = document.createElement('button'); b.textContent = t; if (ai) b.className = 'primary'; b.onclick = run(ai); d.appendChild(b);
+  }
+}
 async function recipeMenu() {
   await readContext();
   const r = await loadRecipes();
@@ -570,6 +611,7 @@ async function recipeMenu() {
   d.appendChild(go);
 }
 const LOCAL = {
+  aprender: () => learnMenu(),
   montar: () => recipeMenu(),
   music: () => musicMenu(),
   clean: () => cleanSpeech(false),

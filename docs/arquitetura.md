@@ -220,6 +220,11 @@ rodam pelo `claudio-run` ou pela conversa.
    do editor; `claudio-run bench` confere o XML sem IA (formato, duração, QC, loudness, aninhadas, gancho — o que a
    receita declara em `verificar`) e guarda o histórico em `benchmark-results.jsonl`. Primeiro caso: INC 9 Robson
    (depoimento), 6 de 6. De quebra, o QC parou de acusar "passa do fim da mídia" em imagem parada (logo PNG).
+7. **Aprender com vídeos prontos** ✅ 2026-10-30 (pedido do editor depois da fase 6): `claudio/learn.py` mede vídeos
+   entregues sem IA (Whisper local forçado; legenda queimada e trilha como estimativas) e escreve a receita do cliente +
+   `house_style.medido_videos`; prompt `aprender` e `save_recipe` para o modo com IA; botão 08 no painel. Teste com 12
+   exports da INC: duração 35,4 s, vinheta 5,8 s, blocos de legenda 0,6 s — batendo com a medição de 90 reels de
+   19/10 (36 s, 5,4 s, 0,7 s); os exports recentes saem em −11,5 LUFS (pico −2,9 dB), mais altos que os antigos.
 
 ## Decisões (2026-10-30)
 
