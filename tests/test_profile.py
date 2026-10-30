@@ -97,3 +97,17 @@ def test_clients_folder_from_the_profile(tmp_path, mine, monkeypatch):
     (vault / 'CLAUDE.md').write_text('regras', encoding='utf-8')
     mine({'vault': str(vault)})
     assert clients.clients_dir() == str(vault / 'trabalho' / 'clientes')
+
+
+def test_nle_rules_follow_the_profile(mine):
+    from claudio import targets
+    both = ' '.join(targets.rules(targets.active()))                     # no profile: both NLEs + ask once
+    assert 'crashes Premiere' in both and 'import_timeline_from_file' in both and 'ask which one' in both
+    mine({'nle': 'resolve'})
+    only = ' '.join(targets.rules(targets.active()))
+    assert targets.active() == 'resolve' and 'import_timeline_from_file' in only and 'Premiere' not in only
+    mine({'nle': 'Premiere'})
+    only = ' '.join(targets.rules(targets.active()))
+    assert 'crashes Premiere' in only and 'Resolve' not in only
+    mine({'nle': 'avid'})                                                # unknown NLE: as if not set
+    assert targets.active() is None

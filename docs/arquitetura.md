@@ -186,7 +186,16 @@ rodam pelo `claudio-run` ou pela conversa.
    1,5 → 2,3 mil). As regras repetidas (exportar a timeline antes, sequência nova, caminho completo para o painel, nunca
    importar XML pelo MCP do Premiere, trilha nova por overwrite) estão uma vez só nas instruções do servidor; roteiro
    foi para as receitas; sem exemplo de cliente nem caminho pessoal. `test_server` segura o orçamento.
-4. **Destinos.** `export_edit(target=…)`; regras do Premiere juntas em um lugar só; depois, o teste do HyperFrames.
+4. **Destinos.** Parte 1 ✅ 2026-10-30: `claudio/targets.py` junta as regras de cada NLE (ler a timeline atual,
+   importar o XML, o que nunca fazer) e as instruções do servidor levam só as do `nle` do perfil (sem `nle`, as duas
+   e "pergunte uma vez"). Teste do HyperFrames (2026-10-30, `hyperframes@0.8.166`, Node 24 LTS na WSL, telemetria desligada):
+   - lower third 1920×1080, 5 s, 29,97: `render --format mov` sai **ProRes 4444 com alpha** (`ap4h`,
+     `yuva444p12le`, 150 quadros exatos); a transparência confere quadro a quadro. Lint, `check` e `doctor` ajudam.
+   - 15,8 s e ~540 MB de pico; o `render_overlay` atual faz o mesmo tipo de quadro em 3,9 s (PNG-em-MOV) ou 11,5 s
+     (ProRes). Boa parte dos 15,8 s é fixa (npx, Chrome, calibração) — em overlay curto ele não compensa.
+   - Conclusão: não trocar o motor de overlay agora. O valor está em `export_edit(target="hyperframes")`: o corte
+     inteiro, com o material de verdade, renderizado em MP4 sem NLE — o próximo teste, com um edit real e só com
+     autorização para renderizar.
 5. **Painel a partir das receitas.** Os botões da etapa MONTAR vêm das receitas instaladas; os prompts saem do `main.js`.
 6. **Receitas novas** (podcast, tutorial, cortes de vídeo longo) e uma pasta `examples/` com material curto de cada
    tipo como suíte de testes, no estilo do `brag`.

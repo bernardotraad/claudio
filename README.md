@@ -422,6 +422,7 @@ abaixo. Escreva só o que muda; o `claudio-doctor` mostra o perfil ativo.
   "projeto": "#projeto", "trilhas": "#trilhas", "legendas": "#legendas",
   "overlays": "#projeto/claudio_overlays", "backups": "claudio_backups"
  },
+ "nle": "premiere",
  "vault": "D:\\vault",
  "clientes": "D:\\vault\\trabalho\\clientes"
 }
@@ -436,6 +437,7 @@ abaixo. Escreva só o que muda; o `claudio-doctor` mostra o perfil ativo.
 | `pastas.legendas` | `legendas` | `.srt`, overlay de legenda, planos de MOGRT |
 | `pastas.overlays` | `projeto/claudio_overlays` | lower thirds, títulos, cartelas |
 | `pastas.backups` | `claudio_backups` | backups de sequência do painel, ao lado do projeto do NLE |
+| `nle` | — (pergunta uma vez) | `premiere` ou `resolve`: o Claude recebe só as regras desse NLE (como importar o XML, como ler a timeline atual, o que nunca fazer) |
 | `vault` | — | vault Obsidian: perfis de cliente seguem as regras dele |
 | `clientes` | `<vault>/trabalho/clientes` ou `~/Documents/Claudio/clientes` | perfis de cliente |
 

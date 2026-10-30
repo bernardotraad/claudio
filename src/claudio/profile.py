@@ -3,6 +3,7 @@
   ~/.config/claudio/perfil.json   ($CLAUDIO_PROFILE points somewhere else). Only what differs from DEFAULTS:
 
   {"pastas": {"brutos": "BRUTOS", "audio": "BRUTOS/00 AUDIO", "projeto": "#projeto", "legendas": "#legendas", ...},
+   "nle": "premiere",                        the editor's NLE: "premiere" · "resolve" (claudio.targets)
    "vault": "D:\\\\vault",                    an Obsidian vault: client pages follow its rules (frontmatter, README link)
    "clientes": "D:\\\\vault\\\\clientes"}      client profiles (default: <vault>/trabalho/clientes, else ~/Documents/Claudio/clientes)
 
@@ -27,6 +28,7 @@ DEFAULTS = {
         'overlays': 'projeto/claudio_overlays',  # lower thirds, titles, end cards
         'backups': 'claudio_backups',            # the panel's sequence backups, next to the NLE project
     },
+    'nle': None,                                 # "premiere" · "resolve": which rules the server sends (claudio.targets)
     'vault': None,
     'clientes': None,
 }
@@ -99,4 +101,4 @@ def summary():
     """What the panel and claudio-doctor need: the resolved folders, raw names and where the profile came from."""
     p = load()
     return {'file': path() if os.path.isfile(path()) else None, 'pastas': p['pastas'], 'raw_names': raw_names(),
-            'vault': p['vault'], 'clientes': p['clientes']}
+            'nle': p['nle'], 'vault': p['vault'], 'clientes': p['clientes']}

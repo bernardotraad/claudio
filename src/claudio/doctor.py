@@ -62,7 +62,7 @@ def check():
     from claudio import clients, profile
     prof = profile.summary()
     f = prof['pastas']
-    folders = f"brutos {f['brutos']} · projeto {f['projeto']} · trilhas {f['trilhas']} · legendas {f['legendas']} · clientes {core.nle_path(clients.clients_dir(create=False))}"
+    folders = f"NLE {prof['nle'] or '(pergunta)'} · brutos {f['brutos']} · projeto {f['projeto']} · trilhas {f['trilhas']} · legendas {f['legendas']} · clientes {core.nle_path(clients.clients_dir(create=False))}"
     add(OK if prof['file'] else WARN, 'perfil do editor', (core.nle_path(prof['file']) + ' — ' if prof['file'] else '') + folders +
         ('' if prof['file'] else '\n       pastas neutras; para as suas, crie ~/.config/claudio/perfil.json (veja docs/arquitetura.md)'))
     claude = shutil.which('claude') or next((p for p in [os.path.expanduser('~/.local/bin/claude'), '/opt/homebrew/bin/claude', '/usr/local/bin/claude'] if os.path.exists(p)), None)

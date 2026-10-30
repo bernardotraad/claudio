@@ -12,13 +12,8 @@ Tools, in the order an edit uses them:
   Multicam: sync_multicam (PluralEyes-style, from audio) → XML. Every indexed clip gets a <clip>.md next to it.
 Kind of project (depoimento, recap, beat edit, show multicam, curta…): recipe() — the steps and taste rules are there.
 Rules for every tool:
-  - The timeline AS IT IS: export the sequence first (Premiere MCP export_as_fcp_xml; Resolve export_timeline
-    'FCP_7_XML'); the Cláudio panel already puts that XML in the message.
-  - A tool that writes a sequence writes a NEW one, never the editor's. Write the full path of every .xml / .mov / .jsx
-    you produce: the Cláudio panel shows its import / apply button. Premiere: NEVER import an .xml through the Premiere
-    MCP (importFiles on an FCP XML crashes Premiere) — the editor imports it (Ctrl+I). Resolve: import_timeline_from_file.
-  - Overlays, captions, music: a NEW track above every used one, placed by overwrite; never add_to_timeline / insert
-    (it ripples the sequence) and never onto a track that has anything.
+  - A tool that writes a sequence writes a NEW one, never the editor's.
+  - Overlays, captions, music: a NEW track above every used one, never onto a track that has anything.
   - Log footage (S-Log/C-Log/BMD) looks flat on purpose — the editor grades it. Render only when asked.
 """
 import os, queue, sys, threading, traceback
@@ -34,7 +29,12 @@ def _folders_line():
             + ' · captions ' + f['legendas'] + ' · overlays ' + f['overlays'] + '. Use these names, never others.')
 
 
-mcp = FastMCP('claudio', instructions=__doc__ + '\n' + _folders_line())
+def _nle_lines():
+    from claudio import targets
+    return '\n'.join('  - ' + r for r in targets.rules(targets.active()))
+
+
+mcp = FastMCP('claudio', instructions=__doc__ + _nle_lines() + '\n' + _folders_line())
 
 # ── background indexing (GPU work is serialized) with progress the user can follow ──
 import time as _time
