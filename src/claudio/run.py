@@ -19,6 +19,7 @@
   retranscribe {"path"}                            redo ONE clip's transcript with the chosen engine (picture kept)
   profile     {}                                   the editor's folders (perfil.json over the defaults)
   recipes     {"job"?}                             the recipes (+ the job's client's usual one) for the panel's buttons
+  bench       {"receita"?}                         the local benchmark (~/.config/claudio/benchmark.json), checked without AI
 
 Paths can be Windows paths (D:\\...) — they are translated on WSL — and come back as the editor's paths.
 """
@@ -311,7 +312,12 @@ def _recipes(a):
     return {'receitas': recipes.listing(), 'cliente': (prof or {}).get('receita')}
 
 
-ACTIONS = {'recipes': _recipes, 'profile': _profile, 'stt': _stt, 'stt_check': _stt_check, 'retranscribe': _retranscribe, 'clean': _clean, 'sfx': _sfx, 'mogrt': _mogrt, 'mogrt_styles': _mogrt_styles, 'describe': _describe, 'multicam_plan': _multicam_plan, 'status': _status, 'index': _index, 'stereo': _stereo, 'flatten': _flatten, 'qc': _qc, 'sync': _sync}
+def _bench(a):
+    from claudio import bench
+    return bench.run(a.get('receita'))
+
+
+ACTIONS = {'bench': _bench, 'recipes': _recipes, 'profile': _profile, 'stt': _stt, 'stt_check': _stt_check, 'retranscribe': _retranscribe, 'clean': _clean, 'sfx': _sfx, 'mogrt': _mogrt, 'mogrt_styles': _mogrt_styles, 'describe': _describe, 'multicam_plan': _multicam_plan, 'status': _status, 'index': _index, 'stereo': _stereo, 'flatten': _flatten, 'qc': _qc, 'sync': _sync}
 
 
 def main():

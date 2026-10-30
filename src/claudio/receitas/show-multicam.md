@@ -3,6 +3,7 @@ nome: show-multicam
 titulo: Show / clipe musical multicâmera
 quando: apresentação musical ou palco gravado por várias câmeras ao mesmo tempo, com o som da mesa ou de um gravador
 padroes: {"aspect": "16:9", "duracao": "música inteira", "pace": "medium", "pace_follows_music": true, "audio": "som do show", "cut_on": "downbeat"}
+verificar: {"plataforma": "youtube"}
 entregas: ["synced_sequence", "timeline"]
 ferramentas: ["index_folder", "sync_multicam", "multicam_monitor", "music_map", "build_edit", "edit_storyboard", "export_edit", "qc_timeline"]
 ---

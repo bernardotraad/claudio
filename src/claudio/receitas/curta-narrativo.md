@@ -3,6 +3,7 @@ nome: curta-narrativo
 titulo: Cena / curta narrativo
 quando: ficção ou cena roteirizada gravada em takes, com claquete falada ("cena 3, take 2… ação… corta")
 padroes: {"aspect": "16:9", "audio": "dialogue", "cut_on": "none", "musica": "depois do corte"}
+verificar: {}
 entregas: ["selects", "timeline"]
 ferramentas: ["index_folder", "scenes", "takes", "timeline_strip", "contact_sheet", "make_selects", "build_edit", "edit_storyboard", "export_edit", "qc_timeline"]
 ---

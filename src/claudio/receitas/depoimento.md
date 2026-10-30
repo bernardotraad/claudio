@@ -3,6 +3,7 @@ nome: depoimento
 titulo: Depoimento / entrevista com b-roll
 quando: uma ou mais pessoas falando para a câmera (depoimento, entrevista, vídeo de corretor ou cliente), com material de apoio, para redes sociais (vertical ou quadrado); em 16:9 para YouTube/site/institucional, use depoimento-horizontal
 padroes: {"aspect": "9:16", "duracao": 60, "pace": "medium", "legendas": "social", "musica": "sob a fala", "cut_on": "beat"}
+verificar: {"plataforma": "reels", "gancho_s": 1.0}
 entregas: ["selects", "timeline", "legendas_srt"]
 ferramentas: ["index_folder", "project_digest", "save_project_overview", "make_selects", "takes", "scenes", "broll", "find_phrase", "find_shot", "people", "find_person", "music_map", "music_windows", "build_edit", "edit_storyboard", "export_edit", "clean_speech", "caption_sentences", "caption_style_preview", "captions_srt", "add_sfx", "qc_timeline"]
 ---

@@ -3,6 +3,7 @@ nome: beat-edit
 titulo: Beat edit / hype sem fala
 quando: só imagem e música, sem narração nem depoimento (teaser, vídeo de produto, hype de marca, reel de lugar)
 padroes: {"aspect": "9:16", "duracao": 30, "pace": "hype", "audio": "mute", "cut_on": "beat", "pace_follows_music": true}
+verificar: {"plataforma": "reels"}
 entregas: ["timeline"]
 ferramentas: ["index_folder", "broll", "find_shot", "contact_sheet", "music_map", "music_windows", "build_edit", "edit_storyboard", "export_edit", "render_overlay", "qc_timeline"]
 ---

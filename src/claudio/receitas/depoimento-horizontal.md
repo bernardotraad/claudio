@@ -3,6 +3,7 @@ nome: depoimento-horizontal
 titulo: Depoimento horizontal (16:9)
 quando: depoimento ou entrevista para YouTube, site, apresentação ou institucional, em 16:9, normalmente mais longo que o vertical e com uma ou duas câmeras por pessoa
 padroes: {"aspect": "16:9", "duracao": 120, "pace": "calm", "legendas": "srt separado", "musica": "baixa, sob a fala", "cut_on": "none"}
+verificar: {"plataforma": "youtube", "gancho_s": 2.0}
 entregas: ["selects", "timeline", "legendas_srt"]
 ferramentas: ["index_folder", "sync_multicam", "multicam_monitor", "project_digest", "save_project_overview", "make_selects", "takes", "scenes", "broll", "find_phrase", "find_shot", "people", "find_person", "music_map", "build_edit", "edit_storyboard", "export_edit", "clean_speech", "render_overlay", "caption_sentences", "captions_srt", "qc_timeline"]
 ---

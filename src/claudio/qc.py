@@ -13,6 +13,8 @@ import numpy as np
 
 from claudio import core
 
+STILL_EXT = ('.png', '.jpg', '.jpeg', '.tif', '.tiff', '.psd', '.bmp', '.gif', '.webp')
+
 PLATFORMS = {
     'reels':   {'size': (1080, 1920), 'max_s': 90, 'label': 'Instagram Reels'},
     'tiktok':  {'size': (1080, 1920), 'max_s': 600, 'label': 'TikTok'},
@@ -82,7 +84,7 @@ def qc_timeline(nle_xml, platform=None, seq_size=None):
             add('aviso', i['tl_in'], 'clipe desativado', f"{i['track']} {i['name']}")
         if i['path'] and not os.path.exists(i['path']):
             add('erro', i['tl_in'], 'mídia offline', core.nle_path(i['path']))
-        elif i['path']:
+        elif i['path'] and os.path.splitext(i['path'])[1].lower() not in STILL_EXT:   # a still has no end to run past
             try:
                 dur = core.light_index(i['path'])['info']['duration']
                 if i['src_out'] > dur + 1 / F:

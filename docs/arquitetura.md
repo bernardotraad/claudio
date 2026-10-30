@@ -1,6 +1,6 @@
 # Arquitetura: motor, receitas e perfil
 
-> Aprovada em 2026-10-30. Fases 1 (perfil do workspace), 2 (receitas), 3 (docstrings enxutas), 4 (destinos, parte 1) e 5 (painel a partir das receitas) implementadas. Objetivo: o Cláudio servir para qualquer tipo de projeto e de
+> Aprovada em 2026-10-30. Fases 1, 2, 3, 5 e 6 implementadas; da 4 falta só o `export_edit` para HyperFrames (opção de uso raro). Objetivo: o Cláudio servir para qualquer tipo de projeto e de
 > editor, sem perder nada do fluxo que existe hoje.
 
 ## O problema
@@ -214,8 +214,12 @@ rodam pelo `claudio-run` ou pela conversa.
    calculada na tela; prompt genérico "siga a receita X" com as pastas do perfil. Os prompts de etapa (legendas,
    selects, visão geral, notas, vault, multicam) continuam no `main.js`: são do painel, não de um tipo de projeto.
    Plano original: Os botões da etapa MONTAR vêm das receitas instaladas; os prompts saem do `main.js`.
-6. **Receitas novas** (podcast, tutorial, cortes de vídeo longo) e uma pasta `examples/` com material curto de cada
-   tipo como suíte de testes, no estilo do `brag`.
+6. **Receitas novas** ✅ 2026-10-30 (podcast, tutorial, cortes-de-video-longo; o teste de receitas aceita os argumentos
+   reais das ferramentas e continua reprovando ferramenta inventada). No lugar da pasta `examples/` (o repo é público
+   e o CI não roda Whisper), um **benchmark local**: `~/.config/claudio/benchmark.json` liga cada receita a um trabalho
+   do editor; `claudio-run bench` confere o XML sem IA (formato, duração, QC, loudness, aninhadas, gancho — o que a
+   receita declara em `verificar`) e guarda o histórico em `benchmark-results.jsonl`. Primeiro caso: INC 9 Robson
+   (depoimento), 6 de 6. De quebra, o QC parou de acusar "passa do fim da mídia" em imagem parada (logo PNG).
 
 ## Decisões (2026-10-30)
 

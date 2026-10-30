@@ -6,18 +6,24 @@ import pytest
 
 from claudio import recipes
 
-BUILTIN = {'depoimento', 'depoimento-horizontal', 'recap-evento', 'beat-edit', 'show-multicam', 'curta-narrativo'}
+BUILTIN = {'depoimento', 'depoimento-horizontal', 'recap-evento', 'beat-edit', 'show-multicam', 'curta-narrativo',
+           'podcast', 'tutorial', 'cortes-de-video-longo'}
 
-# snake_case words in the recipes that are not claudio tools: edit JSON keys, arguments, other MCPs' tools
-NOT_TOOLS = {'pace_follows_music', 'cut_on', 'reframe_x', 'end_card', 'correct_drift', 'authorized_by_user',
-             'import_media', 'import_timeline_from_file', 'search_audio', 'get_download_url', 'synced_sequence',
-             'legendas_srt', 'entregar_no_nle'}
+# snake_case words in the recipes that are not claudio tools nor their arguments: edit JSON keys, other MCPs' tools
+NOT_TOOLS = {'pace_follows_music', 'cut_on', 'reframe_x', 'reframe_y', 'end_card', 'import_media', 'import_timeline_from_file',
+             'search_audio', 'get_download_url', 'synced_sequence', 'legendas_srt', 'entregar_no_nle'}
 
 
 @pytest.fixture(scope='module')
 def tools():
     from claudio import server
     return {t.name for t in asyncio.run(server.mcp.list_tools())}
+
+
+@pytest.fixture(scope='module')
+def arguments():
+    from claudio import server
+    return {a for t in asyncio.run(server.mcp.list_tools()) for a in t.inputSchema.get('properties', {})}
 
 
 @pytest.fixture
@@ -36,13 +42,13 @@ def test_builtin_recipes_parse(monkeypatch, tmp_path):
         assert meta['nome'] == name and isinstance(meta['ferramentas'], list) and isinstance(meta['entregas'], list)
 
 
-def test_recipes_name_only_real_tools(tools):
+def test_recipes_name_only_real_tools(tools, arguments):
     assert 'recipe' in tools
     for p, _ in recipes._files().values():
         meta, body = recipes._read(p)
         for t in meta.get('ferramentas', []):
             assert t in tools, f'{p}: ferramenta {t} não existe'
-        for w in set(re.findall(r'\b[a-z]+(?:_[a-z]+)+\b', body)) - NOT_TOOLS:
+        for w in set(re.findall(r'\b[a-z]+(?:_[a-z]+)+\b', body)) - NOT_TOOLS - arguments:
             assert w in tools, f'{p}: "{w}" parece ferramenta e não existe'
 
 

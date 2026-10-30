@@ -462,6 +462,9 @@ comuns a toda montagem (`_comum.md`: entregar no NLE, rodadas de notas, legendas
 | `beat-edit` | só imagem e música, sem fala |
 | `show-multicam` | show ou clipe musical com várias câmeras |
 | `curta-narrativo` | cena roteirizada com claquete falada |
+| `podcast` | conversa com uma câmera e um microfone por pessoa: corte por quem fala, limpeza, capítulos |
+| `tutorial` | aula, gravação de tela ou bancada: melhor take de cada passo, zoom na região que importa |
+| `cortes-de-video-longo` | vários shorts verticais tirados de um podcast, palestra ou live |
 
 Para criar uma receita sua (ou trocar uma das de cima), ponha um `.md` em `~/.config/claudio/receitas/`
 (`CLAUDIO_RECIPES` aponta outra pasta) com o mesmo formato:
@@ -486,8 +489,28 @@ ferramentas: ["sync_multicam", "auto_cut_multicam", "clean_speech", "qc_timeline
 - …
 ```
 
-Valores que começam com `[` ou `{` são JSON. `botao` (opcional) põe a receita como botão no painel. Cada `## ` vira uma seção que dá para ler sozinha
+Valores que começam com `[` ou `{` são JSON. `botao` (opcional) põe a receita como botão no painel; `verificar`
+(opcional) diz o que o benchmark mede no resultado (`plataforma`, `gancho_s`). Cada `## ` vira uma seção que dá para ler sozinha
 (`recipe("depoimento", "legendas")`). Um cliente pode dizer qual receita costuma pedir (`"receita"` no perfil do cliente).
+
+### Benchmark das receitas
+
+Para saber se uma receita (ou uma mudança nela) entrega certo, aponte cada receita para um trabalho seu já montado em
+`~/.config/claudio/benchmark.json` (fica fora do repositório):
+
+```json
+{"casos": [{"receita": "depoimento", "nota": "INC 9 Robson", "xml": "D:\\job\\#projeto\\Robson.xml", "duracao": [25, 45]}]}
+```
+
+```bash
+claudio-run bench '{}'
+```
+
+Sem IA e sem crédito, ele confere no XML: formato da receita, duração, QC sem erros (flash frames, buracos pretos,
+mídia offline…), loudness a ±3 dB do alvo da plataforma, nada aninhado e, nas receitas com fala, a primeira palavra
+dentro do limite do gancho. Cada rodada vai para `benchmark-results.jsonl`, ao lado, para comparar com as anteriores.
+`xml` pode ser uma pasta (vale o .xml mais novo); `duracao`, `plataforma` e `gancho_s` no caso valem acima da receita
+(`null` desliga a medida).
 
 ## Limitações
 

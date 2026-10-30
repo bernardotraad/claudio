@@ -6,7 +6,8 @@
 
   Frontmatter: `chave: valor`, one per line; a value starting with [ or { is JSON (so the file is still valid YAML for
   Obsidian). Keys: nome, titulo, quando (when it fits), padroes (defaults), entregas, ferramentas, botao (optional
-  {"rotulo", "dica"}: a shortcut button in the panel's MONTAR group). The body is Markdown;
+  {"rotulo", "dica"}: a shortcut button in the panel's MONTAR group), verificar (what claudio.bench can measure on the
+  result: {"plataforma", "gancho_s"}). The body is Markdown;
   each `## ` heading is a section that can be read alone (recipe('depoimento', 'legendas')).
   The recipe plans, the tools execute: no recipe calls code, the model follows it.
 """
