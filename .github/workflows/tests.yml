@@ -25,4 +25,4 @@ jobs:
       - name: pytest
         env:
           CLAUDIO_WHISPER: tiny
-        run: pytest -q
+        run: pytest -q -rs
