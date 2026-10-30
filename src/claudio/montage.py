@@ -248,6 +248,15 @@ def crop_box(sw, sh, aspect, x=0.5, y=0.5, zoom=1.0):
     return int(cx) // 2 * 2, int(cy) // 2 * 2, int(cw) // 2 * 2, int(ch) // 2 * 2
 
 
+def fcp_center(ow, oh, cx, cy, cw, ch, scale, info):
+    """Basic Motion centre of a crop, as Premiere reads it: the picture's offset from the frame centre in SEQUENCE
+    pixels divided by the source's own frame size (horiz × width, vert × height of the file — measured on Premiere's
+    import and export, 2026-10-30). The crop is in oriented pixels; scale (%) takes it to the sequence."""
+    dx = ((ow / 2) - (cx + cw / 2)) * scale / 100
+    dy = ((oh / 2) - (cy + ch / 2)) * scale / 100
+    return dx / info['width'], dy / info['height']
+
+
 def suggest_reframe(idx, s, e, aspect, n=5):
     """Where the in-focus subject is: centre of mass of local sharpness (shallow depth of field makes the subject the
     sharpest thing), averaged over n frames, converted to the crop's x/y (0 = left/top, 1 = right/bottom)."""
@@ -893,13 +902,12 @@ def export_edit_fcp7(fit, out_path, lang='pt'):
         cin, cout = int(round(s['src_in'] * F)), int(round(s['src_in'] * F)) + (s['tl_out_f'] - s['tl_in_f'])
         common = (f'<name>{E(s.get("label") or info["name"])}</name><duration>{int(info["duration"] * F)}</duration>{rate}'
                   f'<start>{s["tl_in_f"]}</start><end>{s["tl_out_f"]}</end><in>{cin}</in><out>{cout}</out>')
-        # reframe: scale so the crop fills the frame; centre offset in FCP7 normalised units (±1 = half frame)
+        # reframe: scale so the crop fills the frame, centre in Premiere's units (fcp_center)
         ow, oh = core.oriented(info)
         rot = core.get_rotation(info['path'])
         cx, cy, cw, ch = crop_box(ow, oh, aspect, s['reframe_x'], s['reframe_y'], s['zoom'])
         scale = max(W / cw, H / ch) * 100
-        offx = ((ow / 2) - (cx + cw / 2)) / (cw / 2)
-        offy = ((oh / 2) - (cy + ch / 2)) / (ch / 2)
+        offx, offy = fcp_center(ow, oh, cx, cy, cw, ch, scale, info)
         motion = ''
         if rot or abs(scale - max(W / ow, H / oh) * 100) > 0.5 or abs(offx) > 1e-3 or abs(offy) > 1e-3:
             motion = (f'<filter><effect><name>Basic Motion</name><effectid>basic</effectid><effectcategory>motion</effectcategory>'
@@ -931,7 +939,7 @@ def export_edit_fcp7(fit, out_path, lang='pt'):
         ow, oh = core.oriented(info)
         cx, cy, cw, ch = crop_box(ow, oh, aspect, o['reframe_x'], o['reframe_y'], o['zoom'])
         scale = max(W / cw, H / ch) * 100
-        offx = ((ow / 2) - (cx + cw / 2)) / (cw / 2); offy = ((oh / 2) - (cy + ch / 2)) / (ch / 2)
+        offx, offy = fcp_center(ow, oh, cx, cy, cw, ch, scale, info)
         motion = (f'<filter><effect><name>Basic Motion</name><effectid>basic</effectid><effectcategory>motion</effectcategory>'
                   f'<effecttype>motion</effecttype><mediatype>video</mediatype>'
                   f'<parameter><parameterid>scale</parameterid><name>Scale</name><valuemin>0</valuemin><valuemax>1000</valuemax><value>{scale:.2f}</value></parameter>'

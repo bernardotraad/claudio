@@ -204,9 +204,11 @@ rodam pelo `claudio-run` ou pela conversa.
      editor, só o LUT) e faltam os Graphics de texto (endereços da cartela) e o texto dos MOGRT, que o XML não carrega.
      Tempo: 84 s de preparo + 112 s de render (Chrome sem GPU na WSL), ~620 MB; −16,6 LUFS integrado.
    - Achado: o Premiere EXPORTA o centro do Basic Motion em pixels da fonte (horiz × largura nativa), medido contra o
-     export_frame (b-roll 231 px = 0,1198 × 1928). O `export_edit` do Cláudio escreve "±1 = meia tela". Os reframes do
-     Cláudio quase sempre têm centro 0, então ainda não é bug confirmado: falta importar no Premiere um XML do Cláudio
-     com reframe de verdade e medir.
+     export_frame (b-roll 231 px = 0,1198 × 1928). O `export_edit` do Cláudio escreve "±1 = meia tela". **Bug
+     confirmado e corrigido no mesmo dia:** um XML do Cláudio com `reframe_x` 0 e 1 importado no Premiere deixou o
+     b-roll inteiro fora do quadro (Position x = 4,43 da largura). `montage.fcp_center` escreve agora o deslocamento
+     em pixels da sequência ÷ largura/altura do arquivo (também no clipe girado: a Sony deitada usa a altura do
+     arquivo, 2160). Conferido no Premiere: os quatro casos caem a ≤ 2 px; `tests/test_fcp_center.py`.
 5. **Painel a partir das receitas.** Os botões da etapa MONTAR vêm das receitas instaladas; os prompts saem do `main.js`.
 6. **Receitas novas** (podcast, tutorial, cortes de vídeo longo) e uma pasta `examples/` com material curto de cada
    tipo como suíte de testes, no estilo do `brag`.
