@@ -8,6 +8,8 @@ _CACHE = tempfile.mkdtemp(prefix='claudio-test-cache-')
 os.environ['CLAUDIO_CACHE'] = _CACHE
 os.environ.setdefault('CLAUDIO_GPU', '0')
 os.environ['CLAUDIO_PROFILE'] = os.path.join(_CACHE, 'perfil.json')     # no profile: the neutral defaults, never the machine's
+os.environ['CLAUDIO_STT'] = 'whisper'                                   # never the paid STT, whatever settings.json says
+os.environ.setdefault('CLAUDIO_WHISPER', 'tiny')                        # 75 MB, seconds on a CPU (CI caches it)
 
 needs_ffmpeg = pytest.mark.skipif(not shutil.which('ffmpeg'), reason='ffmpeg not installed')
 
@@ -23,6 +25,28 @@ def _has_chromium():
 
 
 needs_browser = pytest.mark.skipif(not _has_chromium(), reason='playwright chromium not installed')
+
+
+def _has_whisper():
+    try:
+        import faster_whisper  # noqa: F401
+        return os.environ.get('CLAUDIO_TEST_WHISPER', '1') != '0'
+    except ImportError:
+        return False
+
+
+needs_whisper = pytest.mark.skipif(not _has_whisper(), reason='faster-whisper not installed (or CLAUDIO_TEST_WHISPER=0)')
+SPEECH = os.path.join(os.path.dirname(__file__), 'data', 'fala_pt.flac')   # 1 s of silence, then the same line twice
+
+
+@pytest.fixture(scope='session')
+def speech_clip(tmp_path_factory):
+    """13 s 16:9 clip whose sound is a synthetic pt-BR voice (Windows "Maria"): 'Olá. Este é um teste do Cláudio, o
+    editor.' said twice, the first word at ~1 s."""
+    p = tmp_path_factory.mktemp('speech') / 'fala.mp4'
+    ff('-f', 'lavfi', '-i', 'testsrc2=s=320x180:r=25:d=13.3', '-i', SPEECH, '-shortest', '-pix_fmt', 'yuv420p',
+       '-c:a', 'aac', str(p))
+    return p
 
 
 def ff(*args):

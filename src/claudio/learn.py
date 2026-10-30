@@ -41,7 +41,8 @@ def _gray_frames(path, fps=10, w=90, h=160):
 def captions(path, duration, fps=10, bands=16):
     """Burned-in captions, estimated without OCR: when a caption block swaps, one horizontal band of the frame changes
     while the rest barely does (a cut changes everything). → band (0 = top), block swaps, median block, first swap,
-    coverage. None when no band changes alone often enough to be captions."""
+    coverage. None when no band changes alone often enough to be captions. Misses some: two-line blocks that move
+    around over busy handheld footage (10 of 40 INC exports, 2026-10-30) — the AI pass confirms by looking."""
     f = _gray_frames(path, fps)
     if len(f) < 3:
         return None
@@ -54,10 +55,11 @@ def captions(path, duration, fps=10, bands=16):
     t = (np.where(alone[:, band] & (per[:, band] > 6))[0] + 1) / fps
     if len(t):
         t = t[np.insert(np.diff(t) > 0.15, 0, True)]
-    if len(t) < max(4, duration / 10):                     # fewer than one swap per 10 s: not a caption track
-        return None
     gaps = np.diff(t)
     blocks = gaps[(gaps > 0.2) & (gaps < 4)]
+    # captions swap often and in short blocks; a counter or a slow graphic in one band doesn't (a test pattern's clock)
+    if len(t) < max(5, duration / 6) or not len(blocks) or float(np.median(blocks)) > 3.0:
+        return None
     covered = float(blocks.sum()) + (float(np.median(blocks)) if len(blocks) else 0)
     return {'faixa_y': round(band / bands + 0.5 / bands, 2), 'trocas': int(len(t)),
             'bloco_s': round(float(np.median(blocks)), 2) if len(blocks) else None,

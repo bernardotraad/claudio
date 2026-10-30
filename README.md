@@ -551,9 +551,13 @@ crédito de IA. O que consome é a conversa com o modelo (Claude), e cada mensag
 
 ## Testes
 
-`pytest -q` roda em segundos, sem GPU, sem Whisper e sem Premiere, com material sintético: sync multicâmera e cores,
-desaninhar sequências, grade de batida, caminhos com `#`/espaço/apóstrofo, overlay com alpha e o painel (layout em
-300 px, nada sobreposto, HTML de resposta escapado, detector de mudanças). Roda também a cada push no GitHub Actions.
+`pytest -q` roda em segundos, sem GPU e sem Premiere, com material sintético: sync multicâmera e cores, desaninhar
+sequências, grade de batida, caminhos com `#`/espaço/apóstrofo, overlay com alpha, o painel (layout em 300 px, nada
+sobreposto, HTML de resposta escapado, detector de mudanças), receitas, benchmark e aprendizado. Os testes com fala usam
+`tests/data/fala_pt.flac` (voz sintética, a mesma frase duas vezes) e o Whisper `tiny` em CPU: tempo das palavras,
+takes repetidos, gancho, legenda por frase. Os testes nunca usam o Scribe pago, mesmo com ele ligado no
+`settings.json`; `CLAUDIO_TEST_WHISPER=0` pula os de fala. Roda também a cada push no GitHub Actions (o modelo fica em
+cache).
 
 ## Licença
 

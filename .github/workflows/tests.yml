@@ -17,5 +17,12 @@ jobs:
         run: |
           pip install -e ".[motion,test]"
           python -m playwright install --with-deps chromium
+      - name: cache the Whisper model (tiny, for the speech tests)
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface
+          key: hf-whisper-tiny-v1
       - name: pytest
+        env:
+          CLAUDIO_WHISPER: tiny
         run: pytest -q
