@@ -10,6 +10,7 @@ os.environ.setdefault('CLAUDIO_GPU', '0')
 os.environ['CLAUDIO_PROFILE'] = os.path.join(_CACHE, 'perfil.json')     # no profile: the neutral defaults, never the machine's
 os.environ['CLAUDIO_STT'] = 'whisper'                                   # never the paid STT, whatever settings.json says
 os.environ.setdefault('CLAUDIO_WHISPER', 'tiny')                        # 75 MB, seconds on a CPU (CI caches it)
+os.environ.setdefault('CLAUDIO_MLX_MODEL', 'mlx-community/whisper-tiny')   # the same on a Mac (mlx-whisper)
 
 needs_ffmpeg = pytest.mark.skipif(not shutil.which('ffmpeg'), reason='ffmpeg not installed')
 

@@ -19,6 +19,7 @@ BEGIN, END = '<!-- claudio:profile', 'claudio:profile -->'
 
 def vault_dir():
     for c in (core.env('VAULT'), profile.get('vault')):
+        c = os.path.expanduser(c) if c else c                     # "~/vault" in perfil.json (Mac)
         if c and os.path.isfile(os.path.join(core.local_path(c), 'CLAUDE.md')) and os.path.isdir(os.path.join(core.local_path(c), 'trabalho')):
             return core.local_path(c)
     return None
@@ -26,6 +27,7 @@ def vault_dir():
 
 def clients_dir(create=True):
     d = core.env('CLIENTS') or profile.get('clientes')
+    d = os.path.expanduser(d) if d else d
     if not d:
         v = vault_dir()
         d = os.path.join(v, 'trabalho', 'clientes') if v else os.path.expanduser(os.path.join('~', 'Documents', 'Claudio', 'clientes'))

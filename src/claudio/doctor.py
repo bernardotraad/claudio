@@ -1,5 +1,6 @@
 """claudio-doctor — checks everything claudio needs on this machine (Windows+WSL, Windows, macOS, Linux) and says what to fix.
-Read-only: it installs nothing, except `claudio-doctor --fix-browser`, which downloads the Chromium used for overlays."""
+Read-only: it installs nothing, except `claudio-doctor --fix-browser` (the Chromium used for overlays) and
+`claudio-doctor --fix-skill [--force]` (the motion-designer skill, from its author's repository at a tested commit)."""
 import glob, json, os, platform, shutil, subprocess, sys
 
 from claudio import core
@@ -49,10 +50,15 @@ def check():
     except Exception:
         add(WARN, 'overlays/legendas: Chromium não baixado', 'claudio-doctor --fix-browser')
     try:
-        from claudio import motion
-        add(OK, 'skill motion-designer', motion.skill_dir())
+        from claudio import motion, skill
+        cur = skill.installed() or {}
+        tag = (f' @ {cur["commit"]}' if cur.get('commit') else ' (instalada à mão)')
+        if cur.get('commit') and cur['commit'] != skill.COMMIT:
+            add(WARN, 'skill motion-designer' + tag, f'o Cláudio foi testado com {skill.COMMIT}: claudio-doctor --fix-skill')
+        else:
+            add(OK, 'skill motion-designer' + tag, motion.skill_dir())
     except Exception:
-        add(WARN, 'skill motion-designer não encontrada', 'opcional: copie para ~/.claude/skills/motion-designer (ou CLAUDIO_MOTION_SKILL)')
+        add(WARN, 'skill motion-designer não encontrada', 'opcional (overlays, legendas, narração): claudio-doctor --fix-skill')
     has_key = bool(os.environ.get('ELEVENLABS_API_KEY')) or os.path.exists(os.path.expanduser('~/.config/elevenlabs/api_key'))
     add(OK if has_key else WARN, 'ElevenLabs', 'chave encontrada' if has_key else 'opcional: ~/.config/elevenlabs/api_key (sem ela, narração pelo edge-tts grátis)')
     stt = core.stt_engine()
@@ -91,6 +97,12 @@ def check():
 
 
 def main():
+    if '--fix-skill' in sys.argv:
+        from claudio import skill
+        r = skill.install(force='--force' in sys.argv)
+        print(('skill motion-designer: ' + r['why']) if r.get('skipped') else
+              f"skill motion-designer instalada em {r['installed']} ({skill.REPO}@{r['commit']})" +
+              (f"; a anterior ficou em {r['backup']}" if r.get('backup') else ''))
     if '--fix-browser' in sys.argv:
         # headless shell only: overlays and captions launch Chromium headless, and the full browser is +366 MB unused
         subprocess.run([sys.executable, '-m', 'playwright', 'install', '--only-shell', 'chromium'])
