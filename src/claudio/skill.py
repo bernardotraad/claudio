@@ -68,7 +68,8 @@ def install(force=False, commit=COMMIT, progress=print):
     progress(f'baixando a skill motion-designer ({REPO}@{commit})…')
     data = _download(url)
     d = dest()
-    tmp = tempfile.mkdtemp(prefix='motion-designer-', dir=os.path.dirname(d) if os.path.isdir(os.path.dirname(d)) else None)
+    up = os.path.dirname(os.path.dirname(d))              # beside the skills folder, never in it: a half-done download
+    tmp = tempfile.mkdtemp(prefix='motion-designer-', dir=up if os.path.isdir(up) else None)   # must not load as a skill
     try:
         with tarfile.open(fileobj=io.BytesIO(data), mode='r:gz') as tf:
             members = list(_safe_members(tf, 'motion-designer'))

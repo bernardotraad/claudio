@@ -561,7 +561,7 @@ async function learnMenu() {
     lb.append(label, inp); d.appendChild(lb); return inp;
   };
   const client = field('Cliente', '', 'nome do cliente (o mesmo do perfil)');
-  const folder = field('Pasta dos vídeos entregues', '', 'D:\\...\\exportados');
+  const folder = field('Pasta dos vídeos entregues', '', process.platform === 'win32' ? 'D:\\...\\exportados' : '/Volumes/.../exportados');
   const limit = field('Quantos vídeos (os mais novos)', '12');
   if (window.cep && window.cep.fs && window.cep.fs.showOpenDialogEx) {
     const pick = document.createElement('button'); pick.textContent = 'Escolher pasta…';
