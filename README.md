@@ -550,7 +550,7 @@ crédito de IA. O que consome é a conversa com o modelo (Claude), e cada mensag
 - **Seletor de modelo** no painel: Econômico (Haiku) para perguntas simples, Padrão (Sonnet) para o dia a dia,
   Máximo (Opus) só para decisões difíceis de montagem.
 - **＋ nova conversa** quando mudar de assunto: conversa longa custa mais a cada mensagem.
-- Pelo terminal: `claudio-run <status|index|stereo|flatten|qc|sync> '{json}'`.
+- Pelo terminal: `claudio-run <status|index|stereo|flatten|qc|sync|learn|bench> '{json}'` (`claudio-run` sem nada lista todas).
 
 ## Testes
 

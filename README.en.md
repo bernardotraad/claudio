@@ -34,7 +34,7 @@ card ─► ingest ─► logging (.md next to every clip) ─► overview + que
 
 | Step | Tools | |
 | --- | --- | --- |
-| Offload | `ingest_card` | Verified copy (xxHash64 while copying, destination read back) into `BRUTOS/<camera>`, `00 AUDIO`, `03 FOTOS`, `#projeto`, `#trilhas`. Never overwrites: another card with the same names goes to `CARD_n`. Never touches the card. Then indexes. |
+| Offload | `ingest_card` | Verified copy (xxHash64 while copying, destination read back) into the folders of your [profile](#editor-profile) (`brutos/<camera>`, `brutos/audio`, `brutos/fotos`, `projeto`, `trilhas`). Never overwrites: another card with the same names goes to `CARD_n`. Never touches the card. Then indexes. |
 | Index | `index_folder`, `index_status` | Runs in its own process (keeps going if the chat or Premiere close), with a progress bar. Uses proxies (`Proxy/` or `Proxies/`) when present, and GPU (NVDEC) or keyframes only for heavy 4K. Writes **`<clip>.md`** + contact sheet next to every video and **`_CLAUDIO.md`** per folder. |
 | Understand | `project_digest`, `save_project_overview` | Reads every `.md` and writes **`_VISAO_GERAL.md`**. Asks for the final duration and the soundtrack (a specific track or a mood/genre), then proposes 2–4 directions. |
 | Look | `contact_sheet`, `timeline_strip`, `frames`, `reframe_preview`, `multicam_monitor` | Real images of the footage, with TC and the words spoken at that instant. |
@@ -60,10 +60,16 @@ The buttons are grouped by stage of the job, one colour per group (● = runs wi
 | Stage | Buttons |
 |---|---|
 | **Preparar** (prepare) | 01 Analisar material ● · 02 Status ● · 03 Áudio estéreo ● · 04 Multicam ● |
-| **Entender** (understand) | 05 Visão geral · 06 Descrever planos ● · 07 Ler minhas notas |
-| **Montar** (edit) | 08 Selects · 09 Corte por quem fala · 10 Recap de evento · 11 Limpar falas ● · 12 SFX nos cortes ● · 13 Desaninhar ● |
-| **Legendar** (caption) | 14 Transcrição Scribe ● · 15 Legendas · 16 Overlay da legenda revisada · 17 Legenda MOGRT ● |
-| **Entregar** (deliver) | 18 QC antes de exportar ● · 19 Registrar no vault |
+| **Entender** (understand) | 05 Visão geral · 06 Descrever planos ● · 07 Ler minhas notas · 08 Aprender com vídeos prontos |
+| **Montar** (edit) | 09 Montar com receita · 10 Selects · 11 Corte por quem fala · 12 Recap de evento · 13 Limpar falas ● · 14 SFX nos cortes ● · 15 Trilha sonora · 16 Desaninhar ● |
+| **Legendar** (caption) | 17 Transcrição Scribe ● · 18 Legendas · 19 Overlay da legenda revisada · 20 Legenda MOGRT ● |
+| **Entregar** (deliver) | 21 QC antes de exportar ● · 22 Registrar no vault |
+
+**Montar com receita** (assemble with a recipe) lists the [recipes](#recipes) in the chat (the client's usual one
+already ticked, when its profile says `"receita"`) and assembles following the chosen one. A recipe with
+`botao: {"rotulo": "…", "dica": "…"}` in its frontmatter becomes a button of its own in the Montar group, like
+**Recap de evento**; the numbers follow the order on screen. **Aprender com vídeos prontos** (learn from finished
+videos) is the first step with a new client — see [Learning a client](#learning-a-client-from-finished-videos).
 
 ---
 
@@ -318,8 +324,8 @@ Restart Premiere → **Window › Extensions › Cláudio, o Editor**.
 
 ## How to use it
 
-1. Set up the project in Premiere/Resolve and **save the `.prproj` inside `<job>/#projeto/`**: the panel finds the
-   footage folder from there.
+1. Set up the project in Premiere/Resolve and **save the `.prproj` inside the job's project folder**
+   (`<job>/projeto/`, or the name in your [profile](#editor-profile)): the panel finds the footage folder from there.
 2. Open the **Cláudio** panel and click **Analisar material**. The bar shows the progress. You can close the panel,
    Claude Desktop or Premiere: indexing keeps going.
 3. When it finishes, the panel offers the **overview**: what the project is, the questions (duration, soundtrack) and
@@ -338,7 +344,8 @@ Restart Premiere → **Window › Extensions › Cláudio, o Editor**.
 The panel conversation is saved next to the project (`<project>.claudio-chat.json`) and comes back when you reopen
 Premiere: the messages reappear and Claude picks up where it left off. **＋** starts a new conversation.
 
-You can also do everything from the Claude Code terminal with the guided prompt `/mcp__claudio__montar`.
+You can also do everything from the Claude Code terminal with the guided prompt `/mcp__claudio__montar`: it picks the
+[recipe](#recipes) for the kind of project and follows its steps.
 
 **Cláudio's rules:** you are always in control. It proposes before changing anything, never overwrites your sequence (it
 makes a new one), never undoes your manual changes, and only renders the final video if you ask. Log footage (S-Log,
@@ -351,8 +358,8 @@ C-Log, BMD Film) looks flat on purpose: grading is yours, in the NLE.
 | next to every video | `<clip>.md` (technical, colour, scenes, takes, transcript) and `_claudio/<clip>.jpg` |
 | in every footage folder | `_CLAUDIO.md` (folder table + progress) and `_claudio/progress.json` |
 | at the job root | `_VISAO_GERAL.md`, `_ingest.md` / `_ingest.json` |
-| `#projeto/` | XMLs (selects, sync, edit versions), `claudio_overlays/` (captions, overlays, narration) and `<project>.claudio-chat.json` (panel chat) |
-| vault: `trabalho/clientes/` (no vault: `~/Documents/Claudio/clientes`) | client profiles (`<client>.md`, with the vault frontmatter) |
+| `projeto/` (profile name) | XMLs (selects, sync, edit versions), `claudio_overlays/` (captions, overlays, narration) and `<project>.claudio-chat.json` (panel chat) |
+| the profile's `clientes`, else `<vault>/trabalho/clientes/`, else `~/Documents/Claudio/clientes` | client profiles (`<client>.md`, with the vault frontmatter) |
 | `~/.cache/claudio/` | indexes (transcript, metrics, audio). Deleting it only forces a new analysis. |
 
 Text you write in the `.md` files outside the `<!-- claudio:auto -->` markers is never overwritten.
@@ -372,8 +379,11 @@ Text you write in the `.md` files outside the `<!-- claudio:auto -->` markers is
 | Variable | Default | |
 | --- | --- | --- |
 | `CLAUDIO_CACHE` | `~/.cache/claudio` | indexes |
-| `CLAUDIO_CLIENTS` | `<vault>/trabalho/clientes` | client profiles |
-| `CLAUDIO_VAULT` | `D:\bernardo\vault` / `~/vault` | Obsidian vault that holds the profiles |
+| `CLAUDIO_PROFILE` | `~/.config/claudio/perfil.json` | [editor profile](#editor-profile) |
+| `CLAUDIO_CLIENTS` | the profile's `clientes` | client profiles |
+| `CLAUDIO_VAULT` | the profile's `vault` | Obsidian vault that holds the profiles |
+| `CLAUDIO_RECIPES` | `~/.config/claudio/receitas` | your own [recipes](#recipes) |
+| `CLAUDIO_BENCHMARK` | `~/.config/claudio/benchmark.json` | the [recipe benchmark](#recipe-benchmark) |
 | `CLAUDIO_MOTION_SKILL` | `~/.claude/skills/motion-designer` | motion skill |
 | `CLAUDIO_WHISPER` / `CLAUDIO_MLX_MODEL` | `large-v3-turbo` | transcription model |
 | `CLAUDIO_FFMPEG_GPU` | `~/.local/opt/ffmpeg-*/bin/ffmpeg` | ffmpeg with CUDA |
@@ -388,6 +398,120 @@ Word edges are always put on the voice measured in the audio (free, local): capt
 before speech and cuts don't clip a word's tail. With Scribe on, "Analisar material" redoes only the transcript of
 clips Whisper already did (cached per clip: never paid twice); songs stay on Whisper + the isolated vocal; any API
 error falls back to Whisper and is noted as `stt_error` in the index.
+
+### Editor profile
+
+Cláudio spells no folder name: it reads `~/.config/claudio/perfil.json`. Without that file it uses the neutral names
+below. Write only what changes; `claudio-doctor` shows the profile in use.
+
+```json
+{
+ "pastas": {
+  "brutos": "BRUTOS", "audio": "BRUTOS/00 AUDIO", "fotos": "BRUTOS/03 FOTOS",
+  "projeto": "#projeto", "trilhas": "#trilhas", "legendas": "#legendas",
+  "overlays": "#projeto/claudio_overlays", "backups": "claudio_backups"
+ },
+ "nle": "premiere",
+ "vault": "~/vault",
+ "clientes": "~/vault/trabalho/clientes"
+}
+```
+
+| Key | Default | |
+| --- | --- | --- |
+| `pastas.brutos` | `brutos` | camera footage (`<brutos>/<camera>/`) |
+| `pastas.audio` / `pastas.fotos` | `brutos/audio` / `brutos/fotos` | external recorders / photos |
+| `pastas.projeto` | `projeto` | NLE project, XMLs, selects, sync |
+| `pastas.trilhas` | `trilhas` | music |
+| `pastas.legendas` | `legendas` | `.srt`, caption overlays, MOGRT plans |
+| `pastas.overlays` | `projeto/claudio_overlays` | lower thirds, titles, end cards |
+| `pastas.backups` | `claudio_backups` | the panel's sequence backups, next to the NLE project |
+| `nle` | — (asks once) | `premiere` or `resolve`: Claude gets only that NLE's rules (how to import the XML, how to read the current timeline, what never to do) |
+| `vault` | — | an Obsidian vault: client profiles follow its rules |
+| `clientes` | `<vault>/trabalho/clientes` or `~/Documents/Claudio/clientes` | client profiles |
+
+Folders are relative to the job folder (`/` separates levels; `~` works in `vault` and `clientes`). Folders starting
+with `#` and the profile's work folders are never indexed as footage. The panel reads the profile when it opens: after
+changing the file, reopen the panel.
+
+### Recipes
+
+Each kind of project is a recipe: a Markdown file with the brief questions, the steps, the taste rules and the
+defaults (format, length, pace). Claude reads it through the `recipe` tool only when assembling; the rules common to
+every edit (`_comum.md`: delivering to the NLE, rounds of notes, captions, QC) come with it. The recipes are in
+Portuguese, like the panel.
+
+| Recipe | For |
+| --- | --- |
+| `depoimento` | one or more people talking to the camera, with b-roll, for social (vertical) |
+| `depoimento-horizontal` | testimonial or interview in 16:9 for YouTube, a site or a corporate video, with lower thirds |
+| `recap-evento` | aftermovie: the best moments on the beat of a song |
+| `beat-edit` | picture and music only, no speech |
+| `show-multicam` | a show or music video shot with several cameras |
+| `curta-narrativo` | a scripted scene with spoken slates |
+| `podcast` | a conversation with one camera and one mic per person: cut by who speaks, cleanup, chapters |
+| `tutorial` | a lesson, screen recording or bench: the best take of each step, zoom on the region that matters |
+| `cortes-de-video-longo` | several vertical shorts taken from a podcast, talk or live |
+
+To add a recipe of your own (or replace one above), put a `.md` in `~/.config/claudio/receitas/` with the same format:
+
+```markdown
+---
+nome: podcast
+titulo: Podcast em vídeo
+quando: conversa gravada com uma câmera por pessoa e um microfone cada
+padroes: {"aspect": "16:9", "pace": "medium"}
+verificar: {"plataforma": "youtube"}
+entregas: ["timeline"]
+ferramentas: ["sync_multicam", "auto_cut_multicam", "clean_speech", "qc_timeline"]
+---
+
+## Brief
+1. …
+
+## Etapas
+1. …
+
+## Regras de gosto
+- …
+```
+
+Values starting with `[` or `{` are JSON. Each `## ` heading is a section that can be read on its own
+(`recipe("depoimento", "legendas")`). `botao` (optional) puts the recipe on a panel button; `verificar` (optional) says
+what the benchmark measures on the result (`plataforma`, `gancho_s`). A client profile can name the recipe that client
+usually orders (`"receita"`).
+
+### Learning a client from finished videos
+
+The first step with a new client: point at a folder of videos you already delivered (from anywhere, even another
+editor's). **Without AI** (button **08 Aprender com vídeos prontos** › *Medir*, or `claudio-run learn`), Cláudio
+measures the newest ones — format, length, cut every how many seconds, how much is speech, first word, end card, how
+long the speaker's face is on screen, music under the voice and burned-in captions (those two are estimates, no OCR),
+loudness — and writes the client's recipe in `~/.config/claudio/receitas/<client>.md`: the numbers on top and the
+steps of the closest built-in recipe below, to adjust. The transcript for measuring is always the local Whisper
+(free), even with Scribe on. **With AI** (*Medir e refinar com IA*, or the `/mcp__claudio__aprender` prompt), Claude
+also looks at the videos and rewrites the recipe with the structure, the tone and what the client expects to receive,
+and asks only what can't be seen. If the client's recipe already exists, the new one becomes a dated draft beside it;
+the profile's choice doesn't change without you.
+
+### Recipe benchmark
+
+To know whether a recipe (or a change to it) delivers right, point each recipe at a finished job of yours in
+`~/.config/claudio/benchmark.json` (outside the repository):
+
+```json
+{"casos": [{"receita": "depoimento", "nota": "client X, Ana", "xml": "D:\\job\\#projeto\\Ana.xml", "duracao": [25, 45]}]}
+```
+
+```bash
+claudio-run bench '{}'
+```
+
+With no AI and no credits it checks, on the XML: the recipe's format, length, QC with no errors (flash frames, black
+gaps, offline media…), loudness within ±3 dB of the platform target, nothing nested and, for recipes with speech, the
+first word inside the hook limit. Each run goes to `benchmark-results.jsonl`, next to it, to compare with earlier ones.
+`xml` can be a folder (the newest .xml counts); `duracao`, `plataforma` and `gancho_s` in the case override the recipe
+(`null` turns a measure off).
 
 ## Limitations
 
@@ -411,13 +535,17 @@ credits. What costs is the conversation with the model (Claude), and each messag
 - **Model picker** in the panel: Econômico (Haiku) for simple questions, Padrão (Sonnet) day to day, Máximo (Opus)
   only for hard editing calls.
 - **＋ new conversation** when the subject changes: a long conversation costs more on every message.
-- From a terminal: `claudio-run <status|index|stereo|flatten|qc|sync> '{json}'`.
+- From a terminal: `claudio-run <status|index|stereo|flatten|qc|sync|learn|bench> '{json}'` (`claudio-run` alone lists them all).
 
 ## Tests
 
-`pytest -q` runs in seconds with no GPU, Whisper or Premiere, on synthetic media: multicam sync and colours, nested
-sequence flattening, beat grid, paths with `#`/spaces/apostrophes, alpha overlays and the panel (300 px layout, no
-overlaps, reply HTML escaped, change detector). It also runs on every push in GitHub Actions.
+`pytest -q` runs in seconds with no GPU and no Premiere, on synthetic media: multicam sync and colours, nested
+sequence flattening, beat grid, paths with `#`/spaces/apostrophes, alpha overlays, the panel (300 px layout, no
+overlaps, reply HTML escaped, change detector), recipes, benchmark and learning. The speech tests use
+`tests/data/fala_pt.flac` (a synthetic voice, the same line twice) and Whisper `tiny` on the CPU: word timing,
+repeated takes, the hook, phrase captions. The tests never use the paid Scribe, even when it is on in
+`settings.json`; `CLAUDIO_TEST_WHISPER=0` skips the speech ones. It also runs on every push in GitHub Actions (the
+model is cached).
 
 ## License
 
