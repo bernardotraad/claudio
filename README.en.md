@@ -217,8 +217,10 @@ Cláudio, o Editor**.
 
 #### 9. Optional
 
-- **motion-designer skill** (styled captions, overlays, narration): copy the skill folder to
-  `~/.claude/skills/motion-designer` **inside Ubuntu**.
+- **motion-designer skill** (styled captions, overlays, narration): `claudio-doctor --fix-skill` **inside Ubuntu**.
+  It is Gabriel Greco's ([gabrielgreco1/skills](https://github.com/gabrielgreco1/skills)) and is downloaded from there,
+  at the version Cláudio was tested with; `--fix-skill --force` replaces a hand-installed copy (the old one goes to
+  `~/.claude/skills-backup`).
 - **ElevenLabs** (more natural narration): save the key in `~/.config/elevenlabs/api_key` inside Ubuntu. Without it,
   narration uses free edge-tts.
 - **Claude Desktop**: in `claude_desktop_config.json`, use the same command as step 5:
@@ -306,7 +308,8 @@ Restart Premiere → **Window › Extensions › Cláudio, o Editor**.
 
 #### 7. Optional and check
 
-- **motion-designer skill**: copy the folder to `~/.claude/skills/motion-designer`.
+- **motion-designer skill**: `claudio-doctor --fix-skill` (downloaded from its author's repository; `--force`
+  replaces a hand-installed copy).
 - **ElevenLabs**: save the key in `~/.config/elevenlabs/api_key`.
 - **Claude Desktop**: `"command": "/Users/<you>/.local/bin/claudio"`.
 - To check: `claudio-doctor` and `claude mcp list`.

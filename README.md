@@ -232,8 +232,10 @@ Cláudio, o Editor**.
 
 #### 9. Opcionais
 
-- **Skill motion-designer** (legendas estilizadas, overlays, narração): copie a pasta da skill para
-  `~/.claude/skills/motion-designer` **dentro do Ubuntu**.
+- **Skill motion-designer** (legendas estilizadas, overlays, narração): `claudio-doctor --fix-skill` **dentro do
+  Ubuntu**. Ela é do Gabriel Greco ([gabrielgreco1/skills](https://github.com/gabrielgreco1/skills)) e é baixada de lá,
+  na versão com que o Cláudio foi testado; se já tiver uma cópia instalada à mão, `--fix-skill --force` troca (a antiga
+  vai para `~/.claude/skills-backup`).
 - **ElevenLabs** (narração mais natural): salve a chave em `~/.config/elevenlabs/api_key` dentro do Ubuntu. Sem ela, a
   narração usa o edge-tts gratuito. A mesma chave (com a permissão *Speech to Text*) liga a transcrição pelo
   **Scribe** — veja `stt` em [Configuração](#configuração).
@@ -323,7 +325,8 @@ Reinicie o Premiere → **Janela › Extensões › Cláudio, o Editor**.
 
 #### 7. Opcionais e conferência
 
-- **Skill motion-designer**: copie a pasta para `~/.claude/skills/motion-designer`.
+- **Skill motion-designer**: `claudio-doctor --fix-skill` (baixa do repositório do autor; `--force` troca uma cópia
+  instalada à mão).
 - **ElevenLabs**: salve a chave em `~/.config/elevenlabs/api_key`.
 - **Claude Desktop**: `"command": "/Users/<você>/.local/bin/claudio"`.
 - Para conferir: `claudio-doctor` e `claude mcp list`.
