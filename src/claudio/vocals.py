@@ -5,7 +5,7 @@ before it (the caption showed up ~1 s before the voice). With the vocal alone, w
 just its loudness. The model (UVR-MDX-NET-Voc_FT, 67 MB) is downloaded once to ~/.cache/claudio/models; the stem is
 cached next to the clip's index (vocals.f32, mono 16 kHz) for the timing pass.
 """
-import os, re, subprocess, urllib.request
+import os, re, subprocess
 
 import numpy as np
 
@@ -22,8 +22,7 @@ def model_path():
     p = os.path.join(d, MODEL)
     if not os.path.exists(p):
         os.makedirs(d, exist_ok=True)
-        urllib.request.urlretrieve(URL, p + '.part')
-        os.replace(p + '.part', p)
+        core.download(URL, p)
     return p
 
 

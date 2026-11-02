@@ -23,6 +23,7 @@ dependencies = [
   "tokenizers",
   "opencv-python-headless",  # faces (YuNet + SFace)
   "sherpa-onnx",            # voices (WeSpeaker)
+  "truststore",             # HTTPS with the system certificates (a uv / python.org Python on macOS has none)
 ]
 
 [project.urls]

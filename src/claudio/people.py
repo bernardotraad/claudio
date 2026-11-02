@@ -11,7 +11,7 @@
 Everything runs on the CPU, no torch; the models (~66 MB) are downloaded once into ~/.cache/claudio/models.
 A face is a likeness, not an identity check: the editor confirms the names.
 """
-import json, os, threading, urllib.request
+import json, os, threading
 from concurrent.futures import ThreadPoolExecutor
 
 import numpy as np
@@ -38,9 +38,7 @@ def _model(name):
     os.makedirs(d, exist_ok=True)
     p = os.path.join(d, name)
     if not os.path.exists(p):
-        tmp = p + '.part'
-        urllib.request.urlretrieve(MODELS[name], tmp)
-        os.replace(tmp, p)
+        core.download(MODELS[name], p)
     return p
 
 

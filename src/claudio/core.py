@@ -292,6 +292,28 @@ class Clock:
 
 
 # ───────────────────────────── probe ─────────────────────────────
+def urlopen(url, timeout=120):
+    """urllib with the system's certificates: a uv / python.org Python on macOS ships none, so every HTTPS request
+    fails with CERTIFICATE_VERIFY_FAILED (model downloads, music links)."""
+    import ssl, urllib.request
+    ctx = None
+    try:
+        import truststore
+        ctx = truststore.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    except ImportError:
+        pass
+    return urllib.request.urlopen(url, timeout=timeout, context=ctx)
+
+
+def download(url, path):
+    """url → path through a .part file, so an interrupted download is never taken for a model."""
+    import shutil
+    tmp = path + '.part'
+    with urlopen(url) as r, open(tmp, 'wb') as f:
+        shutil.copyfileobj(r, f)
+    os.replace(tmp, path)
+
+
 def run(cmd, **kw):
     """subprocess.run that raises with ffmpeg's own error text (e.g. 'Permission denied') instead of an exit code."""
     r = subprocess.run(cmd, capture_output=True, **kw)

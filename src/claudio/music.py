@@ -132,7 +132,7 @@ def fetch(url, job, title=None):
             shutil.copyfile(src_local, dst)
     else:
         req = urllib.request.Request(url, headers={'User-Agent': 'claudio/1.0'})
-        with urllib.request.urlopen(req, timeout=120) as r:
+        with core.urlopen(req) as r:
             ctype = (r.headers.get('Content-Type') or '').split(';')[0].strip().lower()
             ext = os.path.splitext(urllib.parse.urlparse(r.geturl()).path)[1].lower()
             if ext not in core.AUDIO_EXT:

@@ -34,7 +34,8 @@ def installed():
 def _download(url):
     """urllib, else curl: a uv/python.org Python on macOS may not find the system certificates (SSL verify fails)."""
     try:
-        return urllib.request.urlopen(url, timeout=120).read()
+        with core.urlopen(url) as r:
+            return r.read()
     except Exception as e:
         curl = shutil.which('curl')
         if not curl:
