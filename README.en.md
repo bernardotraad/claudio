@@ -390,6 +390,10 @@ Text you write in the `.md` files outside the `<!-- claudio:auto -->` markers is
 | `CLAUDIO_GPU` / `CLAUDIO_FAST` | `1` | `0` turns off NVDEC / keyframe mode |
 | `CLAUDIO_STT` | `elevenlabs` | with an ElevenLabs key, transcribes with Scribe (word timings within 1–2 frames of the voice); out of credits or no key → local Whisper; `whisper` = Whisper only |
 | `CLAUDIO_SCRIBE_MODEL` | `scribe_v2` | Scribe model |
+| `CLAUDIO_OLLAMA` | — | Ollama server (e.g. `http://100.72.145.75:11434` over Tailscale): **Describe shots** uses the local vision model instead of CLIP |
+| `CLAUDIO_VLM_MODEL` | `qwen3-vl:8b-instruct` | vision model (the `qwen3-vl:8b` tag is the thinking one: ~10x slower) |
+| `CLAUDIO_WAKE_HA_URL` / `CLAUDIO_WAKE_HA_ENTITY` | — | Home Assistant that turns the Ollama machine on (e.g. a Wake on LAN switch); token in `~/.config/claudio/ha_token` |
+| `CLAUDIO_WAKE_MAC` / `CLAUDIO_WAKE_BROADCAST` | — | or a plain Wake-on-LAN packet (same network only) |
 
 The old `DECUPA_*` variables still work. Any of them can also go in `~/.config/claudio/settings.json`, lowercase and
 without the prefix (`{"stt": "whisper"}`) — handier, since the MCP and the panel run through `wsl.exe`.

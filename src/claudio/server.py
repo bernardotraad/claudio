@@ -775,13 +775,14 @@ async def find_shot(query: str, ctx: Context, folder: str = None, paths: list[st
 
 @mcp.tool()
 def describe_shots(folder: str = None, paths: list[str] = None) -> dict:
-    """First-pass description of every stretch of the clips WITHOUT model calls: framing, place, objects, day/night (CLIP),
-    who appears (confirmed names) and what is said, written into each clip's log tagged 'auto' (your annotate entries
-    are kept). Look and annotate only where it matters."""
+    """First-pass description of every stretch of the clips WITHOUT Claude: a sentence from the local vision model when
+    the editor has one (else CLIP framing, place, objects, day/night), who appears (confirmed names) and what is said,
+    written into each clip's log tagged 'auto' (your annotate entries are kept). Look and annotate only where it matters."""
     from claudio import describe, indexer
     files = [core.local_path(p) for p in (paths or [])] or indexer.list_videos(folder)
-    res = describe.describe(files)
-    return {'clips': len(res), 'stretches': sum(r.get('stretches', 0) for r in res), 'results': res[:30]}
+    r = describe.describe(files)
+    res = r.pop('results')
+    return {'clips': len(res), 'stretches': sum(x.get('stretches', 0) for x in res), **r, 'results': res[:30]}
 
 
 @mcp.tool()

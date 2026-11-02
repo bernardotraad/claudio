@@ -399,6 +399,10 @@ O que você escrever nos `.md` fora dos marcadores `<!-- claudio:auto -->` nunca
 | `CLAUDIO_GPU` / `CLAUDIO_FAST` | `1` | `0` desliga a NVDEC / o modo keyframes |
 | `CLAUDIO_STT` | `elevenlabs` | com a chave do ElevenLabs, transcreve pelo Scribe (tempos de palavra a 1–2 frames da voz); `whisper` = só o Whisper local |
 | `CLAUDIO_SCRIBE_MODEL` | `scribe_v2` | modelo do Scribe |
+| `CLAUDIO_OLLAMA` | — | servidor Ollama (ex.: `http://100.72.145.75:11434`, pelo Tailscale): **06 Descrever planos** usa o modelo de visão local em vez do CLIP |
+| `CLAUDIO_VLM_MODEL` | `qwen3-vl:8b-instruct` | modelo de visão (a tag `qwen3-vl:8b` é a que "pensa": ~10× mais lenta) |
+| `CLAUDIO_WAKE_HA_URL` / `CLAUDIO_WAKE_HA_ENTITY` | — | Home Assistant que liga a máquina do Ollama (ex.: um switch de Wake on LAN); token em `~/.config/claudio/ha_token` |
+| `CLAUDIO_WAKE_MAC` / `CLAUDIO_WAKE_BROADCAST` | — | ou um pacote Wake-on-LAN direto (só na mesma rede) |
 
 As variáveis antigas `DECUPA_*` continuam valendo. Qualquer uma também pode ir em `~/.config/claudio/settings.json`,
 em minúsculas e sem o prefixo — mais prático, porque o MCP e o painel rodam pelo `wsl.exe`:
@@ -415,6 +419,11 @@ Whisper, fica anotado em `stt_error` e aparece no Status; sem crédito ou com ch
 direto pelo Whisper. Analisar de novo depois refaz esses clipes pelo Scribe. `{"stt": "whisper"}` desliga o Scribe.
 Medido no INC 9 (36 clipes): o texto empata (legendas revisadas 90% × 88%), mas o Whisper erra o início da palavra em
 2,4 frames (mediana) e perde fala fora do microfone (contagem, equipe).
+
+**Modelo local (opcional).** Com `ollama` no `settings.json`, o **06 Descrever planos** descreve um quadro de cada trecho com um
+modelo de visão rodando na GPU (Ollama; ~2,5 s por trecho numa RTX 3060), em português, e o CLIP fica de reserva. As respostas
+ficam no cache do clipe (`vlm_v1.json`). Se o Ollama não responder e houver `wake_ha_*` ou `wake_mac`, o Cláudio liga a máquina
+e espera até 5 min. O painel avisa se parte do modelo cair no processador (placa ocupada). A montagem continua com o Claude.
 
 No painel, o **14 Transcrição Scribe** liga/desliga o Scribe e lista as sequências do projeto com fala em A1, **lidas
 como estão agora na timeline** (não de XML salvo), com as legendadas que ainda usam o Whisper já marcadas. "Refazer com

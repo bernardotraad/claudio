@@ -158,11 +158,31 @@ def _multicam_plan(a):
 
 
 def _describe(a):
+    """Long with the local vision model (~2.5 s per stretch): progress goes to <folder>/_claudio/progress.json, the
+    file the panel's progress bar reads (the same one as indexing)."""
+    import time
     from claudio import core, describe, indexer
     paths = [core.local_path(p) for p in a.get('paths') or []] or indexer.list_videos(a['folder'])
-    res = describe.describe(paths)
-    return {'clips': len(res), 'stretches': sum(r.get('stretches', 0) for r in res),
-            'errors': [f"{r['clip']}: {r['error']}" for r in res if r.get('error')], 'results': res[:40]}
+    folder = core.local_path(a['folder']) if a.get('folder') else os.path.dirname(paths[0]) if paths else None
+    t0 = time.time()
+
+    def prog(f, line, state='running'):
+        if not folder:
+            return
+        try:
+            pd = core.data_dir(folder)
+            pub = {'folder': core.nle_path(folder), 'kind': 'describe', 'title': 'Descrevendo planos', 'state': state,
+                   'started': t0, 'updated': time.time(), 'fraction': round(f, 3), 'line': line, 'files_total': len(paths)}
+            json.dump(pub, open(os.path.join(pd, 'progress.json.tmp'), 'w'), ensure_ascii=False)
+            os.replace(os.path.join(pd, 'progress.json.tmp'), os.path.join(pd, 'progress.json'))
+        except OSError:
+            pass
+    r = describe.describe(paths, prog, vlm=False if a.get('clip_only') else None)
+    res = r.pop('results')
+    prog(1.0, f"{len(res)} clipe(s) · {'IA local' if r['engine'] != 'clip' else 'CLIP'}", 'done')
+    return {'clips': len(res), 'stretches': sum(x.get('stretches', 0) for x in res), **r,
+            'errors': [f"{x['clip']}: {x.get('error') or x.get('vlm_error')}" for x in res if x.get('error') or x.get('vlm_error')],
+            'results': res[:40]}
 
 
 def _out_xml(a, suffix):

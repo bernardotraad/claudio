@@ -739,10 +739,13 @@ const LOCAL = {
     if (!r.ok) return add('local err', r.error);
     const ex = (r.results || []).filter((x) => x.sample && x.sample.length).slice(0, 3)
       .map((x) => `- **${x.clip}** ${dur(x.sample[0].s)}–${dur(x.sample[0].e)}: ${x.sample[0].text}`).join('\n');
+    const local = r.engine && r.engine !== 'clip';
     const d = add('local', `**${r.clips} clipe(s)** descritos em **${r.stretches} trechos** (${sel.length ? 'os selecionados na timeline' : 'a pasta toda'}), ` +
       'gravados no `.md` de cada clipe (seção 👁 Cenas, marcados como auto). Descrições feitas por você ou pela IA continuam lá.\n\n' + ex +
       ((r.errors || []).length ? `\n\nCom erro: ${r.errors.slice(0, 5).join('; ')}` : '') +
-      '\n\nÉ uma primeira passada automática (tipo de plano, lugar, objetos, quem aparece, o que é falado). Para um clipe importante, selecione-o e peça a descrição com IA.');
+      (r.note ? `\n\n_${r.note}_` : '') + (r.gpu ? `\n\n**Atenção:** ${r.gpu}.` : '') +
+      (local ? `\n\nDescrito pelo modelo local **${r.engine}** no desktop (sem crédito). A busca do painel já acha essas frases.`
+             : '\n\nÉ uma primeira passada automática pelo CLIP (tipo de plano, lugar, objetos, quem aparece, o que é falado). Para um clipe importante, selecione-o e peça a descrição com IA.'));
     if (sel.length) {
       const b = document.createElement('button'); b.textContent = 'Descrever os selecionados com IA';
       b.onclick = async () => { b.disabled = true; await readContext();
@@ -1268,10 +1271,11 @@ function showProgress() {
   box.style.display = 'block';
   box.className = best.state === 'done' ? 'done' : (best.state === 'running' ? '' : 'bad');
   const name = path.basename(String(best.folder || '').replace(/\\/g, '/'));
-  box.querySelector('.txt').textContent = `${best.state === 'running' ? 'Indexando' : best.state === 'done' ? 'Indexado' : 'Indexação parada'} ${name}: ${best.line || ''}`;
+  const what = best.title || 'Indexando';                 // the indexer, or another long local job (Descrever planos)
+  box.querySelector('.txt').textContent = `${best.state === 'running' ? what : best.state === 'done' ? (best.title ? what + ': pronto' : 'Indexado') : what + ' parou'} ${name}: ${best.line || ''}`;
   box.querySelector('.fill').style.width = Math.round((best.fraction || 0) * 100) + '%';
   const key = 'claudio-overview-offered:' + (best.folder || '');
-  if (best.state === 'done' && !localStorage.getItem(key)) {
+  if (best.state === 'done' && !best.kind && !localStorage.getItem(key)) {
     localStorage.setItem(key, '1');
     const d = add('claude', `Material todo indexado (${best.files_total || ''} clipes). Quer que eu faça a visão geral do projeto e proponha direcionamentos?  `);
     const b = document.createElement('button'); b.textContent = 'Fazer visão geral'; b.className = 'primary';
