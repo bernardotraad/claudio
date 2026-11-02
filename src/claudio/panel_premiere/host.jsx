@@ -351,3 +351,25 @@ function claudioSourceNow() {
         return '{"ok":false,"error":' + q(e.toString()) + '}';
     }
 }
+
+// ── Legendas sem IA: the .srt goes in as a NEW caption track of the active sequence (the old ones stay) ─────────────
+function claudioAddCaptionTrack(srtPath) {
+    try {
+        var seq = app.project.activeSequence;
+        if (!seq) return '{"ok":false,"error":"abra a sequência na timeline"}';
+        if (!new File(srtPath).exists) return '{"ok":false,"error":' + q('legenda não encontrada: ' + srtPath) + '}';
+        var key = String(srtPath).replace(/\//g, '\\').toLowerCase();
+        var item = claudioFindItemByPath(app.project.rootItem, key);
+        if (!item) {
+            app.project.importFiles([srtPath], true, app.project.getInsertionBin(), false);
+            item = claudioFindItemByPath(app.project.rootItem, key);
+        }
+        if (!item) return '{"ok":false,"error":' + q('não consegui importar ' + srtPath) + '}';
+        var fmt = (typeof Sequence !== 'undefined' && Sequence.CAPTION_FORMAT_SUBTITLE !== undefined) ? Sequence.CAPTION_FORMAT_SUBTITLE : undefined;
+        var ok = fmt === undefined ? seq.createCaptionTrack(item, 0) : seq.createCaptionTrack(item, 0, fmt);
+        if (ok === false) return '{"ok":false,"error":"o Premiere recusou criar a trilha de legenda"}';
+        return '{"ok":true,"name":' + q(item.name) + '}';
+    } catch (e) {
+        return '{"ok":false,"error":' + q(e.toString()) + '}';
+    }
+}

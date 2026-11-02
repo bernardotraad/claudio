@@ -935,11 +935,11 @@ def caption_style_preview(nle_xml: str, aspect: str = '9x16', accent: str = '#4e
     """Captions STEP 2: the same moment of the edit with each style on it — social, bold, clean, karaoke, box, minimal —
     the recommended one starred (client profile, else vertical → social, horizontal → minimal). Let the user choose."""
     from claudio import motion, clients
-    pref = None
+    pref = look = None
     if client:
         p = clients.load(client)
-        pref = (p or {}).get('captions')
-    img, meta = motion.caption_style_preview(nle_xml, aspect, accent, corrected, fix, pref)
+        pref, look = (p or {}).get('captions'), (p or {}).get('caption_look')
+    img, meta = motion.caption_style_preview(nle_xml, aspect, accent, corrected, fix, pref, look)
     return [Image(data=core.to_jpeg(img), format='jpeg'), __import__('json').dumps(meta, ensure_ascii=False)]
 
 

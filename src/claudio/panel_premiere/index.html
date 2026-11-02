@@ -193,6 +193,17 @@
   .hits .hit .like:hover { color:var(--text); border-color:var(--teal); }
   .hits .hit.done { border-color:var(--teal); }
   .hits .ref { max-width:160px; }
+  /* ── Legendas sem IA: spoken → caption, editable ── */
+  .caps { margin-top:6px; display:flex; flex-direction:column; gap:6px; }
+  .caps .row { display:grid; grid-template-columns:16px minmax(0,1fr); gap:2px 6px; align-items:start; }
+  .caps .row input[type=checkbox] { margin:3px 0 0; }
+  .caps .said { font-size:11px; color:var(--dim); text-decoration:line-through; text-decoration-color:rgba(232,118,143,.5); }
+  .caps .row.same .said { text-decoration:none; }
+  .caps textarea { grid-column:2; height:auto; min-height:34px; resize:vertical; background:var(--card); border:1px solid var(--line2);
+                   border-radius:2px; padding:4px 6px; font:12px/1.4 var(--sans); color:var(--text); }
+  .caps textarea:focus { border-color:var(--magenta); }
+  .caps .tag { font:9px/1.4 var(--mono); color:var(--faint); text-transform:uppercase; letter-spacing:1px; }
+  .caps details summary { cursor:pointer; font:10px/1.4 var(--mono); color:var(--dim); }
 </style>
 </head>
 <body>
@@ -232,7 +243,8 @@
     <button data-q="flatten" class="loc" style="--c:var(--forest)"><i>16</i><span>Desaninhar</span></button>
     <h6 style="--c:var(--magenta)">legendar</h6>
     <button data-q="stt" class="loc" style="--c:var(--magenta)" title="Liga/desliga a transcrição pelo ElevenLabs Scribe (pago, tempo da palavra a 1–2 frames da voz) e refaz a legenda das sequências que foram transcritas pelo Whisper"><i>17</i><span id="stt-label">Transcrição Scribe</span></button>
-    <button data-q="captions" style="--c:var(--magenta)"><i>18</i><span>Legendas</span></button>
+    <button data-q="captions" class="loc" style="--c:var(--magenta)" title="Sem IA: o modelo local revisa a concordância, você confere a tabela fala → legenda, escolhe o estilo na prévia e o .srt entra como trilha de legenda nova"><i>18</i><span>Legendas</span></button>
+    <button data-q="captions_ai" style="--c:var(--magenta)" title="O jeito de antes, pelo Claude (gasta crédito): use se a versão local falhar"><i>18</i><span>Legendas com IA</span></button>
     <button data-q="captions_final" style="--c:var(--magenta)" title="Depois de corrigir a legenda na trilha de legenda do Premiere (o Cláudio lê direto da sequência)"><i>19</i><span>Overlay da legenda revisada</span></button>
     <button data-q="captions_mogrt" class="loc" style="--c:var(--magenta)" title="Uma legenda MOGRT por bloco, editável no Premiere (usa a legenda que você corrigiu na sequência)"><i>20</i><span>Legenda MOGRT</span></button>
     <h6 style="--c:var(--rose)">entregar</h6>

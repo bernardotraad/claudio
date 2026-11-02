@@ -331,8 +331,8 @@ const QUICK = {
   qc: () => `Faça o QC da sequência ativa ("${ctx.sequence || ''}", ${ctx.frame_size || ''}) antes de eu exportar: rode qc_timeline no XML da sequência ativa que o painel já exportou (está no contexto). Liste os problemas e pergunte se quero que você marque cada um como marcador na timeline.`,
   status: () => `Rode index_status e me diga o progresso em uma linha.`,
   overview: () => `Faça a visão geral do projeto: project_digest na pasta "${rawFolder()}", entenda sobre o que é o trabalho, salve com save_project_overview em "${jobFolder()}" e me resuma em 4–6 linhas. Depois me pergunte a duração aproximada do vídeo final e a trilha (uma música específica ou um mood/gênero) e proponha 2–4 direcionamentos concretos a partir do material. Eu escolho um ou explico a minha ideia.`,
-  captions: () => `Legendas da sequência ativa ("${ctx.sequence || ''}", ${ctx.frame_size || ''}). Use o XML da sequência ativa que o painel já exportou (está no contexto) e siga os passos: 1) caption_sentences e corrija SÓ a gramática (concordância, regência, crase, pontuação), sem mudar as palavras do falante nem nomes de marca — quando a frase vier com "suggested" (revisão do modelo local, sem crédito), parta dela e só complete o que faltou — me mostre a tabela fala → legenda; 2) caption_style_preview (aspect conforme o frame da sequência; se houver perfil do cliente, passe client) e me pergunte qual estilo; 3) com a minha escolha, gere SÓ o .srt (captions_srt com style = o estilo escolhido, e client se houver perfil — os blocos saem por frase, no tamanho de linha desse estilo) em "${jobPath('legendas')}" com o nome da sequência e coloque-o na sequência como trilha de legenda (Premiere MCP create_caption_track; se não der, me diga o caminho para eu arrastar). NÃO gere o overlay ainda: eu reviso palavras e tempo na trilha de legenda do Premiere e aperto "Overlay da legenda revisada" ou "Legenda MOGRT" (o Cláudio lê a trilha direto do projeto, não precisa exportar o .srt). Termine dizendo o estilo escolhido.`,
-  captions_final: () => `A legenda da sequência ativa ("${ctx.sequence || ''}", ${ctx.frame_size || ''}) foi revisada por mim no Premiere (o painel acabou de salvar o projeto). Leia a legenda direto da sequência com premiere_captions(prproj "${ctx.project || ''}", sequence "${ctx.sequence || ''}", nle_xml = o XML da sequência ativa do contexto): ela grava <sequência>_revisada.srt em ${PROF.pastas.legendas} e aprende o que eu corrigi no texto. Só se a sequência não tiver trilha de legenda, use o .srt revisado mais recente de "${jobPath('legendas')}" (se houver dúvida entre arquivos, me pergunte). Gere o overlay com caption_overlay(srt=esse arquivo), usando o XML da sequência ativa do contexto e o estilo escolhido antes nesta conversa (se não souber, pergunte). Não refaça correções do transcript: o texto e os tempos do .srt são os meus. Saída em "${jobPath('legendas')}". NÃO coloque o .mov na timeline pelo MCP do Premiere: escreva o caminho completo do .mov na resposta — o painel mostra o botão "Colocar overlay", que cria a trilha nova no topo e põe o clipe em 0 s por sobrescrita, sem mexer em mais nada.`,
+  captions_ai: () => `Legendas da sequência ativa ("${ctx.sequence || ''}", ${ctx.frame_size || ''}). Use o XML da sequência ativa que o painel já exportou (está no contexto) e siga os passos: 1) caption_sentences e corrija SÓ a gramática (concordância, regência, crase, pontuação), sem mudar as palavras do falante nem nomes de marca — quando a frase vier com "suggested" (revisão do modelo local, sem crédito), parta dela e só complete o que faltou — me mostre a tabela fala → legenda; 2) caption_style_preview (aspect conforme o frame da sequência; se houver perfil do cliente, passe client) e me pergunte qual estilo; 3) com a minha escolha, gere SÓ o .srt (captions_srt com style = o estilo escolhido, e client se houver perfil — os blocos saem por frase, no tamanho de linha desse estilo) em "${jobPath('legendas')}" com o nome da sequência e coloque-o na sequência como trilha de legenda (Premiere MCP create_caption_track; se não der, me diga o caminho para eu arrastar). NÃO gere o overlay ainda: eu reviso palavras e tempo na trilha de legenda do Premiere e aperto "Overlay da legenda revisada" ou "Legenda MOGRT" (o Cláudio lê a trilha direto do projeto, não precisa exportar o .srt). Termine dizendo o estilo escolhido.`,
+  captions_final: () => `A legenda da sequência ativa ("${ctx.sequence || ''}", ${ctx.frame_size || ''}) foi revisada por mim no Premiere (o painel acabou de salvar o projeto). Leia a legenda direto da sequência com premiere_captions(prproj "${ctx.project || ''}", sequence "${ctx.sequence || ''}", nle_xml = o XML da sequência ativa do contexto): ela grava <sequência>_revisada.srt em ${PROF.pastas.legendas} e aprende o que eu corrigi no texto. Só se a sequência não tiver trilha de legenda, use o .srt revisado mais recente de "${jobPath('legendas')}" (se houver dúvida entre arquivos, me pergunte). Gere o overlay com caption_overlay(srt=esse arquivo), usando o XML da sequência ativa do contexto e ${captionStyleLine()}. Não refaça correções do transcript: o texto e os tempos do .srt são os meus. Saída em "${jobPath('legendas')}". NÃO coloque o .mov na timeline pelo MCP do Premiere: escreva o caminho completo do .mov na resposta — o painel mostra o botão "Colocar overlay", que cria a trilha nova no topo e põe o clipe em 0 s por sobrescrita, sem mexer em mais nada.`,
   multicam: () => `Multicâmera deste trabalho, no lugar do PluralEyes. 1) Liste as pastas de "${jobFolder()}" (material de câmera e áudio; ignore ${PROF.pastas.projeto}, ${PROF.pastas.trilhas}, ${PROF.pastas.legendas} e proxies) e proponha o mapeamento: cada pasta de câmera vira uma câmera com nome curto (ex.: "CAM A — A7III"), e gravadores externos (Zoom, mesa, lapela) vão em external_audio. Proponha uma cor de label do Premiere por câmera e uma para o áudio externo (Cerulean, Mango, Forest, Magenta, Yellow, Violet, Teal, Rose, Caribbean…) numa tabela câmera → pasta → nº de clipes → cor, e ME PERGUNTE antes de rodar. 2) Com o meu ok, rode sync_multicam (correct_drift true, labels com as cores, out_xml "${jobPath('projeto', 'claudio_sync.xml')}"). 3) Resuma: clipes posicionados, os aproximados (sem áudio em comum, posicionados pelo relógio da câmera) e o drift do gravador. 4) Confira com multicam_monitor em 2 ou 3 momentos em que todas as câmeras estão rodando e me diga se algo parece fora de sincronia. 5) Escreva o caminho completo do XML (o painel mostra o botão de importar; não importe pelo MCP do Premiere) e explique o próximo passo: a "Synced Sequence" chega com V1..Vn por câmera e cada câmera (vídeo, áudio e bin) na sua cor; dali eu corto direto ou crio uma Multi-Camera Source Sequence.`,
   aprender: (r) => `Rodei sem IA o aprendizado do cliente "${r.cliente}" com ${r.videos.length} vídeos já entregues (receita base: ${r.base}). A receita rascunho está em "${r.receita}" (nome "${r.receita_nome}") e as medidas em house_style.medido_videos do perfil (client_profile("${r.cliente}")). Agora o que não é número: 1) leia recipe("${r.receita_nome}") e o perfil; 2) olhe 3–4 vídeos representativos (o típico, o mais curto, o mais longo, o mais novo) com contact_sheet do vídeo inteiro (16 quadros) e transcript — vídeos: ${r.videos.slice(0, 12).join(', ')}; escreva só o que vê e ouve: estrutura (o que os 3 primeiros segundos fazem, o corpo, o fechamento/CTA, com tempos típicos), tom e quem fala, o que o b-roll mostra e quando entra, a legenda (estilo, posição, palavras por bloco — confirme ou corrija a estimativa), grafismos/logo/cartela, a música, e o que é entregue (formato, duração, versões); 3) numa mensagem só, me pergunte o que não dá para ver (o que eu faço à mão e o que o Cláudio deve entregar, quem aprova, o que o cliente sempre pede ou nunca aceita); 4) reescreva a receita e grave com save_recipe("${r.receita_nome}", markdown) mantendo o frontmatter e a seção "Medido nos vídeos prontos", reescrevendo Brief, Etapas, Legendas e Regras de gosto para ESTE cliente, e me mostre o resultado em 6–10 linhas; 5) com o meu ok, save_client_profile("${r.cliente}", {"receita": "${r.receita_nome}"}).`,
   recipe: (r) => `Monte este trabalho com a receita "${r.titulo}": chame recipe("${r.nome}") e siga o brief, as etapas e as regras dela (as regras comuns vêm junto). Material bruto: "${rawFolder()}". Pasta do trabalho: "${jobFolder()}". Projeto dos edits (o \`project\` do build_edit / event_recap / export_edit): "${jobPath('projeto')}". Se o material ainda não estiver indexado, comece por index_folder e mostre o progresso. Se houver perfil do cliente (client_profile), ele vale acima dos padrões da receita. Escreva o caminho completo de cada XML que gerar (o painel mostra o botão de importar).`,
@@ -694,7 +694,101 @@ async function recipeMenu() {
   };
   d.appendChild(go);
 }
+// ── Legendas sem IA: 1) the spoken sentences with the local model's proofreading, editable, 2) the style preview,
+// 3) the .srt as a new caption track. Any failure offers the old way (Claude) with one click.
+function captionStyleLine() {
+  let st = null;
+  try { st = localStorage.getItem('claudio-caption-style:' + (ctx.project || '')); } catch (e) {}
+  return st ? `o estilo "${st}" (escolhido no botão Legendas)` : 'o estilo escolhido antes nesta conversa (se não souber, pergunte)';
+}
+function captionsFallback(why) {
+  const d = add('local err', `A legenda local parou: ${why}`, false);
+  const b = document.createElement('button'); b.className = 'primary'; b.textContent = 'Fazer com a IA (como antes)';
+  b.onclick = async () => { b.disabled = true; await readContext(); send(QUICK.captions_ai()); };
+  d.appendChild(b);
+}
+function captionAspect() {
+  const m = String(ctx.frame_size || '').match(/(\d+)x(\d+)/);
+  if (!m) return '9x16';
+  const w = +m[1], h = +m[2];
+  return h > w ? '9x16' : h === w ? '1x1' : '16x9';
+}
+const captionsLocal = () => localJob('legendas: revisando a fala', async () => {
+  const x = await exportActive(); if (!x) return;
+  const r = await runLocal('captions_prep', { nle_xml: x, job: jobFolder() });
+  if (!r.ok) return captionsFallback(r.error || 'sem resposta');
+  if (!(r.sentences || []).length) return captionsFallback('não achei fala na A1 desta sequência');
+  const changed = r.sentences.filter((s) => (s.suggested || s.remembered_correction || s.text) !== s.text);
+  const d = add('local', `**Legendas de "${ctx.sequence}"** — ${r.sentences.length} frase(s). ` +
+    (r.proofread_by ? `O modelo local (${r.proofread_by}) sugeriu **${changed.filter((s) => s.suggested).length}** correção(ões)` :
+      '_O modelo local não está no ar: só as correções que você já aprovou antes._') +
+    (changed.filter((s) => s.remembered_correction).length ? `, ${changed.filter((s) => s.remembered_correction).length} já aprovada(s) antes` : '') +
+    '. Confira, edite o texto se quiser e desmarque o que não vale. Só gramática: as palavras são do falante.', false);
+  const box = document.createElement('div'); box.className = 'caps';
+  const rows = [];
+  const row = (s, parent) => {
+    const want = s.suggested || s.remembered_correction || s.text;
+    const el = document.createElement('div'); el.className = 'row' + (want === s.text ? ' same' : '');
+    const cb = document.createElement('input'); cb.type = 'checkbox'; cb.checked = true;
+    const said = document.createElement('div'); said.className = 'said'; said.textContent = s.text;
+    const ta = document.createElement('textarea'); ta.value = want; ta.rows = 2;
+    ta.oninput = () => { cb.checked = true; };
+    el.append(cb, said, document.createElement('span'), ta);
+    if (s.remembered_correction) { const t = document.createElement('div'); t.className = 'tag'; t.textContent = 'aprovada antes'; el.append(document.createElement('span'), t); }
+    parent.appendChild(el); rows.push({ s, cb, ta });
+  };
+  changed.forEach((s) => row(s, box));
+  const same = r.sentences.filter((s) => !changed.includes(s));
+  if (same.length) {
+    const det = document.createElement('details');
+    const sm = document.createElement('summary'); sm.textContent = `${same.length} frase(s) sem correção (abrir para editar)`;
+    det.appendChild(sm); same.forEach((s) => row(s, det)); box.appendChild(det);
+  }
+  if (Object.keys(r.refused || {}).length)
+    box.insertAdjacentHTML('beforeend', `<div class="tag">${Object.keys(r.refused).length} sugestão(ões) recusada(s) pela trava (mudavam palavras da fala)</div>`);
+  d.appendChild(box);
+  const go = document.createElement('button'); go.className = 'primary'; go.textContent = 'Continuar: escolher o estilo';
+  go.onclick = () => {
+    const corrected = {};
+    for (const { s, cb, ta } of rows) {
+      const v = ta.value.trim();
+      if (cb.checked && v && v !== s.text) corrected[s.id] = v;
+      else if (!cb.checked && s.remembered_correction) corrected[s.id] = s.text;      // undo an old approval this time
+    }
+    d.querySelectorAll('button, input, textarea').forEach((e) => (e.disabled = true));
+    captionsPreview(x, corrected);
+  };
+  d.appendChild(go);
+});
+const captionsPreview = (x, corrected) => localJob('legendas: prévia dos estilos', async () => {
+  const p = await runLocal('captions_preview', { nle_xml: x, job: jobFolder(), aspect: captionAspect(), corrected });
+  if (!p.ok) return captionsFallback(p.error || 'a prévia falhou');
+  const d = add('local', `Qual estilo?` + (p.recommended ? ` Recomendado: **${p.recommended}**` + (p.client && p.recommended === 'marca' ? ` (a legenda do cliente ${p.client})` : '') : '') +
+    '. Clique na imagem para ampliar.', false);
+  const im = document.createElement('img'); im.src = p.image; im.style.cssText = 'display:block;max-width:100%;margin-top:6px;cursor:zoom-in;border:1px solid var(--line2)';
+  im.onclick = () => zoomImage(im.src); d.appendChild(im);
+  for (const st of p.styles) {
+    const b = document.createElement('button'); b.textContent = st + (st === p.recommended ? ' ★' : '');
+    if (st === p.recommended) b.className = 'primary';
+    b.onclick = () => { d.querySelectorAll('button').forEach((e) => (e.disabled = true)); captionsMake(x, corrected, st); };
+    d.appendChild(b);
+  }
+});
+const captionsMake = (x, corrected, style) => localJob('legendas: gerando o .srt', async () => {
+  await readContext();
+  const r = await runLocal('captions_make', { nle_xml: x, job: jobFolder(), corrected, style, sequence: ctx.sequence });
+  if (!r.ok) return captionsFallback(r.error || 'o .srt falhou');
+  let t;
+  try { t = JSON.parse(await evalHost('claudioAddCaptionTrack(' + JSON.stringify(r.srt) + ')')); } catch (e) { t = { ok: false, error: String(e) }; }
+  add('local', `**${r.blocks} bloco(s)** no estilo **${style}** em \`${r.srt}\`` +
+    (t.ok ? ' — entrou como **trilha de legenda nova** na sequência (as antigas ficam).' :
+      `.\n\nNão consegui pôr na sequência (${t.error}): arraste o .srt para a timeline.`) +
+    (r.learned_vocabulary && r.learned_vocabulary.length ? `\n\nGrafias aprendidas: ${r.learned_vocabulary.join(', ')}.` : '') +
+    `\n\nAgora revise palavras e tempo na trilha de legenda do Premiere e aperte **Overlay da legenda revisada** ou **Legenda MOGRT** (o estilo escolhido foi **${style}**).`);
+  try { localStorage.setItem('claudio-caption-style:' + (ctx.project || ''), style); } catch (e) {}
+});
 const LOCAL = {
+  captions: () => captionsLocal(),
   aprender: () => learnMenu(),
   montar: () => recipeMenu(),
   music: () => musicMenu(),

@@ -979,8 +979,9 @@ function seek(t){const k=WIN.findIndex(([a,b])=>t>=a&&t<b);
 """
 
 
-def caption_style_preview(nle_xml, aspect='9x16', accent='#4ea1ff', corrected=None, fix=None, profile_captions=None):
-    """One frame of the edit with each caption style on it (same moment, real footage), recommended one starred."""
+def caption_style_preview(nle_xml, aspect='9x16', accent='#4ea1ff', corrected=None, fix=None, profile_captions=None, look=None):
+    """One frame of the edit with each caption style on it (same moment, real footage), recommended one starred. With the
+    client's caption_look, 'marca' is drawn with it and recommended; without it, 'marca' is left out."""
     from PIL import Image, ImageDraw
     from claudio import nle_read, montage
     tw = corrected_timeline_words(nle_xml, corrected, fix, remember=False)
@@ -1007,11 +1008,12 @@ def caption_style_preview(nle_xml, aspect='9x16', accent='#4ea1ff', corrected=No
         a = aspect if aspect in montage.ASPECTS else '9:16'
         cx, cy, cw, ch = montage.crop_box(ow, oh, a.replace('x', ':') if a in SIZES else a)
         base = fr.crop((int(cx * sc), int(cy * sc), int((cx + cw) * sc), int((cy + ch) * sc))).resize((Wd, Ht))
-    rec = recommend_style(aspect, profile_captions)
+    rec = 'marca' if look else recommend_style(aspect, profile_captions)
+    styles = [st for st in STYLES if st != 'marca' or look]
     tiles = []
     tmp = _work_dir('style_preview')
-    for st in STYLES:
-        html = build_html(caption_code(W, st, accent), os.path.join(tmp, st))
+    for st in styles:
+        html = build_html(caption_code(W, st, accent, look=look if st == 'marca' else None), os.path.join(tmp, st))
         fdir = os.path.join(tmp, st, 'f'); shutil.rmtree(fdir, ignore_errors=True)
         render_frames(html, aspect, 30, t, t + 1 / 30, fdir, workers=1)
         ov = Image.open(os.path.join(fdir, '000000.png')).convert('RGBA')
@@ -1026,4 +1028,4 @@ def caption_style_preview(nle_xml, aspect='9x16', accent='#4ea1ff', corrected=No
     g = Image.new('RGB', (360 * cols, th * math.ceil(len(tiles) / cols)), (0, 0, 0))
     for k, im in enumerate(tiles):
         g.paste(im, ((k % cols) * 360, (k // cols) * th))
-    return g, {'recommended': rec, 'styles': STYLES, 'moment_s': round(t, 2)}
+    return g, {'recommended': rec, 'styles': styles, 'moment_s': round(t, 2)}

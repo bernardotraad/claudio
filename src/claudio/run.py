@@ -23,6 +23,9 @@
   learn       {"client", "folder" | "paths", "limit"?, "base"?, "overwrite"?}  a client from delivered videos, without AI
   search      {"folder", "query", "kinds"?}        the panel's search box: speech, logs, named people, picture (thumbnails)
   similar     {"folder", "path", "t"}              shots that look like that moment (a hit, or the Source Monitor frame)
+  captions_prep    {"nle_xml", "job"?}              Legendas sem IA, 1: the sentences, with the local model's proofreading
+  captions_preview {"nle_xml", "aspect", "corrected"?, "job"?}   2: one frame with each style (image as data: URI)
+  captions_make    {"nle_xml", "style", "sequence", "corrected"?, "job"?}   3: the .srt in the job's captions folder
 
 Paths can be Windows paths (D:\\...) — they are translated on WSL — and come back as the editor's paths.
 """
@@ -356,7 +359,43 @@ def _similar(a):
     return search.similar(a['folder'], a['path'], float(a.get('t') or 0), int(a.get('top', 12)))
 
 
-ACTIONS = {'search': _search, 'similar': _similar, 'learn': _learn, 'bench': _bench, 'recipes': _recipes, 'profile': _profile, 'stt': _stt, 'stt_check': _stt_check, 'retranscribe': _retranscribe, 'clean': _clean, 'sfx': _sfx, 'mogrt': _mogrt, 'mogrt_styles': _mogrt_styles, 'describe': _describe, 'multicam_plan': _multicam_plan, 'status': _status, 'index': _index, 'stereo': _stereo, 'flatten': _flatten, 'qc': _qc, 'sync': _sync}
+def _caption_client(a):
+    from claudio import clients
+    prof = client_for(a.get('job') or a['nle_xml']) or {}
+    return prof, clients
+
+
+def _captions_prep(a):
+    from claudio import motion
+    prof, _ = _caption_client(a)
+    r = motion.caption_sentences(a['nle_xml'])
+    return {**r, 'client': prof.get('name'), 'brand_look': bool(prof.get('caption_look'))}
+
+
+def _captions_preview(a):
+    import base64, io
+    from claudio import core, motion
+    prof, _ = _caption_client(a)
+    img, meta = motion.caption_style_preview(a['nle_xml'], a.get('aspect', '9x16'), a.get('accent', '#4ea1ff'),
+                                             a.get('corrected'), None, prof.get('captions'), prof.get('caption_look'))
+    return {'image': 'data:image/jpeg;base64,' + base64.b64encode(core.to_jpeg(img, 80)).decode(), 'styles': meta['styles'],
+            'recommended': meta['recommended'], 'client': prof.get('name')}
+
+
+def _captions_make(a):
+    from claudio import core, motion, profile
+    prof, _ = _caption_client(a)
+    look = prof.get('caption_look') if a['style'] == 'marca' else None
+    style = a['style'] if a['style'] != 'marca' or look else None
+    job = a.get('job') or profile.job_of(a['nle_xml'])
+    name = re.sub(r'[\\/:*?"<>|]', '-', a.get('sequence') or 'legenda')
+    out = os.path.join(core.local_path(profile.folder('legendas', job)), f'{name}.srt')
+    os.makedirs(os.path.dirname(out), exist_ok=True)
+    return motion.captions_srt(a['nle_xml'], out, None, None, None, a.get('corrected'), None, style, look)
+
+
+ACTIONS = {'captions_prep': _captions_prep, 'captions_preview': _captions_preview, 'captions_make': _captions_make,
+           'search': _search, 'similar': _similar, 'learn': _learn, 'bench': _bench, 'recipes': _recipes, 'profile': _profile, 'stt': _stt, 'stt_check': _stt_check, 'retranscribe': _retranscribe, 'clean': _clean, 'sfx': _sfx, 'mogrt': _mogrt, 'mogrt_styles': _mogrt_styles, 'describe': _describe, 'multicam_plan': _multicam_plan, 'status': _status, 'index': _index, 'stereo': _stereo, 'flatten': _flatten, 'qc': _qc, 'sync': _sync}
 
 
 def main():

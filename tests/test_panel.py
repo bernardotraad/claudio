@@ -99,9 +99,10 @@ def test_tool_images_shown(page):
 def test_local_buttons_and_model(page):
     pg, _ = page
     loc = pg.evaluate("[...document.querySelectorAll('#quick button.loc')].map(b=>b.dataset.q)")
-    assert set(loc) == {'index', 'qc', 'stereo', 'flatten', 'status', 'multicam', 'describe', 'clean', 'sfx', 'captions_mogrt', 'stt'}
+    assert set(loc) == {'index', 'qc', 'stereo', 'flatten', 'status', 'multicam', 'describe', 'clean', 'sfx', 'captions', 'captions_mogrt', 'stt'}
     # music / montar / aprender: a local form first (sequences / recipes / folder), then maybe the AI — not "sem IA"
-    assert pg.evaluate("Object.keys(LOCAL).sort().join(',')") == 'aprender,captions_mogrt,clean,describe,flatten,index,montar,multicam,music,qc,sfx,status,stereo,stt'
+    assert pg.evaluate("Object.keys(LOCAL).sort().join(',')") == 'aprender,captions,captions_mogrt,clean,describe,flatten,index,montar,multicam,music,qc,sfx,status,stereo,stt'
+    assert pg.evaluate("typeof QUICK.captions_ai") == 'function'                    # the old way, kept as a fallback
     ai = {q for q in pg.evaluate("[...document.querySelectorAll('#quick button:not(.loc)')].map(b=>b.dataset.q)") if not q.startswith('recipe:')}
     assert ai <= set(pg.evaluate("Object.keys(QUICK)")) | {'music', 'montar', 'aprender'}
     assert pg.evaluate("document.querySelector('#model').value") == 'sonnet'
@@ -222,8 +223,8 @@ def test_montar_buttons_come_from_the_recipes(page):
       renderRecipeButtons(RECIPES);
       return {before, after, prompt};}""")
     assert r['before'][7:12] == ['08 Aprender com vídeos prontos', '09 Montar com receita', '10 Selects', '11 Corte por quem fala', '12 Recap de evento']
-    assert r['before'][-1] == '22 Registrar no vault'
-    assert r['after'][11:13] == ['12 Recap de evento', '13 Podcast'] and r['after'][-1] == '23 Registrar no vault'
+    assert r['before'][-1] == '23 Registrar no vault'
+    assert r['after'][11:13] == ['12 Recap de evento', '13 Podcast'] and r['after'][-1] == '24 Registrar no vault'
     assert 'recipe("podcast")' in r['prompt'] and 'E:\\job\\projeto' in r['prompt']
     pg.click('#quick button[data-q="montar"]')
     pg.wait_for_function("document.querySelectorAll('input[name=claudio-recipe]').length > 0")
@@ -256,3 +257,14 @@ def test_search_hits_render(page):
     assert pg.evaluate("[...document.querySelectorAll('.hits h5')].map(h=>h.textContent).join('|')") == 'fala · 1|imagem · 1'
     assert pg.evaluate("document.querySelector('.hits .hit .txt').innerHTML").startswith('apartamento &lt;b&gt;')
     assert pg.evaluate("document.querySelector('#search input').getBoundingClientRect().width") > 100
+
+
+@needs_browser
+def test_local_captions_fall_back_to_the_old_way(page):
+    pg, _ = page
+    pg.evaluate("captionsFallback('o Ollama caiu')")
+    last = "[...document.querySelectorAll('.msg.local.err')].pop()"
+    assert 'o Ollama caiu' in pg.evaluate(f"{last}.textContent")
+    assert pg.evaluate(f"{last}.querySelector('button').textContent") == 'Fazer com a IA (como antes)'
+    assert pg.evaluate("document.querySelector('#quick button[data-q=captions_ai]') !== null")
+    assert pg.evaluate("captionAspect()") == '16x9'                 # the mocked sequence is 3840x2160
