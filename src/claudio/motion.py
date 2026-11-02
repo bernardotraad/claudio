@@ -519,8 +519,16 @@ def _ref_take(path, out_dir, lang, max_s=12.0):
             s0, keep = w['s'], []
         keep.append(w)
     s, e = max(0, keep[0]['s'] - 0.1), keep[-1]['e'] + 0.15
+    raw = os.path.join(out_dir, 'ref_original.wav')
+    core.run(['ffmpeg', '-v', 'error', '-y', '-ss', f'{s:.3f}', '-t', f'{e - s:.3f}', '-i', path, '-vn', '-ac', '2', '-ar', '44100', raw])
+    # the voice alone: a delivered video has its music/room under the speech, and the clone copies it into every
+    # line (the Rafael take: noise floor −26 dB → the narration hissed, even in the breaths)
+    from claudio import vocals
+    import numpy as np
+    v = vocals.separate(raw).mean(0)
     ref = os.path.join(out_dir, 'ref.wav')
-    core.run(['ffmpeg', '-v', 'error', '-y', '-ss', f'{s:.3f}', '-t', f'{e - s:.3f}', '-i', path, '-vn', '-ac', '1', '-ar', '24000', ref])
+    core.run(['ffmpeg', '-v', 'error', '-y', '-f', 'f32le', '-ar', str(vocals.SR), '-ac', '1', '-i', '-', '-ar', '24000', ref],
+             input=v.astype(np.float32).tobytes())
     return ref, core.clean_text(' '.join(w['w'] for w in keep))
 
 
@@ -623,6 +631,34 @@ def _gpu_tts(worker, job, out_dir, python=None, missing=None):
     return json.loads(r.stdout.strip().splitlines()[-1])
 
 
+def _quiet_between(wav, words, min_gap=0.25, pad=0.08, fade=0.04):
+    """Digital silence where nobody speaks (lead, breaths, tail), with short fades: a cloned voice carries a little of
+    its reference's room, which is loudest where there is nothing else."""
+    import numpy as np
+    r = core.run(['ffmpeg', '-v', 'error', '-i', wav, '-f', 's16le', '-ac', '2', '-ar', '48000', '-'])
+    x = np.frombuffer(r.stdout, np.int16).reshape(-1, 2).astype(np.float32)
+    sr, n = 48000, len(x)
+    g = np.zeros(n, np.float32)
+    spans = []
+    for w in words:
+        a, b = max(0.0, w['s'] - pad), w['e'] + pad
+        if spans and a - spans[-1][1] < min_gap:
+            spans[-1][1] = b
+        else:
+            spans.append([a, b])
+    k = max(1, int(fade * sr))
+    ramp = np.linspace(0, 1, k, dtype=np.float32)
+    for a, b in spans:
+        i, j = int(a * sr), min(n, int(b * sr))
+        g[i:j] = 1
+        lo, hi = max(0, i - k), min(n, j + k)
+        g[lo:i] = np.maximum(g[lo:i], ramp[k - (i - lo):])            # fade in before the word
+        g[j:hi] = np.maximum(g[j:hi], ramp[::-1][:hi - j])            # fade out after it
+    y = (x * g[:, None]).clip(-32768, 32767).astype(np.int16)
+    core.run(['ffmpeg', '-v', 'error', '-y', '-f', 's16le', '-ac', '2', '-ar', '48000', '-i', '-', '-c:a', 'pcm_s16le', wav],
+             input=y.tobytes())
+
+
 def _assemble(wavs, chunks, out_dir, lang):
     """One wav per paragraph → narration.wav (48 kHz stereo, LEAD in front, GAP between) + words.json in the format of
     the skill's el_tts.py ({words: [{w, s, e, act}], chunks, dur}): Whisper's timings, the script's spelling."""
@@ -634,7 +670,9 @@ def _assemble(wavs, chunks, out_dir, lang):
     core.run(['ffmpeg', '-v', 'error', '-y', *ins, '-filter_complex',
               mix + ''.join(f'[a{k}]' for k in range(len(starts))) + f'amix=inputs={len(starts)}:normalize=0,aresample=48000[o]',
               '-map', '[o]', '-ac', '2', '-c:a', 'pcm_s16le', wav])
-    words = _script_words(_hear(_pcm16(wav), lang[:2]), '\n\n'.join(chunks), starts)
+    heard = _hear(_pcm16(wav), lang[:2])
+    _quiet_between(wav, heard)
+    words = _script_words(heard, '\n\n'.join(chunks), starts)
     json.dump({'words': words, 'chunks': [{'wav': os.path.basename(p), 'start': round(s, 3)} for p, s in zip(wavs, starts)],
                'dur': round(t - GAP, 3)}, open(os.path.join(out_dir, 'words.json'), 'w'), ensure_ascii=False, indent=0)
     return wav
