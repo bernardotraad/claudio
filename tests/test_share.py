@@ -120,3 +120,49 @@ def test_a_job_copied_without_analysis_brings_it_from_the_desktop(tmp_path, monk
 def test_the_desktop_never_fetches(tmp_path, monkeypatch):
     monkeypatch.setattr(core, 'env', lambda n, d=None: d)
     assert share.fetch_missing(str(tmp_path), [str(tmp_path / 'x.mp4')]) == {'fetched': 0}
+
+
+def test_the_mac_sends_its_new_work_back_to_the_desktop(tmp_path, monkeypatch):
+    """The Mac described the clips (the desktop's vision model): the answers go into the desktop's own job over SSH —
+    only what changed, and kept for later when the desktop is off."""
+    import shutil, subprocess, tarfile
+    clip, _ = _setup(tmp_path, monkeypatch)
+    share.publish(str(clip))
+    hd = tmp_path / 'HD' / 'E'
+    shutil.copytree(tmp_path / 'E', hd, symlinks=True)                   # the whole job on the external drive
+    _machine(monkeypatch, tmp_path, 'mac')
+    mac_clip = str(hd / 'BRUTOS' / 'C0011.MP4')
+    m = core.cache_dir(mac_clip)                                          # adopted from the drive
+    json.dump({'k': {'descricao': 'noiva no altar'}}, open(os.path.join(m, 'vlm_v1.json'), 'w'))
+    env = {'SHARE_FROM': 'bernardo@desktop', 'SHARE_ROOTS': 'X:\\Fotos'}
+    real_env = core.env
+    monkeypatch.setattr(core, 'env', lambda n, d=None: env.get(n, real_env(n, d)))
+    monkeypatch.setattr(share, 'enabled', lambda: True)
+    up = {'v': False}
+    monkeypatch.setattr(share, '_ssh_up', lambda: up['v'])
+    sent = {}
+
+    def fake_run(cmd, **kw):
+        if cmd[0] == 'scp':
+            with tarfile.open(cmd[-2]) as t:
+                sent['names'] = t.getnames()
+                t.extractall(tmp_path / 'E')                              # what tar.exe does on the desktop
+            return subprocess.CompletedProcess(cmd, 0, b'', b'')
+        if cmd[0] == 'ssh':
+            import base64
+            sent['script'] = base64.b64decode(cmd[-1]).decode('utf-16-le')
+            return subprocess.CompletedProcess(cmd, 0, b'OK X:\\Fotos\\E\r\n', b'')
+        raise AssertionError(cmd)
+    monkeypatch.setattr(share.subprocess, 'run', fake_run)
+    share.publish_all([mac_clip])                                         # desktop off: waits
+    assert not sent and os.path.exists(share._pending_path())
+    up['v'] = True
+    r = share.push_back([])                                               # next time it answers
+    assert r == {'pushed': 1}
+    assert sent['names'] == [os.path.relpath(share.shared_dir(mac_clip), hd) + '/vlm_v1.json']
+    assert "$job = 'E'" in sent['script'] and '--keep-newer-files' in sent['script']
+    assert "$pairs += ,@('BRUTOS\\_claudio\\analise\\C0011.MP4-" in sent['script'] and "'BRUTOS\\C0011.MP4')" in sent['script']
+    _machine(monkeypatch, tmp_path, 'desktop')
+    assert share.refresh(str(clip)) == 1                                  # the desktop takes it
+    assert json.load(open(os.path.join(core.cache_dir(str(clip)), 'vlm_v1.json')))['k']['descricao'] == 'noiva no altar'
+    assert share.push_back([]) == {'pushed': 0}                           # nothing left pending

@@ -12,12 +12,15 @@ instead of indexing again (transcript, thumbnails, picture, faces, voices, descr
                        same job there by its folder name and bring only the analysis over SSH (Tailscale) into this copy's
                        _claudio/analise — as if it had been copied — then adopt it. Settings: "share_from"
                        ("bernardo@100.72.145.75", a Windows OpenSSH server) and "share_roots" ("E:\\Fotos;D:\\…")
+  push_back(changed)   the way back: what the Mac redid (descriptions by the desktop's vision model, Scribe…) goes into
+                       the desktop's own job folder over the same SSH, so its next refresh takes it. Only when the
+                       desktop already answers (never wakes it); what could not go waits in <cache>/share_pending.json
 
 The local cache is keyed by the clip's path, which differs between machines (/mnt/e/… on the desktop, /Volumes/… on the
 Mac); the shared copy is keyed by name + size and checked against the modification time (±2 s: SMB and NTFS round it
 differently), so a different take with the same name is never mistaken for this one.
 """
-import base64, hashlib, json, os, re, shutil, subprocess, tempfile, time
+import base64, hashlib, json, os, re, shutil, subprocess, tarfile, tempfile, time, unicodedata, uuid
 
 from claudio import core
 
@@ -27,7 +30,12 @@ NO_COPY = {'proxy.json', IDENT}                      # the proxy is found again 
 
 
 def enabled():
-    return str(core.env('SHARE_ANALYSIS', '0')).lower() in ('1', 'true', 'sim', 'yes')
+    """Opt-in on the machine that indexes ({"share_analysis": "1"}); on the one that brings analysis in ("share_from") it
+    is on unless "share_analysis" says otherwise — publishing there only writes into its own copy of the job."""
+    v = core.env('SHARE_ANALYSIS')
+    if v is None:
+        return bool(core.env('SHARE_FROM'))
+    return str(v).lower() in ('1', 'true', 'sim', 'yes')
 
 
 def shared_dir(path, create=False):
@@ -83,18 +91,24 @@ def _localise(path, d):
         os.utime(p, (mt, mt))                 # keep "newer wins" honest: rewriting paths is not a newer analysis
 
 
-def publish(path):
+def _publish(path):
+    """→ (shared dir, names copied into it) or None."""
     if not enabled():
-        return 0
+        return None
     path = core.local_path(path)
     local = core.cache_dir(path)
     if not os.path.exists(os.path.join(local, 'index.json')):
-        return 0
+        return None
     d = shared_dir(path, create=True)
     os.makedirs(d, exist_ok=True)
     st = os.stat(path)
     json.dump({'name': os.path.basename(path), 'size': st.st_size, 'mtime': st.st_mtime}, open(os.path.join(d, IDENT), 'w'))
-    return len(_sync(local, d))
+    return d, _sync(local, d)
+
+
+def publish(path):
+    r = _publish(path)
+    return len(r[1]) if r else 0
 
 
 def adopt(path, local):
@@ -128,11 +142,20 @@ def refresh(path):
 
 def publish_all(paths, progress=lambda *_: None):
     n = 0
+    changed = []
     for k, p in enumerate(paths):
         progress(k / max(len(paths), 1), os.path.basename(p))
         try:
-            n += 1 if publish(p) else 0
+            r = _publish(p)
         except OSError:
+            continue
+        if r and r[1]:
+            n += 1
+            changed.append((core.local_path(p), *r))
+    if core.env('SHARE_FROM'):           # the Mac: its new work goes back to the desktop's copy of the job too
+        try:
+            push_back(changed, lambda line: progress(1.0, line))
+        except Exception:
             pass
     return n
 
@@ -182,9 +205,9 @@ def _job_root(folder):
     return d
 
 
-REMOTE = r"""
+FIND = r"""
 [Console]::OutputEncoding = [Text.Encoding]::UTF8
-$roots = @(%(roots)s); $job = %(job)s; $want = @(%(want)s)
+$roots = @(%(roots)s); $job = %(job)s
 $dir = $null
 foreach ($r in $roots) {
   if (-not (Test-Path -LiteralPath $r)) { continue }
@@ -192,6 +215,10 @@ foreach ($r in $roots) {
   if ($dir) { break }
 }
 if (-not $dir) { 'NAO_ACHEI'; exit }
+"""
+
+REMOTE = FIND + r"""
+$want = @(%(want)s)
 $have = @($want | Where-Object { Test-Path -LiteralPath (Join-Path $dir.FullName $_) })
 if (-not $have) { 'NADA ' + $dir.FullName; exit }
 $tmp = Join-Path $env:TEMP ('claudio-' + [guid]::NewGuid().ToString('N') + '.tar')
@@ -209,6 +236,101 @@ def remote_script(job, rels, roots):
     folders (relative to the job) into a temp file, print where. Sent -EncodedCommand: no quoting, accents intact."""
     return REMOTE % {'roots': ', '.join(map(_ps_quote, roots)), 'job': _ps_quote(job),
                      'want': ', '.join(_ps_quote(r.replace('/', '\\')) for r in rels)}
+
+
+PUSH = FIND + r"""
+$tar = Join-Path $HOME %(tar)s
+& tar.exe -xf $tar -C $dir.FullName --keep-newer-files
+$ok = $LASTEXITCODE
+Remove-Item -LiteralPath $tar -ErrorAction SilentlyContinue
+if ($ok) { 'TAR_FALHOU'; exit }
+$pairs = @()
+%(pairs)s
+foreach ($p in $pairs) {
+  $ident = Join-Path (Join-Path $dir.FullName $p[0]) 'ident.json'
+  $clip = Join-Path $dir.FullName $p[1]
+  if ((Test-Path -LiteralPath $ident) -or -not (Test-Path -LiteralPath $clip)) { continue }
+  $f = Get-Item -LiteralPath $clip
+  $j = @{name = $f.Name; size = $f.Length; mtime = ([DateTimeOffset]$f.LastWriteTimeUtc).ToUnixTimeMilliseconds() / 1000} | ConvertTo-Json -Compress
+  [IO.File]::WriteAllText($ident, $j)
+}
+'OK ' + $dir.FullName
+"""
+
+
+def push_script(job, tar, pairs, roots):
+    """Unpack the Mac's tar into the desktop's job (files newer there are kept), then give a clip analysed only on the
+    Mac its ident.json from the desktop's own file (the Mac's copy of the footage may carry another mtime)."""
+    return PUSH % {'roots': ', '.join(map(_ps_quote, roots)), 'job': _ps_quote(job), 'tar': _ps_quote(tar),
+                   'pairs': '\n'.join(f'$pairs += ,@({_ps_quote(a.replace("/", chr(92)))}, {_ps_quote(b.replace("/", chr(92)))})'
+                                       for a, b in pairs)}
+
+
+def _nfc(x):
+    return unicodedata.normalize('NFC', x)                # the Mac's drive may spell "Ação" decomposed; the desktop never does
+
+
+def _pending_path():
+    return os.path.join(core.CACHE, 'share_pending.json')
+
+
+def push_back(changed, progress=lambda *_: None):
+    """changed: [(clip, shared dir, names copied)] → {'pushed': files, 'note': …}. Files that could not go (desktop off,
+    job not there) are kept for the next call."""
+    if not core.env('SHARE_FROM'):
+        return {'pushed': 0}
+    try:
+        pending = json.load(open(_pending_path(), encoding='utf-8'))
+    except (OSError, ValueError):
+        pending = {}
+    for clip, d, names in changed:
+        root = _job_root(os.path.dirname(os.path.dirname(os.path.dirname(d))))
+        job = pending.setdefault(root, {'files': [], 'clips': {}})
+        rd = os.path.relpath(d, root).replace(os.sep, '/')
+        job['clips'][rd] = os.path.relpath(clip, root).replace(os.sep, '/')
+        job['files'] = sorted(set(job['files']) | {f'{rd}/{n}' for n in names})
+    if not pending:
+        return {'pushed': 0}
+
+    def save():
+        os.makedirs(core.CACHE, exist_ok=True)
+        json.dump(pending, open(_pending_path(), 'w', encoding='utf-8'), ensure_ascii=False)
+
+    if not _ssh_up():
+        save()
+        return {'pushed': 0, 'note': 'desktop desligado: a análise nova vai para ele na próxima vez'}
+    roots = [r for r in re.split(r'[;\n]', core.env('SHARE_ROOTS', 'E:\\Fotos')) if r.strip()]
+    pushed, notes = 0, []
+    for root in list(pending):
+        job = pending[root]
+        files = [f for f in job['files'] if os.path.exists(os.path.join(root, f))]
+        if not files:
+            del pending[root]
+            continue
+        progress(f'levando {len(files)} arquivo(s) de análise para o desktop')
+        name = f'claudio-push-{uuid.uuid4().hex}.tar'
+        with tempfile.TemporaryDirectory() as tmp:
+            t = os.path.join(tmp, name)
+            with tarfile.open(t, 'w', format=tarfile.PAX_FORMAT) as tf:
+                for f in files:
+                    tf.add(os.path.join(root, f), arcname=_nfc(f))
+            cp = subprocess.run(['scp', '-q', *SSH_OPTS, t, f'{core.env("SHARE_FROM")}:{name}'], capture_output=True, timeout=1800)
+        if cp.returncode:
+            notes.append(f'scp falhou: {cp.stderr.decode("utf-8", "replace")[:200]}')
+            continue
+        script = push_script(_nfc(os.path.basename(root)), name, [(_nfc(a), _nfc(b)) for a, b in job['clips'].items()], roots)
+        r = _ssh(['powershell', '-NoProfile', '-NonInteractive', '-EncodedCommand', _encoded(script)], timeout=600)
+        out = r.stdout.decode('utf-8', 'replace')
+        if 'OK ' in out:
+            pushed += len(files)
+            del pending[root]
+        elif 'NAO_ACHEI' in out:
+            notes.append(f'o trabalho "{os.path.basename(root)}" não está no desktop (procurei em {", ".join(roots)})')
+            del pending[root]            # not there: nothing to keep trying
+        else:
+            notes.append(f'o desktop respondeu outra coisa: {(r.stderr or r.stdout).decode("utf-8", "replace")[:200]}')
+    save()
+    return {'pushed': pushed, **({'note': '; '.join(notes)} if notes else {})}
 
 
 def _encoded(script):

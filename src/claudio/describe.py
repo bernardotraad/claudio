@@ -208,6 +208,12 @@ def describe(paths, progress=lambda *_: None, vlm=None):
     if vlm is not False and llm.endpoint():
         vlm, note = llm.ensure(lambda f, line: progress(0.0, line))
     vlm = bool(vlm)
+    from claudio import share
+    for p in paths:                      # what the other machine described since: its answers are free here
+        try:
+            share.refresh(p)
+        except OSError:
+            pass
     for k, p in enumerate(paths):
         progress(k / max(len(paths), 1), f'{os.path.basename(p)} ({k + 1}/{len(paths)})')
         lp = core.local_path(p)
@@ -226,7 +232,6 @@ def describe(paths, progress=lambda *_: None, vlm=None):
             sidecar.write_folder_md(d)
         except Exception:
             pass
-    from claudio import share
     if share.enabled():                  # the descriptions go to the other machine too
         share.publish_all([core.local_path(p) for p in paths])
     return {'results': res, 'engine': llm.model() if vlm else 'clip', 'note': note, 'gpu': gpu}
