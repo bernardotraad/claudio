@@ -66,6 +66,8 @@ def progress_line(j):
         s += f" · agora: {j['current']} ({STAGE_PT.get(j.get('stage'), j.get('stage') or '')} {int((j.get('stage_progress') or 0) * 100)}%)"
     if j.get('eta_min') is not None and j.get('state') == 'running':
         s += f" · ~{j['eta_min']:.0f} min restantes ({j.get('speed_x')}× tempo real)"
+    if j.get('fetched'):
+        s += f" · análise de {j['fetched']} clipe(s) trazida do desktop"
     if j.get('whisper_fallback'):
         s += f" · {j['whisper_fallback']} clipe(s) pelo Whisper ({j.get('stt_error', 'Scribe falhou')}; analisar de novo refaz pelo Scribe)"
     if j.get('state') != 'running':
@@ -126,11 +128,11 @@ def run(folder, vocabulary=None, lang='pt'):
     files = list_media(folder)
     durs = {}
 
-    def early(k):                    # reading every file's length takes ~2–3 s each over /mnt: show that it started
+    def early(k, line=None):         # reading every file's length takes ~2–3 s each over /mnt: show that it started
         pub = {'folder': core.nle_path(folder), 'pid': os.getpid(), 'state': 'running', 'started': time.time(),
                'updated': time.time(), 'files_total': len(files), 'files_done': 0, 'fraction': 0.0, 'errors': [],
                'current': None, 'stage': 'preparing',
-               'line': f'preparando: lendo {k} de {len(files)} arquivos (duração, câmera)'}
+               'line': line or f'preparando: lendo {k} de {len(files)} arquivos (duração, câmera)'}
         try:
             json.dump(pub, open(jp + '.tmp', 'w'), ensure_ascii=False); os.replace(jp + '.tmp', jp)
             pd = core.data_dir(folder)
@@ -152,9 +154,15 @@ def run(folder, vocabulary=None, lang='pt'):
             share.refresh(f)
         except OSError:
             pass
+    fetched = {}
+    try:                                 # no analysis here nor next to the footage: bring it from the other machine
+        fetched = share.fetch_missing(folder, files, lambda line: early(0, line))
+    except Exception as e:
+        fetched = {'note': f'não consegui trazer a análise do desktop: {e}'}
     todo = [f for f in files if not os.path.exists(os.path.join(core.cache_dir(f), 'index.json')) or vocabulary or core.needs_stt(f)]
     j = {'folder': core.nle_path(folder), 'pid': os.getpid(), 'state': 'running', 'started': time.time(), 'updated': time.time(),
-         'files_total': len(todo), 'files_done': 0, 'total_s': sum(durs[f] for f in todo), 'done_s': 0.0, 'errors': [],
+         'files_total': len(todo), 'files_done': 0, 'total_s': sum(durs[f] for f in todo), 'done_s': 0.0,
+         'errors': [fetched['note']] if fetched.get('note') and not fetched.get('fetched') else [], 'fetched': fetched.get('fetched', 0),
          'current': None, 'stage': None, 'stage_progress': 0, 'fraction': 0.0, 'eta_min': None, 'speed_x': None}
     last_md = [0.0]
 

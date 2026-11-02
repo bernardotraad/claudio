@@ -7,12 +7,17 @@ instead of indexing again (transcript, thumbnails, picture, faces, voices, descr
   adopt(path, local)   a clip with no local cache: take the shared copy (called by core.cache_dir), paths rewritten for
                        this machine
   refresh(path)        a clip already adopted: bring in what the other machine redid since (newer files win)
+  fetch_missing(folder, files)   clips with no analysis here nor next to the footage (an old job, a folder copied
+                       without _claudio): wake the machine that has it (Home Assistant, as for the local model), find the
+                       same job there by its folder name and bring only the analysis over SSH (Tailscale) into this copy's
+                       _claudio/analise — as if it had been copied — then adopt it. Settings: "share_from"
+                       ("bernardo@100.72.145.75", a Windows OpenSSH server) and "share_roots" ("E:\\Fotos;D:\\…")
 
 The local cache is keyed by the clip's path, which differs between machines (/mnt/e/… on the desktop, /Volumes/… on the
 Mac); the shared copy is keyed by name + size and checked against the modification time (±2 s: SMB and NTFS round it
 differently), so a different take with the same name is never mistaken for this one.
 """
-import hashlib, json, os, re, shutil
+import base64, hashlib, json, os, re, shutil, subprocess, tempfile, time
 
 from claudio import core
 
@@ -130,3 +135,128 @@ def publish_all(paths, progress=lambda *_: None):
         except OSError:
             pass
     return n
+
+
+# ── bringing a missing analysis from the other machine (SSH to a Windows OpenSSH server over Tailscale) ─────────────
+SSH_OPTS = ['-o', 'BatchMode=yes', '-o', 'ConnectTimeout=8', '-o', 'StrictHostKeyChecking=accept-new']
+
+
+def _ssh(args, timeout=120, data=None):
+    return subprocess.run(['ssh', *SSH_OPTS, core.env('SHARE_FROM'), *args], capture_output=True, timeout=timeout, input=data)
+
+
+def _ssh_up():
+    try:
+        return _ssh(['exit'], timeout=15).returncode == 0
+    except (subprocess.TimeoutExpired, OSError):
+        return False
+
+
+def _reachable(progress, wait=300):
+    """The other machine answers SSH — waking it through Home Assistant when it is off (claudio.llm.wake)."""
+    if _ssh_up():
+        return True, None
+    from claudio import llm
+    try:
+        how = llm.wake()
+    except Exception as e:
+        return False, f'não consegui ligar o desktop: {e}'
+    if not how:
+        return False, f'{core.env("SHARE_FROM")} não respondeu por SSH (desligado? configure wake_ha_*)'
+    t0 = time.time()
+    while time.time() - t0 < wait:
+        progress(f'ligando o desktop por {how}… {int(time.time() - t0)} s')
+        if _ssh_up():
+            return True, f'desktop ligado por {how}'
+        time.sleep(10)
+    return False, f'liguei o desktop por {how}, mas o SSH não respondeu em {wait // 60} min'
+
+
+def _job_root(folder):
+    """The job folder whose NAME identifies it on both machines: "…/2026-10-19 INC 9/BRUTOS" → "…/2026-10-19 INC 9"."""
+    from claudio import profile
+    raw = {n.lower() for n in profile.raw_names()} | {'videos', 'vídeos', 'brutos'}
+    d = os.path.abspath(folder)
+    while os.path.basename(d).lower() in raw and os.path.dirname(d) != d:
+        d = os.path.dirname(d)
+    return d
+
+
+REMOTE = r"""
+[Console]::OutputEncoding = [Text.Encoding]::UTF8
+$roots = @(%(roots)s); $job = %(job)s; $want = @(%(want)s)
+$dir = $null
+foreach ($r in $roots) {
+  if (-not (Test-Path -LiteralPath $r)) { continue }
+  $dir = Get-ChildItem -LiteralPath $r -Directory -Recurse -Depth 3 -ErrorAction SilentlyContinue | Where-Object Name -eq $job | Select-Object -First 1
+  if ($dir) { break }
+}
+if (-not $dir) { 'NAO_ACHEI'; exit }
+$have = @($want | Where-Object { Test-Path -LiteralPath (Join-Path $dir.FullName $_) })
+if (-not $have) { 'NADA ' + $dir.FullName; exit }
+$tmp = Join-Path $env:TEMP ('claudio-' + [guid]::NewGuid().ToString('N') + '.tar')
+Push-Location -LiteralPath $dir.FullName; & tar.exe -cf $tmp @have; Pop-Location
+'TAR ' + ($tmp -replace '\\', '/') + ' ' + $have.Count
+"""
+
+
+def _ps_quote(x):
+    return "'" + x.replace("'", "''") + "'"
+
+
+def remote_script(job, rels, roots):
+    """The PowerShell the other machine runs: find the job folder by name under the roots, tar the wanted analysis
+    folders (relative to the job) into a temp file, print where. Sent -EncodedCommand: no quoting, accents intact."""
+    return REMOTE % {'roots': ', '.join(map(_ps_quote, roots)), 'job': _ps_quote(job),
+                     'want': ', '.join(_ps_quote(r.replace('/', '\\')) for r in rels)}
+
+
+def _encoded(script):
+    return base64.b64encode(script.encode('utf-16-le')).decode()
+
+
+def fetch_missing(folder, files, progress=lambda *_: None):
+    """→ {'fetched': n, 'note': …}. Only clips with neither a local analysis nor one next to the footage."""
+    if not core.env('SHARE_FROM'):
+        return {'fetched': 0}
+    missing = []
+    for f in files:
+        try:
+            if not os.path.exists(os.path.join(core.cache_dir(f), 'index.json')):
+                missing.append(f)
+        except OSError:
+            pass
+    if not missing:
+        return {'fetched': 0}
+    ok, note = _reachable(progress)
+    if not ok:
+        return {'fetched': 0, 'note': note}
+    root = _job_root(folder)
+    rels = {}
+    for f in missing:
+        d = shared_dir(f)
+        rels[os.path.relpath(d, root).replace(os.sep, '/')] = f
+    roots = [r for r in re.split(r'[;\n]', core.env('SHARE_ROOTS', 'E:\\Fotos')) if r.strip()]
+    progress(f'procurando "{os.path.basename(root)}" no desktop ({len(missing)} clipe(s) sem análise)')
+    r = _ssh(['powershell', '-NoProfile', '-NonInteractive', '-EncodedCommand', _encoded(remote_script(os.path.basename(root), list(rels), roots))], timeout=600)
+    out = r.stdout.decode('utf-8', 'replace').strip().splitlines()
+    line = next((x for x in out if x.startswith(('TAR ', 'NADA', 'NAO_ACHEI'))), '')
+    if line.startswith('NAO_ACHEI'):
+        return {'fetched': 0, 'note': f'o trabalho "{os.path.basename(root)}" não está no desktop (procurei em {", ".join(roots)})'}
+    if not line.startswith('TAR '):
+        return {'fetched': 0, 'note': 'o desktop ' + ('não tem análise desses clipes' if line.startswith('NADA') else
+                                                     f'respondeu outra coisa: {(r.stderr or r.stdout).decode("utf-8", "replace")[:200]}')}
+    remote = line.split(' ')[1]
+    progress('trazendo a análise do desktop')
+    with tempfile.TemporaryDirectory() as tmp:
+        local_tar = os.path.join(tmp, 'a.tar')
+        cp = subprocess.run(['scp', '-q', *SSH_OPTS, f'{core.env("SHARE_FROM")}:{remote}', local_tar], capture_output=True, timeout=1800)
+        _ssh(['cmd', '/c', 'del', remote.replace('/', '\\')], timeout=30)
+        if cp.returncode:
+            return {'fetched': 0, 'note': f'scp falhou: {cp.stderr.decode("utf-8", "replace")[:200]}'}
+        subprocess.run(['tar', '-xf', local_tar, '-C', root], check=True)
+    n = 0
+    for rel, f in rels.items():
+        if adopt(f, core.cache_dir(f)):
+            n += 1
+    return {'fetched': n, 'note': note}

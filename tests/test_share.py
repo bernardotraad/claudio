@@ -73,3 +73,50 @@ def test_publishing_is_opt_in(tmp_path, monkeypatch):
     clip, _ = _setup(tmp_path, monkeypatch)
     monkeypatch.setattr(share, 'enabled', lambda: False)
     assert share.publish(str(clip)) == 0 and not os.path.exists(os.path.dirname(share.shared_dir(str(clip))))
+
+
+def test_a_job_copied_without_analysis_brings_it_from_the_desktop(tmp_path, monkeypatch):
+    """The Mac has the job on an external drive but no _claudio: SSH to the desktop, find the job by its folder name,
+    tar only the analysis of the missing clips, unpack it into the drive's copy and adopt it."""
+    import shutil, subprocess, tarfile
+    clip, _ = _setup(tmp_path, monkeypatch)
+    share.publish(str(clip))
+    job_desktop = tmp_path / 'E'
+    hd = tmp_path / 'HD' / 'E'                                           # the same job on the external drive…
+    (hd / 'BRUTOS').mkdir(parents=True)
+    shutil.copy2(clip, hd / 'BRUTOS' / 'C0011.MP4')                       # …the footage copied, mtime kept, no _claudio
+    _machine(monkeypatch, tmp_path, 'mac')
+    env = {'SHARE_FROM': 'bernardo@desktop', 'SHARE_ROOTS': 'X:\\Fotos'}
+    real_env = core.env
+    monkeypatch.setattr(core, 'env', lambda n, d=None: env.get(n, real_env(n, d)))
+    monkeypatch.setattr(share, '_reachable', lambda progress: (True, 'desktop ligado por Home Assistant (switch.x)'))
+    asked = {}
+    real_run = subprocess.run
+
+    def fake_run(cmd, **kw):
+        if cmd[0] == 'ssh' and 'powershell' in cmd:
+            import base64
+            asked['script'] = base64.b64decode(cmd[-1]).decode('utf-16-le')
+            tar = tmp_path / 'remote.tar'
+            with tarfile.open(tar, 'w') as t:
+                t.add(job_desktop / 'BRUTOS' / '_claudio', arcname='BRUTOS/_claudio')
+            return subprocess.CompletedProcess(cmd, 0, f'TAR C:/Temp/claudio-1.tar 1\n'.encode(), b'')
+        if cmd[0] == 'scp':
+            shutil.copy(tmp_path / 'remote.tar', cmd[-1]); return subprocess.CompletedProcess(cmd, 0, b'', b'')
+        if cmd[0] == 'ssh':
+            return subprocess.CompletedProcess(cmd, 0, b'', b'')
+        return real_run(cmd, **kw)
+    monkeypatch.setattr(share.subprocess, 'run', fake_run)
+    mac_clip = str(hd / 'BRUTOS' / 'C0011.MP4')
+    r = share.fetch_missing(str(hd / 'BRUTOS'), [mac_clip])
+    assert r['fetched'] == 1 and 'Home Assistant' in r['note']
+    assert "$job = 'E'" in asked['script'] and 'BRUTOS\\_claudio\\analise\\C0011.MP4-' in asked['script']
+    idx = json.load(open(os.path.join(core.cache_dir(mac_clip), 'index.json')))
+    assert idx['info']['path'] == mac_clip                                 # adopted, on the Mac's path
+    assert os.path.isdir(hd / 'BRUTOS' / '_claudio' / 'analise')           # and kept on the drive for next time
+    assert share.fetch_missing(str(hd / 'BRUTOS'), [mac_clip]) == {'fetched': 0}   # nothing missing any more
+
+
+def test_the_desktop_never_fetches(tmp_path, monkeypatch):
+    monkeypatch.setattr(core, 'env', lambda n, d=None: d)
+    assert share.fetch_missing(str(tmp_path), [str(tmp_path / 'x.mp4')]) == {'fetched': 0}

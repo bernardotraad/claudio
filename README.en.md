@@ -395,6 +395,7 @@ Text you write in the `.md` files outside the `<!-- claudio:auto -->` markers is
 | `CLAUDIO_WAKE_HA_URL` / `CLAUDIO_WAKE_HA_ENTITY` | — | Home Assistant that turns the Ollama machine on (e.g. a Wake on LAN switch); token in `~/.config/claudio/ha_token` |
 | `CLAUDIO_WAKE_MAC` / `CLAUDIO_WAKE_BROADCAST` | — | or a plain Wake-on-LAN packet (same network only) |
 | `CLAUDIO_SHARE_ANALYSIS` | `0` | `1` leaves each clip's analysis next to the footage (`_claudio/analise/`) so another machine that sees the same files (a Mac over SMB) uses it instead of analysing again |
+| `CLAUDIO_SHARE_FROM` / `CLAUDIO_SHARE_ROOTS` | — | where a missing analysis comes from: `user@host` of a Windows OpenSSH server (woken with `wake_ha_*`) and the folders to look for the job in (`E:\Fotos;…`); only the analysis travels, never the footage |
 
 The old `DECUPA_*` variables still work. Any of them can also go in `~/.config/claudio/settings.json`, lowercase and
 without the prefix (`{"stt": "whisper"}`) — handier, since the MCP and the panel run through `wsl.exe`.

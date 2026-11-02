@@ -404,6 +404,7 @@ O que você escrever nos `.md` fora dos marcadores `<!-- claudio:auto -->` nunca
 | `CLAUDIO_WAKE_HA_URL` / `CLAUDIO_WAKE_HA_ENTITY` | — | Home Assistant que liga a máquina do Ollama (ex.: um switch de Wake on LAN); token em `~/.config/claudio/ha_token` |
 | `CLAUDIO_WAKE_MAC` / `CLAUDIO_WAKE_BROADCAST` | — | ou um pacote Wake-on-LAN direto (só na mesma rede) |
 | `CLAUDIO_SHARE_ANALYSIS` | `0` | `1` deixa a análise de cada clipe ao lado dos brutos (`_claudio/analise/`), para outra máquina que vê os mesmos arquivos (o Mac pelo SMB) usar sem reanalisar |
+| `CLAUDIO_SHARE_FROM` / `CLAUDIO_SHARE_ROOTS` | — | de onde vem a análise que faltar: `usuário@máquina` de um OpenSSH Server no Windows (ligado pelo `wake_ha_*`) e as pastas onde procurar o trabalho (`E:\Fotos;…`); só a análise viaja, nunca os brutos |
 
 As variáveis antigas `DECUPA_*` continuam valendo. Qualquer uma também pode ir em `~/.config/claudio/settings.json`,
 em minúsculas e sem o prefixo — mais prático, porque o MCP e o painel rodam pelo `wsl.exe`:
@@ -427,6 +428,10 @@ arquivos (ex.: o Mac pelo SMB, com outro caminho) adota essa análise na primeir
 miniaturas, imagem, rostos, vozes, descrições e correções de legenda —, sem decodificar nem transcrever. O clipe é
 reconhecido por nome + tamanho + data (±2 s), nunca pelo caminho; o que uma máquina refaz depois chega à outra no
 próximo "Analisar material" (o arquivo mais novo vence). `claudio-run share '{"folder": …}'` publica um trabalho antigo.
+Se a análise não veio junto (trabalho antigo, pasta copiada sem `_claudio`), o "Analisar material" da outra máquina
+a busca por SSH: com `share_from` (ex.: `bernardo@100.72.145.75`, um OpenSSH Server no Windows) e `share_roots`
+(ex.: `E:\\Fotos`), ele liga o desktop pelo `wake_ha_*` se preciso, acha o trabalho pelo nome da pasta, traz só a
+análise dos clipes que faltam e grava em `_claudio/analise/` da cópia — os brutos nunca passam pela rede.
 
 **Modelo local (opcional).** Com `ollama` no `settings.json`, o **06 Descrever planos** descreve um quadro de cada trecho com um
 modelo de visão rodando na GPU (Ollama; ~2,5 s por trecho numa RTX 3060), em português, e o CLIP fica de reserva. As respostas
