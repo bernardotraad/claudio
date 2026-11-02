@@ -818,11 +818,19 @@ def transcribe(d, lang, progress=lambda *_: None, duration=1, vocabulary=None, a
 
     def run(vad):
         words, out = [], []
-        segs, info = whisper().transcribe(
-            audio, language=lang or None, word_timestamps=True, vad_filter=vad,
-            vad_parameters={'min_silence_duration_ms': 300} if vad else None,
-            condition_on_previous_text=False,   # keep repeated takes instead of "deduplicating" them
-            initial_prompt=prompt if vad else None)
+        batch = int(env('WHISPER_BATCH', '8'))
+        if vad and batch > 1:
+            # each stretch of voice on its own (batched): the sequential pass skipped whole lines, repeated takes among
+            # them (INC 9, 36 clips: 54% → 63% of Scribe's words on the worst 7; revised captions found 87% → 88%), 2x faster
+            from faster_whisper import BatchedInferencePipeline
+            segs, info = BatchedInferencePipeline(whisper()).transcribe(
+                audio, language=lang or None, word_timestamps=True, batch_size=batch, initial_prompt=prompt)
+        else:
+            segs, info = whisper().transcribe(
+                audio, language=lang or None, word_timestamps=True, vad_filter=vad,
+                vad_parameters={'min_silence_duration_ms': 300} if vad else None,
+                condition_on_previous_text=False,   # keep repeated takes instead of "deduplicating" them
+                initial_prompt=prompt if vad else None)
         for s in segs:
             if not vad and (s.no_speech_prob > 0.6 and s.avg_logprob < -1 or s.compression_ratio > 2.4):
                 continue                        # without the VAD Whisper also "hears" words in the instruments
