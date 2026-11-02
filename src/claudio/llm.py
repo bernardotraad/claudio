@@ -97,8 +97,9 @@ def ensure(progress=lambda *_: None, wait=WAIT_BOOT):
     return False, f'liguei o desktop por {how}, mas o Ollama não respondeu em {wait // 60} min'
 
 
-def vision(jpeg, prompt, schema=None, timeout=120):
-    """One picture → the answer (parsed JSON when a schema is given). Low temperature: logging, not prose."""
+def vision(jpeg, prompt, schema=None, timeout=300):
+    """One picture → the answer (parsed JSON when a schema is given). Low temperature: logging, not prose. The first call
+    after the model was unloaded also loads it (69 s measured on the desktop, Ollama as a SYSTEM task): hence the timeout."""
     body = {'model': model(), 'stream': False, 'keep_alive': core.env('OLLAMA_KEEP_ALIVE', '2m'),
             'options': {'temperature': 0.1, 'num_ctx': 4096},
             'messages': [{'role': 'user', 'content': prompt, 'images': [base64.b64encode(jpeg).decode()]}]}
