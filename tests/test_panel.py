@@ -99,9 +99,9 @@ def test_tool_images_shown(page):
 def test_local_buttons_and_model(page):
     pg, _ = page
     loc = pg.evaluate("[...document.querySelectorAll('#quick button.loc')].map(b=>b.dataset.q)")
-    assert set(loc) == {'index', 'qc', 'stereo', 'flatten', 'status', 'multicam', 'describe', 'clean', 'sfx', 'captions', 'captions_mogrt', 'stt'}
+    assert set(loc) == {'index', 'qc', 'stereo', 'flatten', 'status', 'multicam', 'describe', 'clean', 'sfx', 'slowmo', 'captions', 'captions_mogrt', 'stt'}
     # music / montar / aprender: a local form first (sequences / recipes / folder), then maybe the AI — not "sem IA"
-    assert pg.evaluate("Object.keys(LOCAL).sort().join(',')") == 'aprender,captions,captions_mogrt,clean,describe,flatten,index,montar,multicam,music,qc,sfx,status,stereo,stt'
+    assert pg.evaluate("Object.keys(LOCAL).sort().join(',')") == 'aprender,captions,captions_mogrt,clean,describe,flatten,index,montar,multicam,music,qc,sfx,slowmo,status,stereo,stt'
     assert pg.evaluate("typeof QUICK.captions_ai") == 'function'                    # the old way, kept as a fallback
     ai = {q for q in pg.evaluate("[...document.querySelectorAll('#quick button:not(.loc)')].map(b=>b.dataset.q)") if not q.startswith('recipe:')}
     assert ai <= set(pg.evaluate("Object.keys(QUICK)")) | {'music', 'montar', 'aprender'}
@@ -223,8 +223,8 @@ def test_montar_buttons_come_from_the_recipes(page):
       renderRecipeButtons(RECIPES);
       return {before, after, prompt};}""")
     assert r['before'][7:12] == ['08 Aprender com vídeos prontos', '09 Montar com receita', '10 Selects', '11 Corte por quem fala', '12 Recap de evento']
-    assert r['before'][-1] == '23 Registrar no vault'
-    assert r['after'][11:13] == ['12 Recap de evento', '13 Podcast'] and r['after'][-1] == '24 Registrar no vault'
+    assert r['before'][-1] == '24 Registrar no vault'
+    assert r['after'][11:13] == ['12 Recap de evento', '13 Podcast'] and r['after'][-1] == '25 Registrar no vault'
     assert 'recipe("podcast")' in r['prompt'] and 'E:\\job\\projeto' in r['prompt']
     pg.click('#quick button[data-q="montar"]')
     pg.wait_for_function("document.querySelectorAll('input[name=claudio-recipe]').length > 0")

@@ -802,6 +802,20 @@ const LOCAL = {
       droppedLine(r) + `\n\nSequência nova: **${r.sequence}** · XML: \`${r.nle_path}\``);
     importButtons(m, r.nle_path);
   }),
+  slowmo: () => localJob('câmera lenta', async () => {
+    const x = await exportActive(); if (!x) return;
+    const pre = await runLocal('slowmo', { nle_xml: x, dry_run: true });
+    if (!pre.ok || pre.error) return add('local err', pre.error || 'falhou');
+    add('local', `**${pre.to_make} clipe(s)** em câmera lenta, ${pre.frames} quadros para criar na GPU (~${Math.ceil(pre.frames / 2.2 / 60)} min em 4K)…`, false);
+    const r = await runLocal('slowmo', { nle_xml: x });
+    if (!r.ok || r.error) return add('local err', r.error || 'falhou');
+    const skip = (r.clips || []).filter((c) => c.skip);
+    const m = add('local', `**${r.slowed} clipe(s)** refeitos pelo RIFE (${r.render_s} s), a 100 % na trilha nova **${r.slowmo_tracks.join(', ')}**, com os efeitos do clipe. ` +
+      `Os originais ficam embaixo: desligue a trilha nova para comparar.` +
+      (skip.length ? `\n\nDeixei com o Premiere: ${skip.map((c) => `${c.clip} (${c.skip})`).join('; ')}.` : '') +
+      `\n\nMídia: \`${path.dirname(r.media[0].replace(/\\/g, '/'))}\`` + droppedLine(r) + `\n\nSequência nova: **${r.sequence}** · XML: \`${r.nle_path}\``);
+    importButtons(m, r.nle_path);
+  }),
   captions_mogrt: () => localJob('legenda MOGRT: estilos', async () => {
     await readContext(); await evalHost('claudioSave()');          // the caption fixed in Premiere is read from the saved project
     const st = await runLocal('mogrt_styles', { job: jobFolder(), prproj: ctx.project, sequence: ctx.sequence });

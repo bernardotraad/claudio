@@ -61,6 +61,10 @@ def check():
         add(WARN, 'skill motion-designer não encontrada', 'opcional (overlays, legendas, narração): claudio-doctor --fix-skill')
     has_key = bool(os.environ.get('ELEVENLABS_API_KEY')) or os.path.exists(os.path.expanduser('~/.config/elevenlabs/api_key'))
     add(OK if has_key else WARN, 'ElevenLabs', 'chave encontrada' if has_key else 'opcional: ~/.config/elevenlabs/api_key (sem ela, narração pelo edge-tts grátis)')
+    from claudio import gpu
+    gs = gpu.status()
+    for k, what in (('rife', 'câmera lenta (RIFE, GPU)'), ('tts', 'narração local (Qwen3-TTS, GPU)')):
+        add(OK if not gs[k] else WARN, what, gpu.python() if not gs[k] else 'opcional: ' + gs[k])
     stt = core.stt_engine()
     add(OK, 'motor de transcrição', 'ElevenLabs Scribe (sem crédito ou chave, cai no Whisper local)' if stt == 'elevenlabs' else
         'Whisper local' + (' (Scribe desligado: {"stt": "whisper"} em ~/.config/claudio/settings.json)' if has_key else
@@ -103,6 +107,9 @@ def main():
         print(('skill motion-designer: ' + r['why']) if r.get('skipped') else
               f"skill motion-designer instalada em {r['installed']} ({skill.REPO}@{r['commit']})" +
               (f"; a anterior ficou em {r['backup']}" if r.get('backup') else ''))
+    if '--fix-gpu' in sys.argv:
+        from claudio import gpu
+        gpu.setup()
     if '--fix-browser' in sys.argv:
         # headless shell only: overlays and captions launch Chromium headless, and the full browser is +366 MB unused
         subprocess.run([sys.executable, '-m', 'playwright', 'install', '--only-shell', 'chromium'])

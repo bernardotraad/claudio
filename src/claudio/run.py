@@ -12,6 +12,7 @@
   sync        {"cameras", "external_audio"?, "out_xml"?, "labels"?}   multicam sync (PluralEyes-style)
   clean       {"nle_xml", "max_pause"?, "fillers"?}  pauses + hesitations out of an edited sequence (new sequence)
   sfx         {"nle_xml", "whoosh"?, "pops"?, "sfx_dir"?}  whoosh into b-roll, pop on caption keywords (new audio track)
+  slowmo      {"nle_xml", "dry_run"?}              clips slowed in the NLE remade by RIFE (GPU), on a new video track
   mogrt       {"nle_xml", "style", "srt"?, "job"?}    caption MOGRTs: template (After Effects) + placement plan
   mogrt_styles {"job"?}                            the styles on offer (+ the client's brand one) and the .srt found
   stt         {"set"?: "elevenlabs" | "whisper"}   transcription engine (Scribe on/off), saved in settings.json
@@ -219,6 +220,11 @@ def _sfx(a):
                        a.get('sfx_dir') or prof.get('sfx_dir'), extra_keywords=(prof.get('caption_look') or {}).get('emphasis_words') or ())
 
 
+def _slowmo(a):
+    from claudio import slowmo
+    return slowmo.slowmo_timeline(a['nle_xml'], _out_xml(a, 'câmera lenta'), dry_run=bool(a.get('dry_run')))
+
+
 def _from_premiere(a):
     """The caption as the editor left it in Premiere (track C1 of the active sequence, read from the saved .prproj),
     written as <sequence>_revisada.srt in the job's captions folder. None when the sequence has no caption track."""
@@ -405,7 +411,7 @@ def _share(a):
 
 
 ACTIONS = {'share': _share, 'captions_prep': _captions_prep, 'captions_preview': _captions_preview, 'captions_make': _captions_make,
-           'search': _search, 'similar': _similar, 'learn': _learn, 'bench': _bench, 'recipes': _recipes, 'profile': _profile, 'stt': _stt, 'stt_check': _stt_check, 'retranscribe': _retranscribe, 'clean': _clean, 'sfx': _sfx, 'mogrt': _mogrt, 'mogrt_styles': _mogrt_styles, 'describe': _describe, 'multicam_plan': _multicam_plan, 'status': _status, 'index': _index, 'stereo': _stereo, 'flatten': _flatten, 'qc': _qc, 'sync': _sync}
+           'search': _search, 'similar': _similar, 'learn': _learn, 'bench': _bench, 'recipes': _recipes, 'profile': _profile, 'stt': _stt, 'stt_check': _stt_check, 'retranscribe': _retranscribe, 'clean': _clean, 'sfx': _sfx, 'slowmo': _slowmo, 'mogrt': _mogrt, 'mogrt_styles': _mogrt_styles, 'describe': _describe, 'multicam_plan': _multicam_plan, 'status': _status, 'index': _index, 'stereo': _stereo, 'flatten': _flatten, 'qc': _qc, 'sync': _sync}
 
 
 def main():

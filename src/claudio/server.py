@@ -1074,6 +1074,15 @@ def add_sfx(nle_xml: str, out_xml: str = None, whoosh: bool = True, pops: bool =
 
 
 @mcp.tool()
+def slowmo(nle_xml: str, out_xml: str = None, dry_run: bool = False) -> dict:
+    """Real slow motion: every clip the editor slowed in the NLE (constant speed < 100 %) remade by RIFE frame
+    interpolation (GPU, ProRes 10-bit, log stays log) on a NEW video track above, at 100 % with the clip's effects —
+    in a copy "<name> (câmera lenta)". ~80 s per 3 s of 4K at 50 %. dry_run: only what would be made."""
+    from claudio import slowmo as sm
+    return sm.slowmo_timeline(nle_xml, out_xml, dry_run=dry_run)
+
+
+@mcp.tool()
 def music_brief(nle_xmls: list) -> list:
     """Soundtrack step 1, per sequence: exact length, share of speech (→ instrumental bed), cut pace, music already there,
     and search constraints (instrumental, BPM range, energy, minimum duration) for a music-store connector such as
