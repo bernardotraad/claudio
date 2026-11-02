@@ -226,4 +226,7 @@ def describe(paths, progress=lambda *_: None, vlm=None):
             sidecar.write_folder_md(d)
         except Exception:
             pass
+    from claudio import share
+    if share.enabled():                  # the descriptions go to the other machine too
+        share.publish_all([core.local_path(p) for p in paths])
     return {'results': res, 'engine': llm.model() if vlm else 'clip', 'note': note, 'gpu': gpu}

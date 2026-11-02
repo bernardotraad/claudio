@@ -403,6 +403,7 @@ O que você escrever nos `.md` fora dos marcadores `<!-- claudio:auto -->` nunca
 | `CLAUDIO_VLM_MODEL` | `qwen3-vl:8b-instruct` | modelo de visão (a tag `qwen3-vl:8b` é a que "pensa": ~10× mais lenta) |
 | `CLAUDIO_WAKE_HA_URL` / `CLAUDIO_WAKE_HA_ENTITY` | — | Home Assistant que liga a máquina do Ollama (ex.: um switch de Wake on LAN); token em `~/.config/claudio/ha_token` |
 | `CLAUDIO_WAKE_MAC` / `CLAUDIO_WAKE_BROADCAST` | — | ou um pacote Wake-on-LAN direto (só na mesma rede) |
+| `CLAUDIO_SHARE_ANALYSIS` | `0` | `1` deixa a análise de cada clipe ao lado dos brutos (`_claudio/analise/`), para outra máquina que vê os mesmos arquivos (o Mac pelo SMB) usar sem reanalisar |
 
 As variáveis antigas `DECUPA_*` continuam valendo. Qualquer uma também pode ir em `~/.config/claudio/settings.json`,
 em minúsculas e sem o prefixo — mais prático, porque o MCP e o painel rodam pelo `wsl.exe`:
@@ -419,6 +420,13 @@ Whisper, fica anotado em `stt_error` e aparece no Status; sem crédito ou com ch
 direto pelo Whisper. Analisar de novo depois refaz esses clipes pelo Scribe. `{"stt": "whisper"}` desliga o Scribe.
 Medido no INC 9 (36 clipes): o texto empata (legendas revisadas 90% × 88%), mas o Whisper erra o início da palavra em
 2,4 frames (mediana) e perde fala fora do microfone (contagem, equipe).
+
+**Análise compartilhada entre máquinas.** Com `share_analysis` = `1`, ao fim do "Analisar material" e do "Descrever planos" a
+análise de cada clipe é copiada para `<pasta>/_claudio/analise/` (~4 MB por clipe). Outra máquina que abre os mesmos
+arquivos (ex.: o Mac pelo SMB, com outro caminho) adota essa análise na primeira vez que vê o clipe — transcrição,
+miniaturas, imagem, rostos, vozes, descrições e correções de legenda —, sem decodificar nem transcrever. O clipe é
+reconhecido por nome + tamanho + data (±2 s), nunca pelo caminho; o que uma máquina refaz depois chega à outra no
+próximo "Analisar material" (o arquivo mais novo vence). `claudio-run share '{"folder": …}'` publica um trabalho antigo.
 
 **Modelo local (opcional).** Com `ollama` no `settings.json`, o **06 Descrever planos** descreve um quadro de cada trecho com um
 modelo de visão rodando na GPU (Ollama; ~2,5 s por trecho numa RTX 3060), em português, e o CLIP fica de reserva. As respostas

@@ -12,7 +12,7 @@ from claudio import core, profile, sidecar
 
 JOBS = os.path.join(core.CACHE, 'jobs')
 STAGE_W = {'probe': (0.0, 0.02), 'audio': (0.02, 0.08), 'picture': (0.10, 0.65), 'speech': (0.75, 0.25)}
-STAGE_PT = {'probe': 'lendo metadados', 'audio': 'áudio', 'picture': 'imagem', 'speech': 'transcrição', 'visual': 'busca visual', 'vocals': 'separando a voz da música', 'people': 'rostos e vozes'}
+STAGE_PT = {'probe': 'lendo metadados', 'audio': 'áudio', 'picture': 'imagem', 'speech': 'transcrição', 'visual': 'busca visual', 'vocals': 'separando a voz da música', 'people': 'rostos e vozes', 'share': 'deixando a análise para a outra máquina'}
 
 
 def job_path(folder):
@@ -146,6 +146,12 @@ def run(folder, vocabulary=None, lang='pt'):
             durs[f] = 0.0
         if k % 3 == 2:
             early(k + 1)
+    from claudio import share
+    for f in files:                      # what another machine redid since (Scribe, descriptions…): newer files win
+        try:
+            share.refresh(f)
+        except OSError:
+            pass
     todo = [f for f in files if not os.path.exists(os.path.join(core.cache_dir(f), 'index.json')) or vocabulary or core.needs_stt(f)]
     j = {'folder': core.nle_path(folder), 'pid': os.getpid(), 'state': 'running', 'started': time.time(), 'updated': time.time(),
          'files_total': len(todo), 'files_done': 0, 'total_s': sum(durs[f] for f in todo), 'done_s': 0.0, 'errors': [],
@@ -235,6 +241,13 @@ def run(folder, vocabulary=None, lang='pt'):
         j.update(current=None, stage=None)
     except Exception as e:
         j['errors'].append(f'rostos e vozes indisponíveis: {e}')
+    if share.enabled():                  # leave the analysis next to the footage for the other machine
+        j.update(current=None, stage='share', stage_progress=0)
+        save()
+        try:
+            j['shared'] = share.publish_all(files)
+        except Exception as e:
+            j['errors'].append(f'compartilhar a análise: {e}')
     j['state'] = 'done'
     save(True)
     try:

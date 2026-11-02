@@ -23,6 +23,7 @@
   learn       {"client", "folder" | "paths", "limit"?, "base"?, "overwrite"?}  a client from delivered videos, without AI
   search      {"folder", "query", "kinds"?}        the panel's search box: speech, logs, named people, picture (thumbnails)
   similar     {"folder", "path", "t"}              shots that look like that moment (a hit, or the Source Monitor frame)
+  share       {"folder"}                           leave this folder's analysis next to the footage for the other machine
   captions_prep    {"nle_xml", "job"?}              Legendas sem IA, 1: the sentences, with the local model's proofreading
   captions_preview {"nle_xml", "aspect", "corrected"?, "job"?}   2: one frame with each style (image as data: URI)
   captions_make    {"nle_xml", "style", "sequence", "corrected"?, "job"?}   3: the .srt in the job's captions folder
@@ -394,7 +395,16 @@ def _captions_make(a):
     return motion.captions_srt(a['nle_xml'], out, None, None, None, a.get('corrected'), None, style, look)
 
 
-ACTIONS = {'captions_prep': _captions_prep, 'captions_preview': _captions_preview, 'captions_make': _captions_make,
+def _share(a):
+    from claudio import core, indexer, share
+    files = indexer.list_media(a['folder'])
+    if not share.enabled():
+        return {'shared': 0, 'note': 'desligado: {"share_analysis": "1"} em ~/.config/claudio/settings.json'}
+    n = share.publish_all(files)
+    return {'shared': n, 'clips': len(files)}
+
+
+ACTIONS = {'share': _share, 'captions_prep': _captions_prep, 'captions_preview': _captions_preview, 'captions_make': _captions_make,
            'search': _search, 'similar': _similar, 'learn': _learn, 'bench': _bench, 'recipes': _recipes, 'profile': _profile, 'stt': _stt, 'stt_check': _stt_check, 'retranscribe': _retranscribe, 'clean': _clean, 'sfx': _sfx, 'mogrt': _mogrt, 'mogrt_styles': _mogrt_styles, 'describe': _describe, 'multicam_plan': _multicam_plan, 'status': _status, 'index': _index, 'stereo': _stereo, 'flatten': _flatten, 'qc': _qc, 'sync': _sync}
 
 

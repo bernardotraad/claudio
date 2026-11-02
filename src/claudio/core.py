@@ -228,10 +228,18 @@ def file_url(p):
 
 
 def cache_dir(path):
+    """This machine's cache of a clip (keyed by its path here). A clip seen for the first time takes the analysis another
+    machine left next to the footage, if any (claudio.share), instead of being analysed again."""
     st = os.stat(path)
     key = hashlib.sha1(f'{path}|{st.st_size}|{int(st.st_mtime)}'.encode()).hexdigest()[:16]
     d = os.path.join(CACHE, f'{re.sub(r"[^A-Za-z0-9_.-]", "_", os.path.basename(path))[:40]}-{key}')
-    os.makedirs(d, exist_ok=True)
+    if not os.path.isdir(d):
+        os.makedirs(d, exist_ok=True)
+        try:
+            from claudio import share
+            share.adopt(path, d)
+        except Exception:
+            pass
     return d
 
 
