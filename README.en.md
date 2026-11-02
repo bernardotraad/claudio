@@ -388,11 +388,11 @@ Text you write in the `.md` files outside the `<!-- claudio:auto -->` markers is
 | `CLAUDIO_WHISPER` / `CLAUDIO_MLX_MODEL` | `large-v3-turbo` | transcription model |
 | `CLAUDIO_FFMPEG_GPU` | `~/.local/opt/ffmpeg-*/bin/ffmpeg` | ffmpeg with CUDA |
 | `CLAUDIO_GPU` / `CLAUDIO_FAST` | `1` | `0` turns off NVDEC / keyframe mode |
-| `CLAUDIO_STT` | `whisper` | `elevenlabs` transcribes with ElevenLabs Scribe (paid, word timings within 1–2 frames of the voice) |
+| `CLAUDIO_STT` | `elevenlabs` | with an ElevenLabs key, transcribes with Scribe (word timings within 1–2 frames of the voice); out of credits or no key → local Whisper; `whisper` = Whisper only |
 | `CLAUDIO_SCRIBE_MODEL` | `scribe_v2` | Scribe model |
 
 The old `DECUPA_*` variables still work. Any of them can also go in `~/.config/claudio/settings.json`, lowercase and
-without the prefix (`{"stt": "elevenlabs"}`) — handier, since the MCP and the panel run through `wsl.exe`.
+without the prefix (`{"stt": "whisper"}`) — handier, since the MCP and the panel run through `wsl.exe`.
 
 Word edges are always put on the voice measured in the audio (free, local): captions don't come in over the silence
 before speech and cuts don't clip a word's tail. With Scribe on, "Analisar material" redoes only the transcript of

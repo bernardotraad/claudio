@@ -62,9 +62,9 @@ def check():
     has_key = bool(os.environ.get('ELEVENLABS_API_KEY')) or os.path.exists(os.path.expanduser('~/.config/elevenlabs/api_key'))
     add(OK if has_key else WARN, 'ElevenLabs', 'chave encontrada' if has_key else 'opcional: ~/.config/elevenlabs/api_key (sem ela, narração pelo edge-tts grátis)')
     stt = core.stt_engine()
-    add(OK, 'motor de transcrição', 'ElevenLabs Scribe (pago)' if stt == 'elevenlabs' else
-        'Whisper local' + (' — Scribe escolhido mas sem chave' if core.env('STT') == 'elevenlabs' else
-                           (' (Scribe: {"stt": "elevenlabs"} em ~/.config/claudio/settings.json)' if has_key else '')))
+    add(OK, 'motor de transcrição', 'ElevenLabs Scribe (sem crédito ou chave, cai no Whisper local)' if stt == 'elevenlabs' else
+        'Whisper local' + (' (Scribe desligado: {"stt": "whisper"} em ~/.config/claudio/settings.json)' if has_key else
+                           ' (com a chave do ElevenLabs, o Scribe vira o padrão)'))
     from claudio import clients, profile
     prof = profile.summary()
     f = prof['pastas']

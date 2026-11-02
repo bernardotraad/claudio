@@ -857,9 +857,10 @@ def transcribe(d, lang, progress=lambda *_: None, duration=1, vocabulary=None, a
 
 
 def stt_engine():
-    """'elevenlabs' (Scribe, paid: word timings within ~1–2 frames of the voice) when chosen in settings.json /
-    CLAUDIO_STT and a key exists; else 'whisper' (local, free)."""
-    return 'elevenlabs' if env('STT', 'whisper') == 'elevenlabs' and elevenlabs_key() else 'whisper'
+    """'elevenlabs' (Scribe: word timings within ~1–2 frames of the voice, off-mic crew talk kept) whenever a key exists,
+    unless settings.json / CLAUDIO_STT says "whisper"; else 'whisper' (local, free). Measured on INC 9: the text ties
+    (revised captions 90% vs 88%), Whisper's word starts sit 2.4 frames off. Out of credits → Whisper (scribe_off)."""
+    return 'elevenlabs' if env('STT', 'elevenlabs') == 'elevenlabs' and elevenlabs_key() else 'whisper'
 
 
 def elevenlabs_key():
@@ -879,14 +880,20 @@ def sounds_like_song(d):
     return sum(t['end'] - t['start'] for t in ts) < 0.5 * len(audio)
 
 
+_scribe_off = None                                  # why Scribe stopped answering in this process (credits, key)
+
+
 def transcribe_scribe(d, lang, progress=lambda *_: None):
     """ElevenLabs Scribe v2 on the clip's 16 kHz audio (sent as FLAC). The answer is cached in the clip's cache dir
     (scribe.json): a re-index, a new vocabulary or a migration never pays twice. Raises on any failure — the caller
     falls back to Whisper."""
     import httpx
+    global _scribe_off
     cp = os.path.join(d, 'scribe.json')
     if os.path.exists(cp):
         r = json.load(open(cp))
+    elif _scribe_off:                               # no credits / bad key earlier in this run: don't ask again per clip
+        raise RuntimeError(_scribe_off)
     else:
         flac = os.path.join(d, 'a16.flac')
         run(['ffmpeg', '-v', 'error', '-y', '-f', 's16le', '-ar', str(SR), '-ac', '1', '-i', os.path.join(d, 'a16.pcm'), flac])
@@ -900,7 +907,10 @@ def transcribe_scribe(d, lang, progress=lambda *_: None):
         finally:
             os.remove(flac)
         if resp.status_code != 200:
-            raise RuntimeError(f'ElevenLabs {resp.status_code}: {resp.text[:300]}')
+            msg = f'ElevenLabs {resp.status_code}: {resp.text[:300]}'
+            if resp.status_code in (401, 402) or re.search(r'quota|credit|insufficient', resp.text, re.I):
+                _scribe_off = msg
+            raise RuntimeError(msg)
         r = resp.json()
         json.dump(r, open(cp, 'w'), ensure_ascii=False)
     words = [{'w': w['text'].strip(), 's': round(float(w['start']), 3), 'e': round(float(w['end']), 3),

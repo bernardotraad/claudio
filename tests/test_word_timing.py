@@ -2,6 +2,7 @@
 import json, os
 
 import numpy as np
+import pytest
 
 from claudio import core
 
@@ -71,6 +72,34 @@ def test_engine_comes_from_the_settings_file(tmp_path, monkeypatch):
     assert core.stt_engine() == 'elevenlabs'
     monkeypatch.setenv('CLAUDIO_STT', 'whisper')   # the environment wins
     assert core.stt_engine() == 'whisper'
+
+
+def test_scribe_is_the_default_when_there_is_a_key(tmp_path, monkeypatch):
+    monkeypatch.setattr(core, 'SETTINGS', str(tmp_path / 'settings.json'))       # no settings file
+    monkeypatch.delenv('CLAUDIO_STT', raising=False)
+    monkeypatch.setattr(core, 'elevenlabs_key', lambda: 'x')
+    assert core.stt_engine() == 'elevenlabs'
+    monkeypatch.setattr(core, 'elevenlabs_key', lambda: None)                      # no key: Whisper
+    assert core.stt_engine() == 'whisper'
+
+
+def test_out_of_credits_falls_back_to_whisper_once(tmp_path, monkeypatch):
+    """The first 402 (quota) turns Scribe off for the rest of the run: the next clips go straight to Whisper."""
+    import httpx
+    calls = []
+
+    class R:
+        status_code, text = 401, '{"detail":{"status":"quota_exceeded","message":"This request exceeds your quota"}}'
+    monkeypatch.setattr(httpx, 'post', lambda *a, **k: calls.append(1) or R())
+    monkeypatch.setattr(core, '_scribe_off', None)
+    monkeypatch.setattr(core, 'elevenlabs_key', lambda: 'x')
+    monkeypatch.setattr(core, 'run', lambda cmd, **kw: open(cmd[-1], 'wb').close())    # the FLAC encode
+    for _ in range(3):
+        d = tmp_path / str(len(list(tmp_path.iterdir())))
+        d.mkdir()
+        with pytest.raises(RuntimeError, match='quota'):
+            core.transcribe_scribe(str(d), 'pt')
+    assert len(calls) == 1 and 'quota' in core._scribe_off
 
 
 def test_panel_switch_writes_the_setting(tmp_path, monkeypatch):

@@ -66,6 +66,8 @@ def progress_line(j):
         s += f" · agora: {j['current']} ({STAGE_PT.get(j.get('stage'), j.get('stage') or '')} {int((j.get('stage_progress') or 0) * 100)}%)"
     if j.get('eta_min') is not None and j.get('state') == 'running':
         s += f" · ~{j['eta_min']:.0f} min restantes ({j.get('speed_x')}× tempo real)"
+    if j.get('whisper_fallback'):
+        s += f" · {j['whisper_fallback']} clipe(s) pelo Whisper ({j.get('stt_error', 'Scribe falhou')}; analisar de novo refaz pelo Scribe)"
     if j.get('state') != 'running':
         s += f" · {({'done': 'concluído', 'interrupted': 'interrompido', 'error': 'erro'}).get(j.get('state'), j.get('state'))}"
     return s
@@ -191,6 +193,9 @@ def run(folder, vocabulary=None, lang='pt'):
                 if time.time() - j['updated'] > 2:
                     save()
             idx = core.build_index(f, lang, prog, False, vocabulary, core.stt_engine())
+            if (idx.get('speech') or {}).get('stt_error'):          # Scribe failed (credits, network): Whisper did it
+                j['whisper_fallback'] = j.get('whisper_fallback', 0) + 1
+                j['stt_error'] = idx['speech']['stt_error'][:160]
             try:
                 sidecar.write_clip_md(idx)
             except Exception as e:

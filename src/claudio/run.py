@@ -269,7 +269,7 @@ def _stt(a):
     from claudio import core
     if a.get('set') in ('elevenlabs', 'whisper'):
         core.set_setting('stt', a['set'])
-    return {'stt': core.stt_engine(), 'chosen': core.env('STT', 'whisper'), 'has_key': bool(core.elevenlabs_key())}
+    return {'stt': core.stt_engine(), 'chosen': core.env('STT', 'elevenlabs'), 'has_key': bool(core.elevenlabs_key())}
 
 
 def _stt_check(a):

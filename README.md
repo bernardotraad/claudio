@@ -397,20 +397,24 @@ O que você escrever nos `.md` fora dos marcadores `<!-- claudio:auto -->` nunca
 | `CLAUDIO_WHISPER` / `CLAUDIO_MLX_MODEL` | `large-v3-turbo` | modelo de transcrição |
 | `CLAUDIO_FFMPEG_GPU` | `~/.local/opt/ffmpeg-*/bin/ffmpeg` | ffmpeg com CUDA |
 | `CLAUDIO_GPU` / `CLAUDIO_FAST` | `1` | `0` desliga a NVDEC / o modo keyframes |
-| `CLAUDIO_STT` | `whisper` | `elevenlabs` transcreve pelo ElevenLabs Scribe (pago, tempos de palavra a 1–2 frames da voz) |
+| `CLAUDIO_STT` | `elevenlabs` | com a chave do ElevenLabs, transcreve pelo Scribe (tempos de palavra a 1–2 frames da voz); `whisper` = só o Whisper local |
 | `CLAUDIO_SCRIBE_MODEL` | `scribe_v2` | modelo do Scribe |
 
 As variáveis antigas `DECUPA_*` continuam valendo. Qualquer uma também pode ir em `~/.config/claudio/settings.json`,
 em minúsculas e sem o prefixo — mais prático, porque o MCP e o painel rodam pelo `wsl.exe`:
 
 ```json
-{"stt": "elevenlabs"}
+{"stt": "whisper"}
 ```
 
-**Scribe (opcional).** Com `stt` = `elevenlabs`, "Analisar material" transcreve pela API (resposta guardada no cache
-do clipe: reanalisar não paga de novo). Clipes já analisados pelo Whisper refazem **só a transcrição** — a imagem não é
-reanalisada. Música continua no Whisper + voz isolada. Qualquer erro da API (sem crédito, sem internet, chave sem
-permissão) cai no Whisper e fica anotado em `stt_error` no índice. Voltar para `whisper` + analisar refaz pelo Whisper.
+**Scribe primeiro, Whisper de reserva.** Com a chave do ElevenLabs (`~/.config/elevenlabs/api_key`), "Analisar
+material" transcreve pelo Scribe (resposta guardada no cache do clipe: reanalisar não paga de novo); sem chave, pelo
+Whisper local na GPU. Clipes já analisados pelo outro motor refazem **só a transcrição** — a imagem não é reanalisada.
+Música continua no Whisper + voz isolada. Qualquer erro da API (sem crédito, sem internet, chave sem permissão) cai no
+Whisper, fica anotado em `stt_error` e aparece no Status; sem crédito ou com chave recusada, o resto da análise já vai
+direto pelo Whisper. Analisar de novo depois refaz esses clipes pelo Scribe. `{"stt": "whisper"}` desliga o Scribe.
+Medido no INC 9 (36 clipes): o texto empata (legendas revisadas 90% × 88%), mas o Whisper erra o início da palavra em
+2,4 frames (mediana) e perde fala fora do microfone (contagem, equipe).
 
 No painel, o **14 Transcrição Scribe** liga/desliga o Scribe e lista as sequências do projeto com fala em A1, **lidas
 como estão agora na timeline** (não de XML salvo), com as legendadas que ainda usam o Whisper já marcadas. "Refazer com
