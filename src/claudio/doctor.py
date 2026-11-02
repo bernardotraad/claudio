@@ -63,8 +63,9 @@ def check():
     add(OK if has_key else WARN, 'ElevenLabs', 'chave encontrada' if has_key else 'opcional: ~/.config/elevenlabs/api_key (sem ela, narração local pelo Kokoro)')
     from claudio import gpu
     gs = gpu.status()
-    for k, what in (('rife', 'câmera lenta (RIFE, GPU)'), ('tts', 'narração local (Kokoro pt-BR / Qwen3-TTS)')):
-        add(OK if not gs[k] else WARN, what, gpu.python() if not gs[k] else 'opcional: ' + gs[k])
+    for k, what in (('rife', 'câmera lenta (RIFE, GPU)'), ('tts', 'narração local (Kokoro pt-BR / Qwen3-TTS)'),
+                    ('clone', 'narração clonando uma voz (Chatterbox)')):
+        add(OK if not gs[k] else WARN, what, (gpu.clone_python() if k == 'clone' else gpu.python()) if not gs[k] else 'opcional: ' + gs[k])
     stt = core.stt_engine()
     add(OK, 'motor de transcrição', 'ElevenLabs Scribe (sem crédito ou chave, cai no Whisper local)' if stt == 'elevenlabs' else
         'Whisper local' + (' (Scribe desligado: {"stt": "whisper"} em ~/.config/claudio/settings.json)' if has_key else

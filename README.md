@@ -241,8 +241,11 @@ Cláudio, o Editor**.
   MIT): o botão **Câmera lenta** refaz com quadros intermediários de verdade todo clipe que você deixou abaixo de 100 %
   no Premiere, numa trilha nova (4K a 50 %: ~80 s por 3 s de plano na RTX 3060). E o **Kokoro**
   ([hexgrad/kokoro](https://github.com/hexgrad/kokoro), Apache-2.0): narração grátis com vozes nativas pt-BR
-  (`pm_alex`, `pm_santa`, `pf_dora`), o padrão da ferramenta `narration`. O Qwen3-TTS (`engine="qwen"`) clona voz,
-  mas o português dele é de Portugal, mesmo clonando um brasileiro.
+  (`pm_alex`, `pm_santa`, `pf_dora`), o padrão da ferramenta `narration`. Para **clonar uma voz** (um trecho do
+  cliente ou seu), `engine="chatterbox"` ([Chatterbox](https://github.com/resemble-ai/chatterbox), MIT, num venv
+  próprio): mantém o sotaque brasileiro. O Qwen3-TTS (`engine="qwen"`) também clona, mas o português dele é de
+  Portugal. Marca com pronúncia própria vai no perfil do cliente: `"pronuncia": {"INC": "Ink"}` (a voz fala "Ink",
+  o roteiro e as legendas continuam "INC").
 - **ElevenLabs** (narração com a voz mais natural, paga): salve a chave em `~/.config/elevenlabs/api_key` dentro do
   Ubuntu. A mesma chave (com a permissão *Speech to Text*) liga a transcrição pelo
   **Scribe** — veja `stt` em [Configuração](#configuração).

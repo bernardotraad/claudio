@@ -17,3 +17,9 @@ def test_qwen_voice_must_be_known(tmp_path, monkeypatch):
     import pytest
     with pytest.raises(ValueError):
         motion._qwen(['oi'], str(tmp_path), 'voz-que-nao-existe', 'pt')
+
+
+def test_spoken_reads_brands_as_they_sound():
+    assert motion.spoken('Na INC, cada apartamento da inc', {'INC': 'Ínqui'}) == 'Na Ínqui, cada apartamento da Ínqui'
+    assert motion.spoken('Na INC, cada apartamento', {}) == 'Na INC. cada apartamento'    # "INCada" no more
+    assert motion.spoken('Incrível, não?', {'INC': 'Ínqui'}) == 'Incrível, não?'          # whole words only

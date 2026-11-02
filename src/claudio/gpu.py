@@ -5,6 +5,8 @@ as a subprocess with that venv's Python.
   RIFE (slowmo.py)        frame interpolation — github.com/hzwer/Practical-RIFE (MIT), model v4.25
   Kokoro (motion.py)      narration, native pt-BR voices — github.com/hexgrad/kokoro (Apache-2.0)
   Qwen3-TTS (motion.py)   narration with voice cloning — github.com/QwenLM/Qwen3-TTS (Apache-2.0); European Portuguese
+  Chatterbox (motion.py)  voice cloning that keeps a Brazilian accent — github.com/resemble-ai/chatterbox (MIT), in a
+                          venv of its own (CLAUDIO_CLONE_PYTHON, default ~/.local/opt/claudio-clone): it pins torch 2.6
 
   python()      CLAUDIO_GPU_PYTHON, default ~/.local/opt/claudio-gpu/bin/python
   rife_dir()    CLAUDIO_RIFE_DIR, default ~/.local/opt/rife/src (Practical-RIFE checkout + train_log/)
@@ -19,6 +21,11 @@ from claudio import core
 RIFE_REPO, RIFE_COMMIT = 'https://github.com/hzwer/Practical-RIFE', 'bbfd2ea'
 RIFE_MODEL = '1ZKjcbmt1hypiFprJPIKW0Tt0lr_2i7bg'        # v4.25 (Google Drive id from the README; MIT like the code)
 PACKAGES = ['qwen-tts==0.1.1', 'kokoro==0.9.4', 'torchvision', 'soundfile', 'gdown']
+CLONE_PACKAGES = ['chatterbox-tts==0.1.7']
+
+
+def clone_python():
+    return os.path.expanduser(core.env('CLONE_PYTHON', '~/.local/opt/claudio-clone/bin/python'))
 
 
 def python():
@@ -44,7 +51,10 @@ def status():
     return {'python': None,
             'rife': None if os.path.exists(os.path.join(rife_dir(), 'train_log', 'flownet.pkl')) and _has('torchvision')
             else f'RIFE não instalado em {rife_dir()}: claudio-doctor --fix-gpu',
-            'tts': None if _has('kokoro') else 'kokoro não instalado no venv da GPU: claudio-doctor --fix-gpu'}
+            'tts': None if _has('kokoro') else 'kokoro não instalado no venv da GPU: claudio-doctor --fix-gpu',
+            'clone': None if os.path.exists(clone_python()) and subprocess.run([clone_python(), '-c', 'import chatterbox'],
+                                                                                capture_output=True).returncode == 0
+            else f'Chatterbox não instalado ({clone_python()}): claudio-doctor --fix-gpu'}
 
 
 def setup(log=print):
@@ -59,6 +69,11 @@ def setup(log=print):
         subprocess.run([uv, 'venv', '-p', '3.12', venv], check=True, env=env)
     log('instalando torch + qwen-tts + torchvision (alguns GB)')
     subprocess.run([uv, 'pip', 'install', '-p', python(), *PACKAGES, '--index-strategy', 'unsafe-best-match'], check=True, env=env)
+    cv = os.path.dirname(os.path.dirname(clone_python()))
+    if not os.path.exists(clone_python()):
+        log(f'criando o venv da clonagem de voz em {cv}')
+        subprocess.run([uv, 'venv', '-p', '3.11', cv], check=True, env=env)
+    subprocess.run([uv, 'pip', 'install', '-p', clone_python(), *CLONE_PACKAGES], check=True, env=env)
     rd = rife_dir()
     if not os.path.isdir(os.path.join(rd, '.git')):
         log(f'baixando o Practical-RIFE em {rd}')

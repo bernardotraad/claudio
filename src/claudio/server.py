@@ -1136,8 +1136,9 @@ def event_recap(project: str, footage: str, music: str, duration: float = 45, as
 def narration(text: str, out_folder: str, engine: str = 'kokoro', voice: str = None, budget: int = None) -> dict:
     """Narration for the edit (paragraphs = acts). engine='kokoro' (default: local, free, native pt-BR voices
     pm_alex / pm_santa / pf_dora) · 'elevenlabs' (paid: one take; voice = voice_id; hard credit budget, default = text
-    length + 10 % — tell the user the cost BEFORE running) · 'qwen' (local, clones the voice of a file passed as voice —
-    but its Portuguese is European) · 'edge' (free edge-tts). Returns narration.wav + words.json to import on an audio
+    length + 10 % — tell the user the cost BEFORE running) · 'chatterbox' (local, clones the voice of a file passed as
+    voice, Brazilian accent kept) · 'qwen' (clones too, but European Portuguese) · 'edge' (free edge-tts). Brands are
+    said as the client profile's "pronuncia" says. Returns narration.wav + words.json to import on an audio
     track. Follow motion_reference('Narration') for how to write the script."""
     from claudio import motion
     return motion.narration(text, out_folder, engine, voice, budget)

@@ -562,8 +562,7 @@ def _qwen(chunks, out_dir, voice, lang):
     else:
         job['design'], how = QWEN_DESIGN, 'voz desenhada (padrão)'
     res = _gpu_tts('tts_qwen.py', job, out_dir)
-    wav = _assemble(res['wavs'], chunks, out_dir, lang)
-    return wav, f'Qwen3-TTS {job["size"]} · {how} · {res["seconds"]} s na GPU ({res["vram_gb"]} GB)'
+    return res, f'Qwen3-TTS {job["size"]} · {how} · {res["seconds"]} s na GPU ({res["vram_gb"]} GB)'
 
 
 KOKORO_VOICES = {'pt': ('pm_alex', 'pm_santa', 'pf_dora'), 'en': ('am_michael', 'af_heart', 'bm_george', 'bf_emma'),
@@ -576,17 +575,49 @@ def _kokoro(chunks, out_dir, voice, lang):
     l2 = lang[:2]
     v = voice or core.env('KOKORO_VOICE') or KOKORO_VOICES.get(l2, ('pm_alex',))[0]
     res = _gpu_tts('tts_kokoro.py', {'chunks': chunks, 'voice': v, 'lang': KOKORO_LANG.get(l2, 'p'), 'out_dir': out_dir}, out_dir)
-    return _assemble(res['wavs'], chunks, out_dir, lang), f'Kokoro {v} · {res["seconds"]} s'
+    return res, f'Kokoro {v} · {res["seconds"]} s'
 
 
-def _gpu_tts(worker, job, out_dir):
+def _chatterbox(chunks, out_dir, voice, lang):
+    """Chatterbox Multilingual cloning the voice of a file (a clip of the client, a take of the editor): the accent
+    comes from that take, Brazilian included."""
     from claudio import gpu
-    if not os.path.exists(gpu.python()):
-        raise RuntimeError(gpu.status()['tts'])
+    if not voice or not os.path.exists(core.local_path(voice)):
+        raise ValueError('chatterbox clona uma voz: passe em voice um arquivo de áudio/vídeo com ~10 s de fala')
+    ref, _ = _ref_take(core.local_path(voice), out_dir, lang[:2])
+    res = _gpu_tts('tts_chatterbox.py', {'chunks': chunks, 'ref_audio': ref, 'lang': lang[:2], 'out_dir': out_dir}, out_dir,
+                   python=gpu.clone_python(), missing=gpu.status()['clone'])
+    return res, f'Chatterbox · voz clonada de {os.path.basename(voice)} · {res["seconds"]} s na GPU'
+
+
+def pronunciation(out_dir):
+    """{written: said} for the TTS: the job's client profile ("pronuncia") over settings.json ("pronuncia")."""
+    v = core.env('PRONUNCIA') or {}
+    m = dict(json.loads(v) if isinstance(v, str) else v)
+    try:
+        from claudio.run import client_for
+        m.update((client_for(out_dir) or {}).get('pronuncia') or {})
+    except Exception:
+        pass
+    return m
+
+
+def spoken(text, said):
+    """The script as the TTS should read it: each brand as it sounds (whole words, any case), and a comma right after
+    an acronym made a full stop — Chatterbox ran "INC, cada" into "INCada"."""
+    for w, s in sorted((said or {}).items(), key=lambda x: -len(x[0])):
+        text = re.sub(r'(?<!\w)' + re.escape(w) + r'(?!\w)', s, text, flags=re.I)
+    return re.sub(r'\b([A-ZÁÉÍÓÚ]{2,6}),\s', r'\1. ', text)
+
+
+def _gpu_tts(worker, job, out_dir, python=None, missing=None):
+    from claudio import gpu
+    if not os.path.exists(python or gpu.python()):
+        raise RuntimeError(missing or gpu.status()['tts'])
     jp = os.path.join(out_dir, 'tts_job.json')
     json.dump(job, open(jp, 'w', encoding='utf-8'), ensure_ascii=False)
     env = {**os.environ, 'HF_HUB_DISABLE_TELEMETRY': '1', 'TMPDIR': os.path.expanduser('~/.cache/tmp')}
-    r = subprocess.run([gpu.python(), gpu.worker(worker), jp], capture_output=True, text=True, env=env)
+    r = subprocess.run([python or gpu.python(), gpu.worker(worker), jp], capture_output=True, text=True, env=env)
     if r.returncode:
         raise RuntimeError(f'{worker} falhou: ' + (r.stderr or r.stdout)[-600:])
     return json.loads(r.stdout.strip().splitlines()[-1])
@@ -612,18 +643,21 @@ def _assemble(wavs, chunks, out_dir, lang):
 def narration(text, out_dir, engine='elevenlabs', voice=None, budget=None, lang='pt'):
     """Narration for the edit. elevenlabs: the skill's el_tts.py (one take, word timings, cache, hard credit budget —
     budget defaults to the text length + 10 %). edge: free edge-tts voices (pt-BR Thalita/Antonio). kokoro: local and
-    free, native pt-BR voices (pm_alex, pm_santa, pf_dora). qwen: Qwen3-TTS, local, clones a voice (voice = a file,
-    "design: <description>" or a built-in name) — its Portuguese is European, even cloning a Brazilian.
+    free, native pt-BR voices (pm_alex, pm_santa, pf_dora). chatterbox: local, clones the voice of a file (voice = the
+    file), Brazilian accent kept. qwen: Qwen3-TTS, local, clones too — but its Portuguese is European.
+    Brands are read as the client profile's "pronuncia" says ({"INC": "Ínqui"}); words.json keeps the spelling.
     Paragraphs (blank line between) are the acts: one take each, joined with a breath."""
     out_dir = core.local_path(out_dir)
     os.makedirs(out_dir, exist_ok=True)
     script = os.path.join(out_dir, 'script.txt')
     open(script, 'w', encoding='utf-8').write(text.strip() + '\n')
     chunks = [c.strip() for c in re.split(r'\n\s*\n', text.strip()) if c.strip()]
-    if engine == 'kokoro':
-        wav, info = _kokoro(chunks, out_dir, voice, lang)
-    elif engine == 'qwen':
-        wav, info = _qwen(chunks, out_dir, voice, lang)
+    said = pronunciation(out_dir)
+    read = [spoken(c, said) for c in chunks]          # what the voice reads; words.json keeps the script's spelling
+    local = {'kokoro': _kokoro, 'qwen': _qwen, 'chatterbox': _chatterbox}
+    if engine in local:
+        res, info = local[engine](read, out_dir, voice, lang)
+        wav = _assemble(res['wavs'], chunks, out_dir, lang)
     elif engine == 'elevenlabs':
         sd = skill_dir()
         if not voice:

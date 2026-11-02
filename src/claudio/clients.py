@@ -8,7 +8,8 @@
 
   profile fields: vocabulary · receita (the kind of project they usually order: claudio.recipes) · formats (aspect,
   duration, platform) · end_card (file, in/out) · music (tracks/folder used, style) · captions · structure
-  (hook/body/CTA…) · house_style (measured from finished timelines) · notes · jobs (history).
+  (hook/body/CTA…) · house_style (measured from finished timelines) · pronuncia ({"INC": "Ínqui"}: how the brand is
+  SAID, for the narration's TTS — the script and captions keep the spelling) · notes · jobs (history).
 """
 import datetime, json, os, re, statistics
 
