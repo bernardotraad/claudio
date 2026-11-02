@@ -60,10 +60,10 @@ def check():
     except Exception:
         add(WARN, 'skill motion-designer não encontrada', 'opcional (overlays, legendas, narração): claudio-doctor --fix-skill')
     has_key = bool(os.environ.get('ELEVENLABS_API_KEY')) or os.path.exists(os.path.expanduser('~/.config/elevenlabs/api_key'))
-    add(OK if has_key else WARN, 'ElevenLabs', 'chave encontrada' if has_key else 'opcional: ~/.config/elevenlabs/api_key (sem ela, narração pelo edge-tts grátis)')
+    add(OK if has_key else WARN, 'ElevenLabs', 'chave encontrada' if has_key else 'opcional: ~/.config/elevenlabs/api_key (sem ela, narração local pelo Kokoro)')
     from claudio import gpu
     gs = gpu.status()
-    for k, what in (('rife', 'câmera lenta (RIFE, GPU)'), ('tts', 'narração local (Qwen3-TTS, GPU)')):
+    for k, what in (('rife', 'câmera lenta (RIFE, GPU)'), ('tts', 'narração local (Kokoro pt-BR / Qwen3-TTS)')):
         add(OK if not gs[k] else WARN, what, gpu.python() if not gs[k] else 'opcional: ' + gs[k])
     stt = core.stt_engine()
     add(OK, 'motor de transcrição', 'ElevenLabs Scribe (sem crédito ou chave, cai no Whisper local)' if stt == 'elevenlabs' else

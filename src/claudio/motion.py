@@ -8,7 +8,8 @@ Everything here produces ASSETS for the editor's timeline (never the final video
   caption_overlay(nle_xml)      styled social captions (the skill's Captions(): chunked per sentence, word pops on the
                                 spoken word, plate behind) synced to the edit → one alpha .mov over the whole timeline
   captions_srt(nle_xml)         the same captions as an .srt — editable in Premiere's caption track / Resolve subtitles
-  narration(text, ...)          ElevenLabs (skill's el_tts.py: one take, word timings, credit budget) or edge-tts
+  narration(text, ...)          ElevenLabs (skill's el_tts.py: one take, word timings, credit budget), Qwen3-TTS (local
+                                GPU, free, clones a voice) or edge-tts
                                 → narration.wav + words.json to place on an audio track
   reference(topic)              the skill's craft rules (readability, safe zones, captions, narration…) to follow
 
@@ -479,15 +480,152 @@ def caption_overlay(nle_xml, out_dir, ar=None, accent='#4ea1ff', uppercase=None,
 
 
 # ───────────────────────────── narration ─────────────────────────────
+QWEN_SPEAKERS = ('Vivian', 'Serena', 'Uncle_Fu', 'Dylan', 'Eric', 'Ryan', 'Aiden', 'Ono_Anna', 'Sohee')
+# in English: described in Portuguese the voice came out female, thin and from Portugal (Bernardo, 2026-11-02)
+QWEN_DESIGN = ('Adult male voice, deep and warm, low pitch. Native Brazilian Portuguese speaker with a neutral '
+               'São Paulo accent (Brazil, not Portugal). Calm, confident real-estate commercial narrator, clear articulation.')
+QWEN_LANG = {'pt': 'Portuguese', 'en': 'English', 'es': 'Spanish', 'fr': 'French', 'de': 'German', 'it': 'Italian',
+             'ru': 'Russian', 'ja': 'Japanese', 'ko': 'Korean', 'zh': 'Chinese'}
+LEAD, GAP = 0.20, 0.35          # as the skill's el_tts.py: the first word never on frame 0; a breath between paragraphs
+
+
+def _pcm16(path, start=0.0, dur=None):
+    import numpy as np
+    cmd = ['ffmpeg', '-v', 'error', '-ss', f'{start:.3f}', '-i', path] + (['-t', f'{dur:.3f}'] if dur else []) + \
+          ['-vn', '-ac', '1', '-ar', str(core.SR), '-f', 's16le', '-']
+    return np.frombuffer(core.run(cmd).stdout, np.int16).astype(np.float32) / 32768
+
+
+def _hear(audio, lang):
+    """Whisper's words on a mono 16 kHz array: [{w, s, e}]."""
+    segs, _ = core.whisper().transcribe(audio, language=lang, word_timestamps=True, condition_on_previous_text=False)
+    return [{'w': w.word.strip(), 's': round(w.start, 3), 'e': round(w.end, 3)} for s in segs for w in (s.words or []) if w.word.strip()]
+
+
+def _ref_take(path, out_dir, lang, max_s=12.0):
+    """A voice to clone: up to ~12 s of continuous speech from an audio/video file (a clip of the client, a take of
+    the editor) → ref.wav + exactly what is said in it (Qwen clones far better with the transcript)."""
+    a = _pcm16(path)
+    ws = _hear(a, lang)
+    if not ws:
+        raise ValueError(f'não ouvi fala em {os.path.basename(path)} para clonar a voz')
+    s0, keep = ws[0]['s'], []
+    for w in ws:
+        if w['e'] - s0 > max_s or (keep and w['s'] - keep[-1]['e'] > 1.0):
+            if keep and keep[-1]['e'] - s0 >= 4:
+                break
+            if w['e'] - s0 > max_s:
+                break
+            s0, keep = w['s'], []
+        keep.append(w)
+    s, e = max(0, keep[0]['s'] - 0.1), keep[-1]['e'] + 0.15
+    ref = os.path.join(out_dir, 'ref.wav')
+    core.run(['ffmpeg', '-v', 'error', '-y', '-ss', f'{s:.3f}', '-t', f'{e - s:.3f}', '-i', path, '-vn', '-ac', '1', '-ar', '24000', ref])
+    return ref, core.clean_text(' '.join(w['w'] for w in keep))
+
+
+def _script_words(heard, script, chunk_starts):
+    """Whisper's timings with the SCRIPT's spelling (brand names, numbers as written): difflib pairs the words;
+    each word gets the paragraph ("act") it was spoken in."""
+    import difflib
+    toks = script.split()
+    a = [core.norm(w['w']) for w in heard]
+    b = [core.norm(t) for t in toks]
+    out = []
+    for op, i1, i2, j1, j2 in difflib.SequenceMatcher(None, a, b, autojunk=False).get_opcodes():
+        if op == 'equal' or (op == 'replace' and i2 - i1 == j2 - j1):
+            out += [{**heard[i], 'w': toks[j]} for i, j in zip(range(i1, i2), range(j1, j2))]
+        elif op == 'replace' and i2 > i1:              # n heard → m written: spread the written ones over that time
+            s, e = heard[i1]['s'], heard[i2 - 1]['e']
+            for k, j in enumerate(range(j1, j2)):
+                out.append({'w': toks[j], 's': round(s + (e - s) * k / (j2 - j1), 3), 'e': round(s + (e - s) * (k + 1) / (j2 - j1), 3)})
+    for w in out:
+        w['act'] = max([k for k, t in enumerate(chunk_starts) if t <= (w['s'] + w['e']) / 2] or [0])
+    return out
+
+
+def _qwen(chunks, out_dir, voice, lang):
+    """Qwen3-TTS in the GPU venv (claudio.gpu): one wav per paragraph → narration.wav (48 kHz stereo) + words.json."""
+    job = {'chunks': chunks, 'language': QWEN_LANG.get(lang[:2], 'Portuguese'), 'out_dir': out_dir,
+           'size': core.env('QWEN_TTS_SIZE', '1.7B')}
+    v = (voice or core.env('TTS_VOICE') or '').strip()
+    if v.lower().startswith('design:'):
+        job['design'], how = v[7:].strip(), 'voz desenhada'
+    elif v in QWEN_SPEAKERS:
+        job['speaker'], how = v, f'voz pronta {v}'
+    elif v and os.path.exists(core.local_path(v)):
+        job['ref_audio'], job['ref_text'] = _ref_take(core.local_path(v), out_dir, lang[:2])
+        how = f'voz clonada de {os.path.basename(v)}'
+    elif v:
+        raise ValueError(f'voz "{v}": use um arquivo de áudio/vídeo para clonar, "design: <descrição>" ou uma das prontas '
+                         f'({", ".join(QWEN_SPEAKERS)})')
+    else:
+        job['design'], how = QWEN_DESIGN, 'voz desenhada (padrão)'
+    res = _gpu_tts('tts_qwen.py', job, out_dir)
+    wav = _assemble(res['wavs'], chunks, out_dir, lang)
+    return wav, f'Qwen3-TTS {job["size"]} · {how} · {res["seconds"]} s na GPU ({res["vram_gb"]} GB)'
+
+
+KOKORO_VOICES = {'pt': ('pm_alex', 'pm_santa', 'pf_dora'), 'en': ('am_michael', 'af_heart', 'bm_george', 'bf_emma'),
+                 'es': ('em_alex', 'ef_dora'), 'fr': ('ff_siwis',), 'it': ('im_nicola', 'if_sara')}
+KOKORO_LANG = {'pt': 'p', 'en': 'a', 'es': 'e', 'fr': 'f', 'it': 'i'}
+
+
+def _kokoro(chunks, out_dir, voice, lang):
+    """Kokoro in the GPU venv: native pt-BR voices, no cloning. voice = pm_alex (default, male) · pm_santa · pf_dora."""
+    l2 = lang[:2]
+    v = voice or core.env('KOKORO_VOICE') or KOKORO_VOICES.get(l2, ('pm_alex',))[0]
+    res = _gpu_tts('tts_kokoro.py', {'chunks': chunks, 'voice': v, 'lang': KOKORO_LANG.get(l2, 'p'), 'out_dir': out_dir}, out_dir)
+    return _assemble(res['wavs'], chunks, out_dir, lang), f'Kokoro {v} · {res["seconds"]} s'
+
+
+def _gpu_tts(worker, job, out_dir):
+    from claudio import gpu
+    if not os.path.exists(gpu.python()):
+        raise RuntimeError(gpu.status()['tts'])
+    jp = os.path.join(out_dir, 'tts_job.json')
+    json.dump(job, open(jp, 'w', encoding='utf-8'), ensure_ascii=False)
+    env = {**os.environ, 'HF_HUB_DISABLE_TELEMETRY': '1', 'TMPDIR': os.path.expanduser('~/.cache/tmp')}
+    r = subprocess.run([gpu.python(), gpu.worker(worker), jp], capture_output=True, text=True, env=env)
+    if r.returncode:
+        raise RuntimeError(f'{worker} falhou: ' + (r.stderr or r.stdout)[-600:])
+    return json.loads(r.stdout.strip().splitlines()[-1])
+
+
+def _assemble(wavs, chunks, out_dir, lang):
+    """One wav per paragraph → narration.wav (48 kHz stereo, LEAD in front, GAP between) + words.json in the format of
+    the skill's el_tts.py ({words: [{w, s, e, act}], chunks, dur}): Whisper's timings, the script's spelling."""
+    starts, t, ins = [], LEAD, []
+    for w in wavs:
+        starts.append(t); ins += ['-i', w]; t += core.probe(w)['duration'] + GAP
+    mix = ''.join(f'[{k}]adelay={int(s * 1000)}:all=1[a{k}];' for k, s in enumerate(starts))
+    wav = os.path.join(out_dir, 'narration.wav')
+    core.run(['ffmpeg', '-v', 'error', '-y', *ins, '-filter_complex',
+              mix + ''.join(f'[a{k}]' for k in range(len(starts))) + f'amix=inputs={len(starts)}:normalize=0,aresample=48000[o]',
+              '-map', '[o]', '-ac', '2', '-c:a', 'pcm_s16le', wav])
+    words = _script_words(_hear(_pcm16(wav), lang[:2]), '\n\n'.join(chunks), starts)
+    json.dump({'words': words, 'chunks': [{'wav': os.path.basename(p), 'start': round(s, 3)} for p, s in zip(wavs, starts)],
+               'dur': round(t - GAP, 3)}, open(os.path.join(out_dir, 'words.json'), 'w'), ensure_ascii=False, indent=0)
+    return wav
+
+
 def narration(text, out_dir, engine='elevenlabs', voice=None, budget=None, lang='pt'):
     """Narration for the edit. elevenlabs: the skill's el_tts.py (one take, word timings, cache, hard credit budget —
-    budget defaults to the text length + 10 %). edge: free edge-tts voices (pt-BR Thalita/Antonio)."""
+    budget defaults to the text length + 10 %). edge: free edge-tts voices (pt-BR Thalita/Antonio). kokoro: local and
+    free, native pt-BR voices (pm_alex, pm_santa, pf_dora). qwen: Qwen3-TTS, local, clones a voice (voice = a file,
+    "design: <description>" or a built-in name) — its Portuguese is European, even cloning a Brazilian.
+    Paragraphs (blank line between) are the acts: one take each, joined with a breath."""
     out_dir = core.local_path(out_dir)
     os.makedirs(out_dir, exist_ok=True)
-    sd = skill_dir()
     script = os.path.join(out_dir, 'script.txt')
     open(script, 'w', encoding='utf-8').write(text.strip() + '\n')
-    if engine == 'elevenlabs':
+    chunks = [c.strip() for c in re.split(r'\n\s*\n', text.strip()) if c.strip()]
+    if engine == 'kokoro':
+        wav, info = _kokoro(chunks, out_dir, voice, lang)
+    elif engine == 'qwen':
+        wav, info = _qwen(chunks, out_dir, voice, lang)
+    elif engine == 'elevenlabs':
+        sd = skill_dir()
         if not voice:
             raise ValueError('voice (ElevenLabs voice_id) is required — list voices with the skill (el_voices.py)')
         budget = budget or int(len(text) * 1.1) + 20

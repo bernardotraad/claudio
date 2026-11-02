@@ -3,7 +3,8 @@ Cláudio itself stays CPU/ONNX (no torch to install, the MCP starts fast). Each 
 as a subprocess with that venv's Python.
 
   RIFE (slowmo.py)        frame interpolation — github.com/hzwer/Practical-RIFE (MIT), model v4.25
-  Qwen3-TTS (motion.py)   narration, free and local, voice cloning — github.com/QwenLM/Qwen3-TTS (Apache-2.0)
+  Kokoro (motion.py)      narration, native pt-BR voices — github.com/hexgrad/kokoro (Apache-2.0)
+  Qwen3-TTS (motion.py)   narration with voice cloning — github.com/QwenLM/Qwen3-TTS (Apache-2.0); European Portuguese
 
   python()      CLAUDIO_GPU_PYTHON, default ~/.local/opt/claudio-gpu/bin/python
   rife_dir()    CLAUDIO_RIFE_DIR, default ~/.local/opt/rife/src (Practical-RIFE checkout + train_log/)
@@ -17,7 +18,7 @@ from claudio import core
 
 RIFE_REPO, RIFE_COMMIT = 'https://github.com/hzwer/Practical-RIFE', 'bbfd2ea'
 RIFE_MODEL = '1ZKjcbmt1hypiFprJPIKW0Tt0lr_2i7bg'        # v4.25 (Google Drive id from the README; MIT like the code)
-PACKAGES = ['qwen-tts==0.1.1', 'torchvision', 'soundfile', 'gdown']
+PACKAGES = ['qwen-tts==0.1.1', 'kokoro==0.9.4', 'torchvision', 'soundfile', 'gdown']
 
 
 def python():
@@ -43,7 +44,7 @@ def status():
     return {'python': None,
             'rife': None if os.path.exists(os.path.join(rife_dir(), 'train_log', 'flownet.pkl')) and _has('torchvision')
             else f'RIFE não instalado em {rife_dir()}: claudio-doctor --fix-gpu',
-            'tts': None if _has('qwen_tts') else 'qwen-tts não instalado no venv da GPU: claudio-doctor --fix-gpu'}
+            'tts': None if _has('kokoro') else 'kokoro não instalado no venv da GPU: claudio-doctor --fix-gpu'}
 
 
 def setup(log=print):

@@ -111,3 +111,20 @@ def test_punch_split_leaves_no_sliver():
     from claudio.cleanup import _split
     assert _split([(0, 5), (6, 10)], [4.9, 6.07]) == [(0, 5), (6, 10)]
     assert _split([(0, 5)], [2, 3]) == [(0, 2), (2, 3), (3, 5)]
+
+
+def test_screen_keeps_the_pauses_where_the_picture_works(tmp_path, monkeypatch):
+    """screen=True: a long pause with the screen changing stays (blue marker); one with a still screen is cut."""
+    import numpy as np
+    from claudio import cleanup
+    W = [{'w': 'abre', 's': 0.0, 'e': 0.5}, {'w': 'o', 's': 2.5, 'e': 2.6}, {'w': 'menu', 's': 4.6, 'e': 5.0}]
+    sp = [{'a': 0.0, 'b': 5.2, 'words': W, 'clip': 'tela', 'path': '/x/tela.mp4', 'off': 10.0}]
+    act = np.zeros(80, np.float32)
+    act[int(10.6 * 4):int(12.4 * 4)] = 0.05             # the first pause (0.5–2.5 s here = 10.5–12.5 s of source): typing
+    monkeypatch.setattr(cleanup, 'activity', lambda p: act)
+    cuts, markers, _ = cleanup.plan_cuts(sp, max_pause=0.45, keep=0.25, notes=False, busy=cleanup.screen_busy(sp))
+    pauses = [(round(a, 2), round(b, 2)) for a, b, k, _ in cuts if k == 'pausa']
+    assert len(pauses) == 1 and pauses[0][0] > 2.6       # only the still one, after "o"
+    assert [m['color'] for m in markers] == ['blue']
+    cuts2, _, _ = cleanup.plan_cuts(sp, max_pause=0.45, keep=0.25, notes=False)
+    assert len([c for c in cuts2 if c[2] == 'pausa']) == 2

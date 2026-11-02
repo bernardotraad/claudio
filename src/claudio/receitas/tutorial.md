@@ -28,9 +28,9 @@ ferramentas: ["index_folder", "takes", "find_phrase", "timeline_strip", "contact
    que importa (o menu, o campo, o código), conferido no edit_storyboard.
 5. build_edit com "cut_on": "none" → edit_storyboard → OLHAR → export_edit.
 6. Títulos dos passos e destaques: render_overlay (motion_reference antes), numa trilha nova no tempo de cada passo.
-7. Depois da revisão do editor: clean_speech com pace médio. Ele decide pelo áudio e não vê a tela: rode antes com
-   preview=True e confira com contact_sheet os silêncios que ele cortaria — onde a tela ainda está mudando (carregando,
-   resultado aparecendo), use max_pause maior ou pace solto.
+7. Depois da revisão do editor: clean_speech com pace médio e screen=True — a pausa em que a tela ainda está mudando
+   (digitando, rolando, carregando, resultado aparecendo) fica, com marcador azul; só sai o silêncio com a tela parada.
+   Câmera na pessoa (não é tela): screen=False, senão o movimento dela segura todas as pausas.
 
 ## Legendas
 

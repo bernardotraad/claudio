@@ -50,7 +50,7 @@ cartão ─► ingest ─► decupagem (.md ao lado de cada clipe) ─► visão
 | Selects | `make_selects` | Sequências de melhores takes e de b-roll + marcadores em todos os clipes (✅ melhor / ✗ criticado / 👁 notas). |
 | Montar | `music_map`, `music_windows`, `build_edit`, `edit_storyboard`, `export_edit` | Trilha primeiro (BPM, compassos, seções), corte no beat, b-roll sobre a fala, storyboard **sem render**, FCP7 XML pro NLE. |
 | Revisar | `compare_with_nle`, `adopt_nle_timeline` | Lê a timeline como está no NLE: o que você mudou e seus marcadores como notas. As suas mudanças viram a nova base. |
-| Legendas e overlays | `caption_sentences`, `caption_style_preview`, `captions_srt`, `caption_overlay`, `render_overlay`, `narration` | Gramática corrigida sem mudar a fala; blocos **por frase** como legendador (nunca termina em "de"/"que", não parte número nem nome, tempos no quadro, presos ao corte de câmera); sai da leitura o que não é fala ("Ação.", "ãh", "Eu Eu"); 6 estilos com preview, SRT editável ou overlay com alpha (ProRes 4444), lower thirds e títulos, narração ElevenLabs/edge-tts. **Música:** a letra sai sincronizada pela voz isolada (UVR MDX-Net em ONNX, modelo de 67 MB baixado no primeiro uso), um bloco por verso e o refrão corrigindo linhas mal ouvidas. Usa a skill motion-designer. |
+| Legendas e overlays | `caption_sentences`, `caption_style_preview`, `captions_srt`, `caption_overlay`, `render_overlay`, `narration` | Gramática corrigida sem mudar a fala; blocos **por frase** como legendador (nunca termina em "de"/"que", não parte número nem nome, tempos no quadro, presos ao corte de câmera); sai da leitura o que não é fala ("Ação.", "ãh", "Eu Eu"); 6 estilos com preview, SRT editável ou overlay com alpha (ProRes 4444), lower thirds e títulos, narração local pt-BR (Kokoro), ElevenLabs ou edge-tts. **Câmera lenta** com RIFE na GPU. **Música:** a letra sai sincronizada pela voz isolada (UVR MDX-Net em ONNX, modelo de 67 MB baixado no primeiro uso), um bloco por verso e o refrão corrigindo linhas mal ouvidas. Usa a skill motion-designer. |
 | Limpar falas | `clean_speech` | Tira pausas longas (ritmo apertado · médio · solto, com prévia do quanto cada um corta), hesitações, comandos de set ("Ação", "valendo"), notas faladas pro editor e recomeços avisados (com marcador onde estavam). Crossfade de 2 quadros nas emendas (sem clique); opcional: zoom 100/107,5 % nos jump cuts e punch-in de 115 % na frase de efeito. |
 | Finalizar | `qc_timeline` | Aponta flash frame, buraco preto, mídia offline, take repetido, jump cut, salto de volume e formato errado pra plataforma; mede a voz (abafada / lapela coberta, dois microfones diferentes em L/R, clipe mudo com ganho alto). Não corrige nada sozinho. |
 | Lembrar | `client_profile`, `save_client_profile`, `read_premiere_project` | Perfil por cliente com vocabulário, assinatura, trilhas e o estilo da casa medido nos seus projetos finalizados. |
@@ -236,8 +236,15 @@ Cláudio, o Editor**.
   Ubuntu**. Ela é do Gabriel Greco ([gabrielgreco1/skills](https://github.com/gabrielgreco1/skills)) e é baixada de lá,
   na versão com que o Cláudio foi testado; se já tiver uma cópia instalada à mão, `--fix-skill --force` troca (a antiga
   vai para `~/.claude/skills-backup`).
-- **ElevenLabs** (narração mais natural): salve a chave em `~/.config/elevenlabs/api_key` dentro do Ubuntu. Sem ela, a
-  narração usa o edge-tts gratuito. A mesma chave (com a permissão *Speech to Text*) liga a transcrição pelo
+- **GPU NVIDIA: câmera lenta e narração locais** (`claudio-doctor --fix-gpu`, ~7 GB): um venv separado com torch, que
+  o Cláudio chama por fora (ele mesmo continua sem torch). Traz o **RIFE** ([Practical-RIFE](https://github.com/hzwer/Practical-RIFE),
+  MIT): o botão **Câmera lenta** refaz com quadros intermediários de verdade todo clipe que você deixou abaixo de 100 %
+  no Premiere, numa trilha nova (4K a 50 %: ~80 s por 3 s de plano na RTX 3060). E o **Kokoro**
+  ([hexgrad/kokoro](https://github.com/hexgrad/kokoro), Apache-2.0): narração grátis com vozes nativas pt-BR
+  (`pm_alex`, `pm_santa`, `pf_dora`), o padrão da ferramenta `narration`. O Qwen3-TTS (`engine="qwen"`) clona voz,
+  mas o português dele é de Portugal, mesmo clonando um brasileiro.
+- **ElevenLabs** (narração com a voz mais natural, paga): salve a chave em `~/.config/elevenlabs/api_key` dentro do
+  Ubuntu. A mesma chave (com a permissão *Speech to Text*) liga a transcrição pelo
   **Scribe** — veja `stt` em [Configuração](#configuração).
 - **Claude Desktop**: em `claude_desktop_config.json`, use o mesmo comando do passo 5:
   `"command": "C:\\Windows\\System32\\wsl.exe", "args": ["-d", "Ubuntu", "--", "/home/<usuario>/.local/bin/claudio"]`.

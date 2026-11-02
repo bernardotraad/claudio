@@ -10,7 +10,7 @@
   describe    {"folder" | "paths"}                what is seen in each stretch → clip logs (no AI)
   multicam_plan {"folder"}                        cameras/recorders from the folders + colours (no AI)
   sync        {"cameras", "external_audio"?, "out_xml"?, "labels"?}   multicam sync (PluralEyes-style)
-  clean       {"nle_xml", "max_pause"?, "fillers"?}  pauses + hesitations out of an edited sequence (new sequence)
+  clean       {"nle_xml", "max_pause"?, "fillers"?, "screen"?}  pauses + hesitations out of an edited sequence (new sequence)
   sfx         {"nle_xml", "whoosh"?, "pops"?, "sfx_dir"?}  whoosh into b-roll, pop on caption keywords (new audio track)
   slowmo      {"nle_xml", "dry_run"?}              clips slowed in the NLE remade by RIFE (GPU), on a new video track
   mogrt       {"nle_xml", "style", "srt"?, "job"?}    caption MOGRTs: template (After Effects) + placement plan
@@ -210,7 +210,8 @@ def _clean(a):
     mp = a.get('max_pause')
     return cleanup.clean_speech(a['nle_xml'], _out_xml(a, 'limpo'), float(mp) if mp else None, bool(a.get('fillers', True)),
                                 a.get('extra_fillers') or (), pace=a.get('pace', 'apertado'), notes=bool(a.get('notes', True)),
-                                crossfade=bool(a.get('crossfade', True)), zoom=bool(a.get('zoom', False)), punch=a.get('punch'))
+                                crossfade=bool(a.get('crossfade', True)), zoom=bool(a.get('zoom', False)), punch=a.get('punch'),
+                                screen=bool(a.get('screen', False)))
 
 
 def _sfx(a):

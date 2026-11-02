@@ -1037,7 +1037,7 @@ def premiere_captions(prproj: str, sequence: str, nle_xml: str = None, track: st
 @mcp.tool()
 def clean_speech(nle_xml: str, out_xml: str = None, pace: str = 'apertado', max_pause: float = None, fillers: bool = True,
                  notes: bool = True, crossfade: bool = True, zoom: bool = False, punch: list = None, preview: bool = False,
-                 extra_fillers: list = None, keep_tracks: list = None, dialogue_track: str = 'A1') -> dict:
+                 extra_fillers: list = None, keep_tracks: list = None, dialogue_track: str = 'A1', screen: bool = False) -> dict:
     """Tighten a sequence the editor already cut: long pauses and hesitations ("ãh", "hum", a drawn-out "é…") out,
     rippled across every track; music beds keep playing. NEW sequence "<name> (limpo)" + every cut listed.
     pace: apertado (pause > 0.45 s → 0.25 s, default) · medio (0.7 → 0.4) · solto (1.0 → 0.6); preview=True only reports
@@ -1045,10 +1045,11 @@ def clean_speech(nle_xml: str, out_xml: str = None, pace: str = 'apertado', max_
     announced restarts ("vou de novo", "errei", with the abandoned attempt) — each leaves a marker; "aqui entra…" without
     "editor" only gets a yellow marker. crossfade: 2 frames on every join. zoom=True: pieces of one shot alternate
     100 / 107.5 %. punch = [[from, to], …] seconds of THIS sequence: that line at 115 % — propose them (price, payoff,
-    strong claim; ~one per 20–30 s) and pass only the ones the editor approved."""
+    strong claim; ~one per 20–30 s) and pass only the ones the editor approved. screen=True (tutorial, screen
+    recording): pauses where the picture keeps working stay."""
     from claudio import cleanup
     return cleanup.clean_speech(nle_xml, out_xml, max_pause, fillers, extra_fillers or (), keep_tracks, dialogue_track,
-                                pace, notes, crossfade, zoom, punch, preview)
+                                pace, notes, crossfade, zoom, punch, preview, screen)
 
 
 @mcp.tool()
@@ -1132,11 +1133,12 @@ def event_recap(project: str, footage: str, music: str, duration: float = 45, as
 
 
 @mcp.tool()
-def narration(text: str, out_folder: str, engine: str = 'elevenlabs', voice: str = None, budget: int = None) -> dict:
-    """Narration for the edit with the motion-designer skill: engine='elevenlabs' (one continuous take, word timings,
-    cached; voice = ElevenLabs voice_id; hard credit budget, default = text length + 10 % — tell the user the cost
-    BEFORE running) or engine='edge' (free edge-tts pt-BR/en voices). Returns narration.wav (+ words.json) to import
-    on an audio track. Follow motion_reference('Narration') for how to write the script."""
+def narration(text: str, out_folder: str, engine: str = 'kokoro', voice: str = None, budget: int = None) -> dict:
+    """Narration for the edit (paragraphs = acts). engine='kokoro' (default: local, free, native pt-BR voices
+    pm_alex / pm_santa / pf_dora) · 'elevenlabs' (paid: one take; voice = voice_id; hard credit budget, default = text
+    length + 10 % — tell the user the cost BEFORE running) · 'qwen' (local, clones the voice of a file passed as voice —
+    but its Portuguese is European) · 'edge' (free edge-tts). Returns narration.wav + words.json to import on an audio
+    track. Follow motion_reference('Narration') for how to write the script."""
     from claudio import motion
     return motion.narration(text, out_folder, engine, voice, budget)
 

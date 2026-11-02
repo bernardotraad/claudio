@@ -1,7 +1,7 @@
 """Tighten the speech of a sequence the editor already cut: dead air between words and hesitation sounds come out
 (ripple across every track, so picture and b-roll stay in sync), music beds keep playing untouched. Deterministic,
 no AI: the result is a NEW sequence next to the editor's one, with the list of cuts so nothing is silent."""
-import re
+import math, os, re
 
 from claudio import core, nle_read
 
@@ -35,8 +35,48 @@ def speech_spans(tl, track='A1'):
         ws = [{'w': core.clean_text(w['w']), 's': it['tl_in'] + w['s'] - it['src_in'], 'e': it['tl_in'] + w['e'] - it['src_in']}
               for w in core.words_in(core.load_words(idx), it['src_in'], it['src_out'], idx)]
         if ws:
-            spans.append({'a': it['tl_in'], 'b': it['tl_out'], 'words': ws, 'clip': it['name']})
+            spans.append({'a': it['tl_in'], 'b': it['tl_out'], 'words': ws, 'clip': it['name'], 'path': it['path'],
+                          'off': it['src_in'] - it['tl_in']})
     return spans
+
+
+ACT_FPS, ACT_PIX, ACT_MIN = 4, 8, 0.002     # screen activity: 4 samples/s, a pixel changed by > 8/255, > 0.2 % of them
+
+
+def activity(path):
+    """How much of the picture changes, 4 times a second (fraction of 160x90 pixels that moved), cached per clip —
+    Auto-Editor's "motion" edit: on a screen recording a silent stretch where the screen works (typing, scrolling, a
+    window opening) is part of the lesson, not a pause."""
+    import numpy as np
+    p = os.path.join(core.cache_dir(path), 'activity.npy')
+    if os.path.exists(p):
+        return np.load(p)
+    raw = core.run(['ffmpeg', '-v', 'error', '-i', path, '-an', '-vf', f'fps={ACT_FPS},scale=160:90:flags=area,format=gray',
+                    '-f', 'rawvideo', '-']).stdout
+    f = np.frombuffer(raw, np.uint8)[:len(raw) // 14400 * 14400].reshape(-1, 90, 160).astype(np.int16)
+    a = np.r_[0.0, (np.abs(np.diff(f, axis=0)) > ACT_PIX).mean((1, 2))].astype(np.float32) if len(f) else np.zeros(0, np.float32)
+    os.makedirs(os.path.dirname(p), exist_ok=True)
+    np.save(p, a)
+    return a
+
+
+def screen_busy(spans, share=0.3):
+    """busy(span, a, b) → True when the picture of that speech clip changes in over `share` of a pause (timeline s)."""
+    cache = {}
+
+    def busy(sp, a, b):
+        if sp.get('path') not in cache:
+            try:
+                cache[sp['path']] = activity(sp['path'])
+            except Exception:
+                cache[sp['path']] = None
+        act = cache[sp['path']]
+        if act is None or not len(act):
+            return False
+        i, j = int((a + sp['off']) * ACT_FPS), int(math.ceil((b + sp['off']) * ACT_FPS))
+        w = act[max(0, i):max(i + 1, j)]
+        return bool(len(w)) and float((w > ACT_MIN).mean()) > share
+    return busy
 
 
 # how much air a cut leaves: a pause longer than max_pause becomes keep s, 60 % after the last word, 40 % before the
@@ -102,10 +142,11 @@ def spoken_notes(W, gap=0.5):
 
 
 def plan_cuts(spans, max_pause=0.45, pad_in=0.10, pad_out=0.18, min_cut=0.12, fillers=True, extra_fillers=(), keep=None,
-              notes=True):
+              notes=True, busy=None):
     """Timeline ranges to remove: inside each speech clip, pauses longer than max_pause (keep s of air left, 60 %
     after the last word and 40 % before the next; without keep, pad_out/pad_in), hesitation sounds with the pause
-    around them, and (notes) what was said for the editor (spoken_notes). Returns (cuts, markers, notes cut)."""
+    around them, and (notes) what was said for the editor (spoken_notes). busy(span, a, b): a pause where it says the
+    picture works (screen_busy) stays whole. Returns (cuts, markers, notes cut)."""
     if keep is not None:
         pad_out, pad_in = keep * 0.6, keep * 0.4
     cuts, markers, noted = [], [], []
@@ -137,7 +178,9 @@ def plan_cuts(spans, max_pause=0.45, pad_in=0.10, pad_out=0.18, min_cut=0.12, fi
             continue
         bounds = [(sp['a'], kept[0]['s'], True)] + [(a['e'], b['s'], False) for a, b in zip(kept, kept[1:])] + [(kept[-1]['e'], sp['b'], True)]
         for a, b, edge in bounds:
-            if b - a > max_pause:
+            if b - a > max_pause and busy and busy(sp, a, b):
+                markers.append({'s': a, 'name': 'Pausa mantida: a tela está mexendo', 'comment': f'{b - a:.1f} s', 'color': 'blue'})
+            elif b - a > max_pause:
                 ca = a if edge and a == sp['a'] else a + pad_out
                 cb = b if edge and b == sp['b'] else b - pad_in
                 cuts.append((ca, cb, 'pausa', round(b - a, 2)))
@@ -213,12 +256,13 @@ def _split(pieces, at, min_len=0.3):
 
 
 def clean_speech(nle_xml, out_xml=None, max_pause=None, fillers=True, extra_fillers=(), keep_tracks=None, dialogue_track='A1',
-                 pace='apertado', notes=True, crossfade=True, zoom=False, punch=None, preview=False):
+                 pace='apertado', notes=True, crossfade=True, zoom=False, punch=None, preview=False, screen=False):
     """pace: apertado · medio · solto (PACE) — max_pause overrides its pause. preview: only the pacing report.
     notes: cut set commands / notes to the editor / announced restarts (spoken_notes), markers where they were.
     crossfade: a 2-frame audio crossfade on every join a cut made (no click). zoom: pieces of one shot after a cut
     alternate 100 % / 107.5 %. punch: [[from, to], …] seconds on THIS sequence's clock (a line from caption_sentences)
-    — that line pushed in to 115 %, back after it."""
+    — that line pushed in to 115 %, back after it. screen: a screen recording/demo — pauses where the picture keeps
+    working stay (blue marker), the silent ones still go."""
     tl = nle_read.read_fcp7(nle_xml)
     spans = speech_spans(tl, dialogue_track)
     if not spans:
@@ -227,7 +271,8 @@ def clean_speech(nle_xml, out_xml=None, max_pause=None, fillers=True, extra_fill
         return {'timeline': tl['name'], 'duration_s': round(tl['duration'], 2), 'ritmos': pacing_report(spans, fillers),
                 'how': 'escolha o ritmo e rode de novo com pace=<nome> (preview=False)'}
     mp, kp = PACE.get(pace or 'apertado', PACE['apertado'])
-    cuts, markers, noted = plan_cuts(spans, max_pause=max_pause or mp, keep=kp, fillers=fillers, extra_fillers=extra_fillers, notes=notes)
+    cuts, markers, noted = plan_cuts(spans, max_pause=max_pause or mp, keep=kp, fillers=fillers, extra_fillers=extra_fillers, notes=notes,
+                                     busy=screen_busy(spans) if screen else None)
     root, top, layers, ctx = nle_read.flat_timeline(nle_xml)
     F = nle_read._rate(top)
     speech_paths = {i['path'] for i in tl['items'] if i['track'] == dialogue_track and i['path']}
