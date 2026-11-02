@@ -53,7 +53,7 @@ sequência do editor; nunca desfaça mudança manual dele.
 
 - motion_reference primeiro.
 - Legendas SEMPRE em 3 passos: caption_sentences → corrija só a gramática (concordância, regência, crase, pontuação;
-  as palavras são do falante) e mostre a tabela fala → legenda → caption_style_preview (o editor escolhe; recomendado
+  as palavras são do falante; parta do `suggested` do modelo local quando vier) e mostre a tabela fala → legenda → caption_style_preview (o editor escolhe; recomendado
   marcado) → captions_srt (editável) e/ou caption_overlay(style, corrected).
 - render_overlay para lower thirds, títulos, cartelas; narration (ElevenLabs: diga o custo antes; ou edge, grátis).
 - Tudo na pasta de overlays/legendas do trabalho, e no NLE numa trilha NOVA acima de todas as ocupadas (crie a trilha);

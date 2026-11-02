@@ -921,9 +921,10 @@ async def render_overlay(code: str, name: str, out_folder: str, ctx: Context, as
 
 @mcp.tool()
 def caption_sentences(nle_xml: str) -> dict:
-    """Captions STEP 1: the edit's speech as sentences {id, text, clip, remembered_correction}. Correct ONLY grammar
+    """Captions STEP 1: the edit's speech as sentences {id, text, clip, remembered_correction, suggested}. Correct ONLY grammar
     (concordância, regência, crase, punctuation), keeping the speaker's words, register and brand names; show the diff
-    (spoken → caption) and pass the approved {id: text} as `corrected`. Approved corrections are remembered per clip."""
+    (spoken → caption) and pass the approved {id: text} as `corrected`. Approved corrections are remembered per clip.
+    `suggested` = the local model's guarded fix (when the editor's Ollama is up): start from it, don't redo it."""
     from claudio import motion
     return motion.caption_sentences(nle_xml)
 

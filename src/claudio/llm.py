@@ -1,10 +1,12 @@
-"""claudio.llm — a local model through Ollama (no credits): for small, repetitive jobs only (describing shots, …).
+"""claudio.llm — a local model through Ollama (no credits): for small, repetitive jobs only (describing shots, caption
+proofreading).
 Montage decisions stay with Claude.
 
   endpoint() / model()      where and which: settings.json {"ollama": "http://100.72.145.75:11434", "vlm_model": "..."}
   ensure(progress)          the server answers — or, when the machine with the GPU is off (on the Mac), wake it up and
                             wait (~3 min): Home Assistant {"wake_ha_url", "wake_ha_entity", token in ~/.config/claudio/ha_token}
                             or a plain Wake-on-LAN packet {"wake_mac", "wake_broadcast"} on the same network
+  ask(prompt, schema, images)    a question (text, or with pictures) → the model's answer / JSON
   vision(jpeg, prompt, schema)   one picture → the model's JSON answer
   gpu_check()               the loaded model all in VRAM? (a model spilled onto the CPU is ~10x slower: say so)
 
@@ -97,16 +99,22 @@ def ensure(progress=lambda *_: None, wait=WAIT_BOOT):
     return False, f'liguei o desktop por {how}, mas o Ollama não respondeu em {wait // 60} min'
 
 
-def vision(jpeg, prompt, schema=None, timeout=300):
-    """One picture → the answer (parsed JSON when a schema is given). Low temperature: logging, not prose. The first call
-    after the model was unloaded also loads it (69 s measured on the desktop, Ollama as a SYSTEM task): hence the timeout."""
+def ask(prompt, schema=None, images=(), system=None, timeout=300, ctx=4096):
+    """One question (with pictures, or text only) → the answer, parsed JSON when a schema is given. Low temperature:
+    logging and proofreading, not prose. The first call after the model was unloaded also loads it (69 s measured on the
+    desktop, Ollama as a SYSTEM task): hence the timeout."""
+    msgs = ([{'role': 'system', 'content': system}] if system else []) + [
+        {'role': 'user', 'content': prompt, **({'images': [base64.b64encode(i).decode() for i in images]} if images else {})}]
     body = {'model': model(), 'stream': False, 'keep_alive': core.env('OLLAMA_KEEP_ALIVE', '2m'),
-            'options': {'temperature': 0.1, 'num_ctx': 4096},
-            'messages': [{'role': 'user', 'content': prompt, 'images': [base64.b64encode(jpeg).decode()]}]}
+            'options': {'temperature': 0.1, 'num_ctx': ctx}, 'messages': msgs}
     if schema:
         body['format'] = schema
     txt = _req('/api/chat', body, timeout)['message']['content'].strip()
     return json.loads(txt) if schema else txt
+
+
+def vision(jpeg, prompt, schema=None, timeout=300):
+    return ask(prompt, schema, [jpeg], timeout=timeout)
 
 
 def gpu_check():

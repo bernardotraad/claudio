@@ -529,7 +529,7 @@ def _load_fixes(path):
     return json.load(open(p, encoding='utf-8')) if os.path.exists(p) else {}
 
 
-def caption_sentences(nle_xml):
+def caption_sentences(nle_xml, suggest=True):
     """The edit's speech as sentences (ids s1, s2…), each with the source clip it comes from and any correction already
     approved for that sentence before (remembered per clip)."""
     from claudio import nle_read
@@ -557,9 +557,37 @@ def caption_sentences(nle_xml):
                             'tl_e': round(it['tl_in'] + cur[-1]['e'] - it['src_in'], 3), 'clip': os.path.basename(it['path']),
                             'remembered_correction': fixes.get(core.norm(text.replace(' ', '')))})
                 cur = []
-    return {'timeline': tl['name'], 'sentences': out,
-            'how': 'correct ONLY grammar (agreement, regência, crase, punctuation) — keep the speaker\'s words, meaning and brand '
-                   'names; pass {id: corrected_text} as `corrected` to captions_srt / caption_overlay / caption_style_preview'}
+    res = {'timeline': tl['name'], 'sentences': out,
+           'how': 'correct ONLY grammar (agreement, regência, crase, punctuation) — keep the speaker\'s words, meaning and brand '
+                  'names; pass {id: corrected_text} as `corrected` to captions_srt / caption_overlay / caption_style_preview'}
+    if suggest:
+        res.update(_local_proofreading(nle_xml, out, {os.path.dirname(i['path']) for i in tl['items'] if i['track'] == 'A1' and i['path']}))
+    return res
+
+
+def _local_proofreading(nle_xml, sentences, folders=()):
+    """The local model's proofreading as `suggested` on each sentence (already guarded: words, names and meaning kept).
+    Only when the Ollama server is up right now — captions are interactive, so the GPU machine is never woken for this."""
+    from claudio import grammar, llm, run
+    if not llm.up():
+        return {}
+    prof = run.client_for(nle_xml) or {}
+    keep = [t.strip() for t in (prof.get('vocabulary') or '').split(',') if t.strip()]
+    for d in folders:                                   # names learned from the editor's caption fixes
+        try:
+            keep += [t for t in folder_vocabulary(d) if t not in keep]
+        except Exception:
+            pass
+    try:
+        r = grammar.suggest(sentences, keep)
+    except Exception as e:
+        return {'proofreading_error': f'{type(e).__name__}: {e}'}
+    for x in sentences:
+        if x['id'] in r['fixes']:
+            x['suggested'] = r['fixes'][x['id']]
+    return {'proofread_by': llm.model(), 'refused': r['refused'],
+            'how': 'each `suggested` is the local model\'s grammar fix, already checked to keep the speaker\'s words: review '
+                   'it (accept, or fix what it missed — it skips some commas and agreements), show the diff, pass {id: text} as `corrected`'}
 
 
 def _retime(orig, new_text):
@@ -657,7 +685,7 @@ def folder_vocabulary(folder):
 
 def corrected_timeline_words(nle_xml, corrected=None, fix=None, remember=True):
     """Timeline words with the approved sentence corrections applied (and remembered per source clip)."""
-    sent = caption_sentences(nle_xml)['sentences']
+    sent = caption_sentences(nle_xml, suggest=False)['sentences']
     tw = timeline_words(nle_xml)
     words = tw['words']
     corrected = dict(corrected or {})
