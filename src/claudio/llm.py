@@ -117,6 +117,14 @@ def vision(jpeg, prompt, schema=None, timeout=300):
     return ask(prompt, schema, [jpeg], timeout=timeout)
 
 
+def loaded():
+    """The model already in memory (no ~70 s load before the first answer)."""
+    try:
+        return any(m.get('name') == model() for m in _req('/api/ps').get('models', []))
+    except Exception:
+        return False
+
+
 def gpu_check():
     """None when the loaded model sits fully in VRAM; otherwise a warning (part of it on the CPU)."""
     try:

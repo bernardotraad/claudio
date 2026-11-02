@@ -108,12 +108,14 @@ def _people_names(folder):
     return [(n['name'], np.asarray(n['centroid'], np.float32)) for n in json.load(open(p, encoding='utf-8')).get('faces', [])]
 
 
-def describe_clip(path, names=None, vlm=False):
+def describe_clip(path, names=None, vlm=False, step=lambda *_: None):
+    """step(done, total, line): each stretch, for the progress bar."""
     path = core.local_path(path)
     idx = core.build_index(path)
     info = idx['info']
     if not info.get('has_video'):
         return {'clip': os.path.basename(path), 'stretches': 0, 'skipped': 'sem vídeo'}
+    step(0, 1, 'lendo os quadros')
     e = visual.embed_clip(path)
     times, emb = list(e['times']), np.asarray(e['emb'], np.float32)
     if not len(times):
@@ -140,7 +142,8 @@ def describe_clip(path, names=None, vlm=False):
     vlm_err = None
     groups = [g for g, _, _ in PROMPTS]
     out = []
-    for a, b in segs:
+    for i, (a, b) in enumerate(segs):
+        step(i, len(segs), f'trecho {i + 1}/{len(segs)}')
         sel = [k for k, t in enumerate(times) if a <= t < b] or [int(np.argmin([abs(t - a) for t in times]))]
         seen = None
         if vlm and not vlm_err:
@@ -206,22 +209,29 @@ def describe(paths, progress=lambda *_: None, vlm=None):
     folders = {}
     note = gpu = None
     if vlm is not False and llm.endpoint():
+        progress(0.0, 'conferindo se o desktop está ligado (Ollama)…')
         vlm, note = llm.ensure(lambda f, line: progress(0.0, line))
+        progress(0.0, (note or 'desktop já estava ligado') if vlm else f'{note} — vai pelo CLIP, sem IA local')
     vlm = bool(vlm)
     from claudio import share
-    for p in paths:                      # what the other machine described since: its answers are free here
+    for k, p in enumerate(paths):        # what the other machine described since: its answers are free here
+        progress(0.0, f'conferindo descrições já feitas no outro computador ({k + 1}/{len(paths)})')
         try:
             share.refresh(p)
         except OSError:
             pass
+    if vlm and not llm.loaded():
+        progress(0.0, f'carregando {llm.model()} na placa de vídeo (até ~70 s na primeira vez)…')
     for k, p in enumerate(paths):
-        progress(k / max(len(paths), 1), f'{os.path.basename(p)} ({k + 1}/{len(paths)})')
+        head = f'{os.path.basename(p)} ({k + 1}/{len(paths)})'
+        progress(k / max(len(paths), 1), head)
         lp = core.local_path(p)
         d = os.path.dirname(lp)
         if d not in folders:
             folders[d] = _people_names(d)
         try:
-            res.append(describe_clip(lp, folders[d], vlm))
+            res.append(describe_clip(lp, folders[d], vlm, lambda i, n, line, k=k, head=head:
+                                     progress((k + i / max(n, 1)) / len(paths), f'{head} · {line}')))
         except Exception as e:
             res.append({'clip': os.path.basename(lp), 'error': str(e)})
         if vlm and k == 0:

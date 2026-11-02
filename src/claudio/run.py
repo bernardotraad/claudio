@@ -168,13 +168,15 @@ def _multicam_plan(a):
 def _describe(a):
     """Long with the local vision model (~2.5 s per stretch): progress goes to <folder>/_claudio/progress.json, the
     file the panel's progress bar reads (the same one as indexing)."""
-    import time
+    import threading, time
     from claudio import core, describe, indexer
     paths = [core.local_path(p) for p in a.get('paths') or []] or indexer.list_videos(a['folder'])
     folder = core.local_path(a['folder']) if a.get('folder') else os.path.dirname(paths[0]) if paths else None
     t0 = time.time()
+    last = [0.0, '']
 
     def prog(f, line, state='running'):
+        last[:] = [f, line]
         if not folder:
             return
         try:
@@ -185,7 +187,17 @@ def _describe(a):
             os.replace(os.path.join(pd, 'progress.json.tmp'), os.path.join(pd, 'progress.json'))
         except OSError:
             pass
-    r = describe.describe(paths, prog, vlm=False if a.get('clip_only') else None)
+    prog(0.0, f'{len(paths)} vídeo(s) · começando…')
+    stop = threading.Event()
+
+    def beat():                          # one model call can take ~70 s (loading): the panel calls 60 s of silence "parou"
+        while not stop.wait(15):
+            prog(*last)
+    threading.Thread(target=beat, daemon=True).start()
+    try:
+        r = describe.describe(paths, prog, vlm=False if a.get('clip_only') else None)
+    finally:
+        stop.set()
     res = r.pop('results')
     prog(1.0, f"{len(res)} clipe(s) · {'IA local' if r['engine'] != 'clip' else 'CLIP'}", 'done')
     return {'clips': len(res), 'stretches': sum(x.get('stretches', 0) for x in res), **r,

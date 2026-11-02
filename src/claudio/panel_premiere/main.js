@@ -843,6 +843,7 @@ const LOCAL = {
   describe: () => localJob('descrevendo os planos', async () => {
     await readContext();
     const sel = [...new Set((ctx.selection || []).map((c) => c.media).filter(Boolean))];
+    progScan = 0; setTimeout(() => (progScan = 0), 3000);          // the bar finds this job's progress.json right away
     const r = await runLocal('describe', { folder: rawFolder() });   // every clip of the job, never just the selection
     if (!r.ok) return add('local err', r.error);
     const ex = (r.results || []).filter((x) => x.sample && x.sample.length).slice(0, 3)
