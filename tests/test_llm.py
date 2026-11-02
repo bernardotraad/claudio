@@ -16,7 +16,7 @@ def test_wakes_through_home_assistant_and_waits(monkeypatch):
     class R:
         def read(self):
             return b'[]'
-    monkeypatch.setattr(llm.urllib.request, 'urlopen', lambda r, timeout=0: calls.append((r.full_url, r.headers, r.data)) or R())
+    monkeypatch.setattr(core, 'urlopen', lambda r, timeout=0: calls.append((r.full_url, r.headers, r.data)) or R())
     ok, note = llm.ensure()
     assert ok and 'Home Assistant' in note
     url, headers, data = calls[0]

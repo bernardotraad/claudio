@@ -33,7 +33,7 @@ def _req(path, body=None, timeout=10):
     data = json.dumps(body).encode() if body is not None else None
     r = urllib.request.Request(endpoint() + path, data, {'Content-Type': 'application/json'} if data else {},
                                method='POST' if data else 'GET')
-    with urllib.request.urlopen(r, timeout=timeout) as f:
+    with core.urlopen(r, timeout=timeout) as f:
         return json.load(f)
 
 
@@ -70,7 +70,7 @@ def wake():
         domain = ent.split('.')[0]
         r = urllib.request.Request(f"{ha.rstrip('/')}/api/services/{domain}/turn_on", json.dumps({'entity_id': ent}).encode(),
                                    {'Authorization': f'Bearer {tok}', 'Content-Type': 'application/json'}, method='POST')
-        urllib.request.urlopen(r, timeout=15).read()
+        core.urlopen(r, timeout=15).read()
         return f'Home Assistant ({ent})'
     if core.env('WAKE_MAC'):
         _magic(core.env('WAKE_MAC'), core.env('WAKE_BROADCAST', '255.255.255.255'))
