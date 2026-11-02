@@ -843,12 +843,12 @@ const LOCAL = {
   describe: () => localJob('descrevendo os planos', async () => {
     await readContext();
     const sel = [...new Set((ctx.selection || []).map((c) => c.media).filter(Boolean))];
-    const r = await runLocal('describe', sel.length ? { paths: sel } : { folder: rawFolder() });
+    const r = await runLocal('describe', { folder: rawFolder() });   // every clip of the job, never just the selection
     if (!r.ok) return add('local err', r.error);
     const ex = (r.results || []).filter((x) => x.sample && x.sample.length).slice(0, 3)
       .map((x) => `- **${x.clip}** ${dur(x.sample[0].s)}–${dur(x.sample[0].e)}: ${x.sample[0].text}`).join('\n');
     const local = r.engine && r.engine !== 'clip';
-    const d = add('local', `**${r.clips} clipe(s)** descritos em **${r.stretches} trechos** (${sel.length ? 'os selecionados na timeline' : 'a pasta toda'}), ` +
+    const d = add('local', `**${r.clips} clipe(s)** descritos em **${r.stretches} trechos** (todos os vídeos de \`${path.basename(rawFolder())}\`),` +
       'gravados no `.md` de cada clipe (seção 👁 Cenas, marcados como auto). Descrições feitas por você ou pela IA continuam lá.\n\n' + ex +
       ((r.errors || []).length ? `\n\nCom erro: ${r.errors.slice(0, 5).join('; ')}` : '') +
       (r.note ? `\n\n_${r.note}_` : '') + (r.gpu ? `\n\n**Atenção:** ${r.gpu}.` : '') +
