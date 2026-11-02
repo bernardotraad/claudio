@@ -16,13 +16,35 @@ from claudio import core
 KINDS = ('fala', 'notas', 'pessoa', 'visual')
 
 
+def stem(w):
+    """A Portuguese word without its plural / gender ending, accents gone: apartamentos·apartamento → apartament,
+    opções·opção → opc, parcelas·parcela → parcel, mulheres·mulher → mulher, imóveis·imóvel → imovel. Short words are left alone ("a", "os", "mas")
+    so they do not collapse into each other."""
+    w = core.norm(w)
+    if len(w) < 4:
+        return w
+    for end, cut in (('oes', 3), ('aes', 3), ('aos', 3), ('ao', 2)):
+        if w.endswith(end) and len(w) - cut >= 3:
+            return w[:-cut]
+    if len(w) >= 5 and w.endswith(('eis', 'ais')):
+        return w[:-2] + 'l'                          # imóveis → imóvel, locais → local, reais → real (not "mais")
+    if w.endswith('es') and len(w) >= 5 and w[-3] in 'rzl':
+        w = w[:-2]                                   # mulheres, vezes, papéis… (consonant + es)
+    elif w.endswith('s'):
+        w = w[:-1]
+    if len(w) > 4 and w[-1] in 'aoe':
+        w = w[:-1]
+    return w
+
+
 def phrase_hits(idxs, phrase, max_hits=10, min_ratio=0.6):
-    """Where the line is said: [{path, s, e, said, similarity}], repeated takes as separate hits, best first."""
-    q = [core.norm(w) for w in phrase.split() if core.norm(w)]
+    """Where the line is said: [{path, s, e, said, similarity}], repeated takes as separate hits, best first. Words are
+    compared by stem, so "apartamento" finds "apartamentos" and "a parcela" finds "as parcelas"."""
+    q = [stem(w) for w in phrase.split() if core.norm(w)]
     hits = []
     for idx in idxs:
         W = core.load_words(idx)
-        toks = [core.norm(w['w']) for w in W]
+        toks = [stem(w['w']) for w in W]
         n = len(q)
         for i in range(0, max(1, len(W) - n + 1)):
             for L in (n - 1, n, n + 1):
@@ -41,12 +63,13 @@ def phrase_hits(idxs, phrase, max_hits=10, min_ratio=0.6):
 
 
 def log_hits(idxs, query, max_hits=12):
-    """Log lines (descriptions, notes, tags) that contain every word of the query, accents and case ignored."""
-    q = [core.norm(w) for w in query.split() if core.norm(w)]
+    """Log lines (descriptions, notes, tags) that contain every word of the query (by stem, or as a word start),
+    accents and case ignored."""
+    q = [stem(w) for w in query.split() if core.norm(w)]
     out = []
     for idx in idxs:
         for l in core.read_log(idx):
-            toks = {core.norm(w) for w in ' '.join([l['text'], *(l.get('tags') or [])]).split()}
+            toks = {stem(w) for w in ' '.join([l['text'], *(l.get('tags') or [])]).split()}
             if q and all(any(t.startswith(w) for t in toks) for w in q):
                 out.append({'path': idx['info']['nle_path'], 's': l['s'], 'e': l['e'], 'text': l['text'],
                             'auto': 'auto' in (l.get('tags') or [])})

@@ -48,3 +48,17 @@ def test_similar_skips_the_reference_and_spreads_over_clips(monkeypatch):
     assert not any(h['path'] == '/a.mp4' and abs(h['peak'] - 10) < 6 for h in hits)
     assert max(sum(h['path'] == p for h in hits) for p in clips) <= 2
     assert hits[0]['path'] in ('/a.mp4', '/b.mp4') and hits[-1]['score'] <= hits[0]['score']
+
+
+def test_search_finds_plurals_and_gender_but_keeps_short_words_apart(tmp_path):
+    from claudio.search import stem
+    for a, b in [('apartamento', 'apartamentos'), ('opção', 'opções'), ('parcela', 'Parcelas'), ('imóvel', 'imóveis'),
+                 ('vez', 'vezes'), ('mulher', 'mulheres'), ('real', 'reais')]:
+        assert stem(a) == stem(b), (a, b)
+    for a, b in [('mais', 'mas'), ('casa', 'caso'), ('a', 'as')]:
+        assert stem(a) != stem(b), (a, b)
+    idx = _idx(tmp_path, 'c', [('o', 1), ('seu', 1.4), ('primeiro', 1.8), ('apartamentos', 2.3), ('ok', 5)])
+    assert [h['said'] for h in phrase_hits([idx], 'apartamento', min_ratio=0.8)] == ['apartamentos']
+    assert phrase_hits([idx], 'primeiro apartamento', min_ratio=0.75)[0]['similarity'] == 1.0
+    core.annotate(idx, 0, 4, 'Cadeira e mesas no salão de festas', ['auto'])
+    assert [h['s'] for h in log_hits([idx], 'mesa salões')] == [0]
