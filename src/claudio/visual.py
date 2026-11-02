@@ -3,6 +3,7 @@
   embed_clip(path)        one CLIP image embedding every STEP seconds of the clip (from the proxy when there is one;
                           keyframes only on heavy long-GOP footage), cached next to the index
   search(paths, query)    the moments that best match a text description, grouped into windows per clip
+  similar(paths, path, t) the moments that look like that one (Match Similar), from the same embeddings
 
 CLIP ViT-B/16 (OpenAI) in ONNX on onnxruntime: no torch, runs on the CPU, ~600 MB downloaded once into the
 Hugging Face cache. CLIP understands English best: write the query in English.
@@ -134,19 +135,43 @@ def is_embedded(path):
 def search(paths, query, top=8, min_gap=6.0):
     """Best-matching moments for `query` across the clips: windows (start, end, peak, score) per clip, best first.
     Scores are CLIP cosine similarities (~0.2 unrelated, ~0.3 a good match): compare them, don't read them as %."""
-    q = embed_text(query)
+    return _rank(paths, embed_text(query), top, min_gap)
+
+
+def at(path, t):
+    """The picture embedding of a clip at t: the embedded frame nearest to t, else that frame decoded and embedded."""
+    lp = core.local_path(path)
+    if is_embedded(lp):
+        e = embed_clip(lp)
+        if len(e['times']):
+            return e['emb'][int(np.argmin(np.abs(np.array(e['times']) - t)))]
+    return embed_images([core.grab(lp, t, 256)])[0]
+
+
+def similar(paths, path, t, top=8, min_gap=6.0):
+    """Moments that LOOK like `path` at t (Match Similar), across the clips; that moment itself is left out.
+    Image-to-image scores run higher than text ones (~0.75 related, ~0.9 the same set-up); at most 2 per clip."""
+    lp = core.local_path(path)
+    return _rank(paths, at(lp, t), top, min_gap, skip=(lp, t), per_clip=2)
+
+
+def _rank(paths, q, top, min_gap, skip=None, per_clip=None):
     hits = []
     for p in paths:
         e = embed_clip(p)
         if not len(e['times']):
             continue
         sim = e['emb'] @ q
-        for k in np.argsort(-sim)[:max(top, 4)]:
+        for k in np.argsort(-sim)[:max(top, 4) + (3 if skip else 0)]:
+            if skip and p == skip[0] and abs(e['times'][k] - skip[1]) < min_gap:
+                continue
             hits.append((float(sim[k]), p, float(e['times'][k]), sim, e['times']))
     hits.sort(key=lambda h: -h[0])
     out = []
     for score, p, t, sim, times in hits:
         if any(o['path'] == p and abs(o['peak'] - t) < min_gap for o in out):
+            continue
+        if per_clip and sum(o['path'] == p for o in out) >= per_clip:      # the same take over and over says little
             continue
         # grow the window while neighbours stay close to the peak score
         k = times.index(t) if t in times else int(np.argmin(np.abs(np.array(times) - t)))

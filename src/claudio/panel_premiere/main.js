@@ -443,6 +443,90 @@ async function localJob(label, fn) {
   localBusy = false; document.body.classList.remove('busy'); toolStart(null); $('#status').textContent = '';
 }
 let localBusy = false;
+
+// ── search (no AI): what is said, the clip logs, named people and the picture, from one box; a hit opens in the Source
+// Monitor with In/Out on its window, "≈" (or the frame in the Source Monitor) finds the shots that look like it.
+// Runs beside a conversation with Claude: it only reads the index, never a sequence.
+const KIND_LABEL = { fala: 'fala', pessoa: 'pessoa', notas: 'notas e descrições', visual: 'imagem' };
+let searching = false;
+function hitCard(h, ref) {
+  const d = document.createElement('div');
+  d.className = 'hit' + (ref ? ' ref' : '');
+  d.title = `${h.clip} · ${ref ? clock(h.peak) : clock(h.s) + '–' + clock(h.e)}` + (h.text ? `\n${h.text}` : '') +
+    (ref ? '' : '\nclique: abrir no Source com entrada/saída marcadas');
+  if (h.thumb) { const im = document.createElement('img'); im.src = h.thumb; d.appendChild(im); }
+  const cap = document.createElement('div');
+  cap.className = 'cap';
+  cap.textContent = `${h.clip} ${clock(h.peak)}` + (h.kind === 'visual' && h.score != null ? ` · ${h.score.toFixed(2)}` : '');
+  d.appendChild(cap);
+  if (h.text) { const t = document.createElement('div'); t.className = 'txt'; t.textContent = h.text; d.appendChild(t); }
+  if (ref) return d;
+  d.onclick = () => openInSource(h, d);
+  if (h.thumb) {
+    const like = document.createElement('button');
+    like.className = 'like'; like.textContent = '≈'; like.title = 'Planos parecidos com este';
+    like.onclick = (ev) => { ev.stopPropagation(); similarTo(h.nle_path, h.peak); };
+    d.appendChild(like);
+  }
+  return d;
+}
+async function openInSource(h, d) {
+  let r;
+  try { r = JSON.parse(await evalHost(`claudioOpenInSource(${JSON.stringify(h.nle_path)}, ${h.s}, ${h.e})`)); } catch (e) { r = { ok: false, error: String(e) }; }
+  if (!r.ok) return add('local err', `Não abri ${h.clip} no Source: ${r.error}`, false);
+  d.classList.add('done');
+  $('#status').textContent = `${h.clip} no Source, entrada ${clock(h.s)} · saída ${clock(h.e)}` + (r.imported ? ' (importado no bin)' : '');
+}
+function renderHits(head, r, ref) {
+  const groups = r.groups || {};
+  const n = Object.values(groups).reduce((a, g) => a + g.length, 0);
+  const notes = [];
+  if (r.not_indexed) notes.push(`${r.not_indexed} arquivo(s) ainda sem análise (01 Analisar material)`);
+  if (r.not_embedded) notes.push(`${r.not_embedded} clipe(s) ainda sem busca por imagem (06 Descrever planos prepara)`);
+  if (r.people_error) notes.push(`pessoas: ${r.people_error}`);
+  const m = add('local', head + (n ? '' : ' — nada encontrado.') + (notes.length ? `\n\n_${notes.join(' · ')}_` : ''), false);
+  const box = document.createElement('div');
+  box.className = 'hits';
+  const section = (title, cards) => {
+    const h5 = document.createElement('h5'); h5.textContent = title; box.appendChild(h5);
+    const g = document.createElement('div'); g.className = 'grid'; cards.forEach((c) => g.appendChild(c)); box.appendChild(g);
+  };
+  if (ref) section('referência', [hitCard(ref, true)]);
+  for (const k of ['fala', 'pessoa', 'notas', 'visual']) {
+    const hs = groups[k] || [];
+    if (hs.length) section(`${KIND_LABEL[k]} · ${hs.length}`, hs.map((h) => hitCard(h)));
+  }
+  m.appendChild(box);
+  log.scrollTop = log.scrollHeight;
+}
+async function searchJob(label, action, args, head) {
+  if (searching) return;
+  await readContext();
+  if (!ctx.project) return add('local err', 'Abra o projeto do trabalho: a busca olha o material da pasta dele.', false);
+  searching = true; $('#qgo').disabled = $('#qsrc').disabled = true;
+  $('#status').textContent = label + ' (local, sem IA)…';
+  try {
+    const r = await runLocal(action, { folder: jobFolder(), ...args });
+    if (!r.ok) add('local err', r.error || 'a busca falhou', false);
+    else renderHits(head(r), r, r.ref);
+  } finally {
+    searching = false; $('#qgo').disabled = $('#qsrc').disabled = false;
+    if ($('#status').textContent.endsWith('…')) $('#status').textContent = '';
+  }
+}
+function searchQuery() {
+  const q = $('#q').value.trim();
+  if (q) searchJob('buscando', 'search', { query: q }, (r) => `**Busca** “${q}” em ${r.clips} clipe(s)`);
+}
+function similarTo(media, t) {
+  searchJob('procurando planos parecidos', 'similar', { path: media, t }, (r) => `**Parecidos com** ${r.ref.clip} em ${clock(r.ref.peak)} (${r.clips} clipe(s))`);
+}
+async function similarToSource() {
+  let r;
+  try { r = JSON.parse(await evalHost('claudioSourceNow()')); } catch (e) { r = { ok: false, error: String(e) }; }
+  if (!r.ok) return add('local err', r.error, false);
+  similarTo(r.media, r.t);
+}
 // "Limpar falas": pauses, hesitations and what was said for the editor come out; zoom=true also alternates 100/107.5 %
 // on the jump cuts (offered as a second button under the result, like the import)
 const cleanSpeech = (zoom, xml) => localJob(zoom ? 'limpando as falas (com zoom)' : 'limpando as falas', async () => {
@@ -1136,6 +1220,9 @@ $('#binhead').onclick = () => {
   const shut = document.body.classList.toggle('binshut');
   try { localStorage.setItem('claudio-bin-shut', shut ? '1' : '0'); } catch (e) {}
 };
+$('#qgo').onclick = searchQuery;
+$('#q').onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); searchQuery(); } };
+$('#qsrc').onclick = similarToSource;
 $('#newchat').onclick = () => { localStorage.removeItem(sessionKey); log.innerHTML = ''; hist = []; saveHist(); add('meta', 'nova conversa', false); };
 document.querySelectorAll('#quick button').forEach((b) => (b.onclick = async () => {
   if (LOCAL[b.dataset.q]) return LOCAL[b.dataset.q]();       // no AI: runs on this machine, no credits

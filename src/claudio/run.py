@@ -21,6 +21,8 @@
   recipes     {"job"?}                             the recipes (+ the job's client's usual one) for the panel's buttons
   bench       {"receita"?}                         the local benchmark (~/.config/claudio/benchmark.json), checked without AI
   learn       {"client", "folder" | "paths", "limit"?, "base"?, "overwrite"?}  a client from delivered videos, without AI
+  search      {"folder", "query", "kinds"?}        the panel's search box: speech, logs, named people, picture (thumbnails)
+  similar     {"folder", "path", "t"}              shots that look like that moment (a hit, or the Source Monitor frame)
 
 Paths can be Windows paths (D:\\...) — they are translated on WSL — and come back as the editor's paths.
 """
@@ -324,7 +326,17 @@ def _learn(a):
                        overwrite=bool(a.get('overwrite')))
 
 
-ACTIONS = {'learn': _learn, 'bench': _bench, 'recipes': _recipes, 'profile': _profile, 'stt': _stt, 'stt_check': _stt_check, 'retranscribe': _retranscribe, 'clean': _clean, 'sfx': _sfx, 'mogrt': _mogrt, 'mogrt_styles': _mogrt_styles, 'describe': _describe, 'multicam_plan': _multicam_plan, 'status': _status, 'index': _index, 'stereo': _stereo, 'flatten': _flatten, 'qc': _qc, 'sync': _sync}
+def _search(a):
+    from claudio import search
+    return search.search(a['folder'], a['query'].strip(), tuple(a.get('kinds') or search.KINDS), int(a.get('top', 8)))
+
+
+def _similar(a):
+    from claudio import search
+    return search.similar(a['folder'], a['path'], float(a.get('t') or 0), int(a.get('top', 12)))
+
+
+ACTIONS = {'search': _search, 'similar': _similar, 'learn': _learn, 'bench': _bench, 'recipes': _recipes, 'profile': _profile, 'stt': _stt, 'stt_check': _stt_check, 'retranscribe': _retranscribe, 'clean': _clean, 'sfx': _sfx, 'mogrt': _mogrt, 'mogrt_styles': _mogrt_styles, 'describe': _describe, 'multicam_plan': _multicam_plan, 'status': _status, 'index': _index, 'stereo': _stereo, 'flatten': _flatten, 'qc': _qc, 'sync': _sync}
 
 
 def main():

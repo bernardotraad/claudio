@@ -393,28 +393,8 @@ def transcript(path: str, start: float = 0, end: float = None, words: bool = Fal
 def find_phrase(phrase: str, paths: list[str], max_hits: int = 10) -> list:
     """Where is this line said? Fuzzy search over word-level transcripts of one or more clips; returns each
     hit with start/end, similarity and the clip, best first. Repeated takes show up as multiple hits."""
-    import difflib
-    q = [core.norm(w) for w in phrase.split() if core.norm(w)]
-    hits = []
-    for p in paths:
-        idx = _idx(p)
-        W = core.load_words(idx)
-        toks = [core.norm(w['w']) for w in W]
-        n = len(q)
-        for i in range(0, max(1, len(W) - n + 1)):
-            for L in (n - 1, n, n + 1):
-                if L < 1 or i + L > len(W):
-                    continue
-                r = difflib.SequenceMatcher(None, q, toks[i:i + L], autojunk=False).ratio()
-                if r >= 0.6:
-                    hits.append({'path': idx['info']['nle_path'], 's': W[i]['s'], 'e': W[i + L - 1]['e'],
-                                 'said': ' '.join(w['w'] for w in W[i:i + L]), 'similarity': round(r, 2)})
-    hits.sort(key=lambda h: (-h['similarity'], h['s']))
-    best = []
-    for h in hits:  # drop overlapping duplicates
-        if not any(b['path'] == h['path'] and b['s'] < h['e'] and h['s'] < b['e'] for b in best):
-            best.append(h)
-    return best[:max_hits]
+    from claudio import search
+    return search.phrase_hits([_idx(p) for p in paths], phrase, max_hits)
 
 
 @mcp.tool()
@@ -763,8 +743,10 @@ async def find_person(folder: str, who: str, ctx: Context) -> dict:
 
 
 @mcp.tool()
-async def find_shot(query: str, ctx: Context, folder: str = None, paths: list[str] = None, top: int = 8) -> list:
-    """Find shots by DESCRIBING them in ENGLISH (CLIP): "hands on the guitar neck", "crowd with phones up". Searches every
+async def find_shot(query: str, ctx: Context, folder: str = None, paths: list[str] = None, top: int = 8,
+                    like_path: str = None, like_t: float = None) -> list:
+    """Find shots by DESCRIBING them in ENGLISH (CLIP): "hands on the guitar neck", "crowd with phones up" — or ones that
+    LOOK LIKE a moment: like_path + like_t (query ignored; scores ~0.75 related, ~0.9 same set-up). Searches every
     clip of `folder` (or `paths`); returns a contact sheet of the best moments (clip · time · score) and the windows
     (start/end/peak, source seconds). Scores compare candidates (~0.20 unrelated, ~0.28+ good). Unindexed clips are
     embedded on first search. Confirm with frames before cutting."""
@@ -783,7 +765,9 @@ async def find_shot(query: str, ctx: Context, folder: str = None, paths: list[st
         except Exception:
             pass
         await loop.run_in_executor(None, visual.embed_clip, f)
-    hits = await loop.run_in_executor(None, lambda: visual.search(files, query, top=max(1, min(top, 16))))
+    n = max(1, min(top, 16))
+    hits = await loop.run_in_executor(None, lambda: visual.similar(files, like_path, like_t or 0.0, n) if like_path
+                                      else visual.search(files, query, top=n))
     img = await loop.run_in_executor(None, visual.board, hits)
     out = [__import__('json').dumps({'query': query, 'clips_searched': len(files), 'hits': hits}, ensure_ascii=False)]
     return ([Image(data=core.to_jpeg(img), format='jpeg')] if img else []) + out

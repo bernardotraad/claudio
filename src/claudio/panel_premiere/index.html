@@ -171,6 +171,28 @@
   .send { background:var(--you); color:#1a1209; border:0; border-radius:2px; padding:5px 13px; font:600 10.5px/1.3 var(--mono);
           text-transform:uppercase; letter-spacing:1.4px; }
   .send:hover:not(:disabled) { filter:brightness(1.08); }
+  /* ── search (no AI): one box over speech, logs, people and picture; hits as thumbnails ── */
+  #search { display:flex; gap:4px; padding:7px 12px; border-bottom:1px solid var(--line); background:var(--bg2); }
+  #search input { flex:1; min-width:0; background:var(--card); border:1px solid var(--line2); border-radius:2px; color:var(--text);
+                  padding:4px 7px; font:12px/1.4 var(--sans); outline:0; }
+  #search input:focus { border-color:var(--teal); }
+  #search input::placeholder { color:var(--faint); font-style:italic; }
+  #search button { background:var(--card); border:1px solid var(--line2); border-radius:2px; padding:3px 8px; color:var(--dim);
+                   font:10px/1.3 var(--mono); text-transform:uppercase; letter-spacing:.8px; white-space:nowrap; }
+  #search button:hover:not(:disabled) { color:var(--text); border-color:var(--teal); }
+  .hits h5 { margin:8px 0 3px; font:9px/1 var(--mono); text-transform:uppercase; letter-spacing:1.6px; color:var(--teal); }
+  .hits .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(112px,1fr)); gap:5px; }
+  .hits .hit { position:relative; background:var(--card); border:1px solid var(--line); cursor:pointer; min-width:0; }
+  .hits .hit:hover { border-color:var(--teal); }
+  .hits .hit img { display:block; width:100%; aspect-ratio:16/9; object-fit:cover; background:#000; }
+  .hits .hit .cap { padding:2px 5px 3px; font:10px/1.35 var(--mono); color:var(--dim); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .hits .hit .txt { padding:0 5px 4px; font-size:11px; line-height:1.3; color:var(--text); display:-webkit-box; -webkit-line-clamp:2;
+                    -webkit-box-orient:vertical; overflow:hidden; }
+  .hits .hit .like { position:absolute; top:3px; right:3px; margin:0; padding:1px 5px; background:rgba(20,19,18,.82);
+                     border:1px solid var(--line2); border-radius:2px; font:9px/1.4 var(--mono); color:var(--dim); }
+  .hits .hit .like:hover { color:var(--text); border-color:var(--teal); }
+  .hits .hit.done { border-color:var(--teal); }
+  .hits .ref { max-width:160px; }
 </style>
 </head>
 <body>
@@ -217,6 +239,12 @@
     <button data-q="qc" class="loc" style="--c:var(--rose)"><i>21</i><span>QC antes de exportar</span></button>
     <button data-q="vault" style="--c:var(--rose)"><i>22</i><span>Registrar no vault</span></button>
   </nav>
+  <div id="search">
+    <input id="q" type="search" placeholder="buscar no material: fala, nota, pessoa ou plano (plano em inglês)…"
+           title="Sem IA (sem crédito). Busca no que foi dito, nas notas/descrições dos clipes, nas pessoas nomeadas e na imagem (CLIP, que entende melhor inglês: “crowd with phones up”). Clique num resultado para abrir no Source com entrada/saída marcadas.">
+    <button id="qgo" title="Buscar (Enter)">buscar</button>
+    <button id="qsrc" title="Planos parecidos com o quadro aberto no Source Monitor">≈ source</button>
+  </div>
   <div id="log"></div>
   <div id="prog"><div class="txt"></div><div class="bar"><div class="fill"></div></div></div>
   <div id="status"></div>

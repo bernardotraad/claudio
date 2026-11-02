@@ -316,3 +316,38 @@ function claudioPlaceMusic(planPath) {
         return '{"ok":false,"error":' + q(e.toString()) + '}';
     }
 }
+
+// ── search (no AI): a hit opens in the Source Monitor with In/Out on its window; the Source frame starts "parecidos" ──
+// The clip is imported (insertion bin) only when the project does not have it yet; nothing touches a sequence.
+function claudioOpenInSource(mediaPath, inS, outS) {
+    try {
+        if (!new File(mediaPath).exists) return '{"ok":false,"error":' + q('arquivo não encontrado: ' + mediaPath) + '}';
+        var key = String(mediaPath).replace(/\//g, '\\').toLowerCase();
+        var item = claudioFindItemByPath(app.project.rootItem, key);
+        var imported = false;
+        if (!item) {
+            app.project.importFiles([mediaPath], true, app.project.getInsertionBin(), false);
+            item = claudioFindItemByPath(app.project.rootItem, key);
+            imported = true;
+        }
+        if (!item) return '{"ok":false,"error":' + q('não consegui importar ' + mediaPath) + '}';
+        try { item.clearInPoint(); item.clearOutPoint(); } catch (e0) {}
+        try { item.setOutPoint(outS, 4); item.setInPoint(inS, 4); } catch (e1) {}
+        app.sourceMonitor.openProjectItem(item);
+        return '{"ok":true,"imported":' + imported + ',"name":' + q(item.name) + '}';
+    } catch (e) {
+        return '{"ok":false,"error":' + q(e.toString()) + '}';
+    }
+}
+function claudioSourceNow() {
+    try {
+        var it = app.sourceMonitor.getProjectItem();
+        if (!it) return '{"ok":false,"error":"abra um clipe no Source Monitor"}';
+        var media = '';
+        try { media = it.getMediaPath(); } catch (e0) {}
+        if (!media) return '{"ok":false,"error":' + q(it.name + ' não é um arquivo de mídia (sequência ou gráfico)') + '}';
+        return '{"ok":true,"media":' + q(media) + ',"name":' + q(it.name) + ',"t":' + app.sourceMonitor.getPosition().seconds + '}';
+    } catch (e) {
+        return '{"ok":false,"error":' + q(e.toString()) + '}';
+    }
+}

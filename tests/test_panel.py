@@ -242,3 +242,17 @@ def test_learn_form_asks_client_and_folder(page):
     assert r['inputs'] == 3 and r['buttons'][-2:] == ['Medir (sem IA)', 'Medir e refinar com IA']
     p = pg.evaluate("""()=>QUICK.aprender({cliente:'ACME',videos:['a.mp4','b.mp4'],base:'depoimento',receita:'C:\\r\\acme.md',receita_nome:'acme'})""")
     assert 'recipe("acme")' in p and 'save_recipe("acme"' in p and 'save_client_profile("ACME"' in p
+
+
+@needs_browser
+def test_search_hits_render(page):
+    pg, _ = page
+    pg.evaluate("""()=>renderHits('**Busca** “apartamento” em 2 clipe(s)', {not_embedded:1, groups:{
+        fala:[{kind:'fala',clip:'C0024.MP4',nle_path:'E:\\\\j\\\\C0024.MP4',s:12,e:12.5,peak:12,text:'apartamento <b>x</b>',score:1}],
+        visual:[{kind:'visual',clip:'C0003.MP4',nle_path:'E:\\\\j\\\\C0003.MP4',s:3,e:9,peak:6,score:0.27,
+                 thumb:'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII='}]}})""")
+    assert pg.evaluate("document.querySelectorAll('.hits .hit').length") == 2
+    assert pg.evaluate("document.querySelectorAll('.hits .hit .like').length") == 1          # ≈ only where there is a picture
+    assert pg.evaluate("[...document.querySelectorAll('.hits h5')].map(h=>h.textContent).join('|')") == 'fala · 1|imagem · 1'
+    assert pg.evaluate("document.querySelector('.hits .hit .txt').innerHTML").startswith('apartamento &lt;b&gt;')
+    assert pg.evaluate("document.querySelector('#search input').getBoundingClientRect().width") > 100
