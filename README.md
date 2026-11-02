@@ -245,7 +245,8 @@ Cláudio, o Editor**.
   cliente ou seu), `engine="chatterbox"` ([Chatterbox](https://github.com/resemble-ai/chatterbox), MIT, num venv
   próprio): mantém o sotaque brasileiro. O Qwen3-TTS (`engine="qwen"`) também clona, mas o português dele é de
   Portugal. Marca com pronúncia própria vai no perfil do cliente: `"pronuncia": {"INC": "Ink"}` (a voz fala "Ink",
-  o roteiro e as legendas continuam "INC").
+  o roteiro e as legendas continuam "INC"). **No Mac**, com `share_from` configurado, a narração local roda no
+  desktop por SSH (liga pelo Home Assistant se estiver desligado) e volta pronta.
 - **ElevenLabs** (narração com a voz mais natural, paga): salve a chave em `~/.config/elevenlabs/api_key` dentro do
   Ubuntu. A mesma chave (com a permissão *Speech to Text*) liga a transcrição pelo
   **Scribe** — veja `stt` em [Configuração](#configuração).

@@ -65,7 +65,10 @@ def check():
     gs = gpu.status()
     for k, what in (('rife', 'câmera lenta (RIFE, GPU)'), ('tts', 'narração local (Kokoro pt-BR / Qwen3-TTS)'),
                     ('clone', 'narração clonando uma voz (Chatterbox)')):
-        add(OK if not gs[k] else WARN, what, (gpu.clone_python() if k == 'clone' else gpu.python()) if not gs[k] else 'opcional: ' + gs[k])
+        if gs[k] and k != 'rife' and core.env('SHARE_FROM'):
+            add(OK, what, f'pelo desktop ({core.env("SHARE_FROM")}, por SSH)')
+        else:
+            add(OK if not gs[k] else WARN, what, (gpu.clone_python() if k == 'clone' else gpu.python()) if not gs[k] else 'opcional: ' + gs[k])
     stt = core.stt_engine()
     add(OK, 'motor de transcrição', 'ElevenLabs Scribe (sem crédito ou chave, cai no Whisper local)' if stt == 'elevenlabs' else
         'Whisper local' + (' (Scribe desligado: {"stt": "whisper"} em ~/.config/claudio/settings.json)' if has_key else

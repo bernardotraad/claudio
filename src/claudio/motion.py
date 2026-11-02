@@ -678,7 +678,55 @@ def _assemble(wavs, chunks, out_dir, lang):
     return wav
 
 
-def narration(text, out_dir, engine='elevenlabs', voice=None, budget=None, lang='pt'):
+def _remote_ready(engine):
+    """This machine can't run the local engine (no GPU venv: the Mac) but knows the desktop (share_from)."""
+    from claudio import gpu
+    st = gpu.status()
+    missing = st['clone'] if engine == 'chatterbox' else st['tts']
+    return bool(missing) and bool(core.env('SHARE_FROM'))
+
+
+def _remote_cmd():
+    """claudio-run on the desktop, through its Windows OpenSSH: setting "remote_run", else the WSL of share_from's user."""
+    rr = core.env('REMOTE_RUN')
+    if rr:
+        return rr.split()
+    user = (core.env('SHARE_FROM') or '').split('@')[0] or 'bernardo'
+    return ['wsl.exe', '-d', 'Ubuntu', '--', f'/home/{user}/.local/bin/claudio-run']
+
+
+def _remote_narration(text, out_dir, engine, voice, lang, said, progress=lambda m: None):
+    """The narration made on the desktop (its GPU and models) and brought back: the script, the client's pronunciation
+    and, to clone, the first 90 s of the voice file go over SSH; narration.wav (as FLAC) and words.json come back.
+    The desktop is woken through Home Assistant when it is off (claudio.share)."""
+    import base64
+    from claudio import share
+    ok, note = share._reachable(progress)
+    if not ok:
+        raise RuntimeError(note)
+    args = {'text': text, 'engine': engine, 'lang': lang, 'said': said}
+    data = None
+    if voice and os.path.exists(core.local_path(voice)):
+        flac = core.run(['ffmpeg', '-v', 'error', '-t', '90', '-i', core.local_path(voice), '-vn', '-ac', '1', '-ar', '44100',
+                         '-c:a', 'flac', '-f', 'flac', '-']).stdout
+        data, args['voice_stdin'] = base64.b64encode(flac), os.path.basename(voice)
+    elif voice:
+        args['voice'] = voice
+    arg = 'b64:' + base64.b64encode(json.dumps(args, ensure_ascii=False).encode()).decode()
+    r = share._ssh([*_remote_cmd(), 'narrate', arg], timeout=1800, data=data)
+    try:
+        j = json.loads(r.stdout.decode('utf-8', 'replace').strip().splitlines()[-1])
+    except (ValueError, IndexError):
+        raise RuntimeError('o desktop não respondeu à narração: ' + r.stderr.decode('utf-8', 'replace')[-400:])
+    if not j.get('ok'):
+        raise RuntimeError('narração no desktop falhou: ' + str(j.get('error')))
+    wav = os.path.join(out_dir, 'narration.wav')
+    core.run(['ffmpeg', '-v', 'error', '-y', '-f', 'flac', '-i', '-', '-c:a', 'pcm_s16le', wav], input=base64.b64decode(j['flac']))
+    json.dump(j['words'], open(os.path.join(out_dir, 'words.json'), 'w'), ensure_ascii=False, indent=0)
+    return wav, j['info'] + ' · no desktop' + (f' ({note})' if note else '')
+
+
+def narration(text, out_dir, engine='elevenlabs', voice=None, budget=None, lang='pt', said=None):
     """Narration for the edit. elevenlabs: the skill's el_tts.py (one take, word timings, cache, hard credit budget —
     budget defaults to the text length + 10 %). edge: free edge-tts voices (pt-BR Thalita/Antonio). kokoro: local and
     free, native pt-BR voices (pm_alex, pm_santa, pf_dora). chatterbox: local, clones the voice of a file (voice = the
@@ -690,10 +738,12 @@ def narration(text, out_dir, engine='elevenlabs', voice=None, budget=None, lang=
     script = os.path.join(out_dir, 'script.txt')
     open(script, 'w', encoding='utf-8').write(text.strip() + '\n')
     chunks = [c.strip() for c in re.split(r'\n\s*\n', text.strip()) if c.strip()]
-    said = pronunciation(out_dir)
+    said = pronunciation(out_dir) if said is None else said
     read = [spoken(c, said) for c in chunks]          # what the voice reads; words.json keeps the script's spelling
     local = {'kokoro': _kokoro, 'qwen': _qwen, 'chatterbox': _chatterbox}
-    if engine in local:
+    if engine in local and _remote_ready(engine):     # the Mac: the desktop's GPU does it
+        wav, info = _remote_narration(text, out_dir, engine, voice, lang, said)
+    elif engine in local:
         res, info = local[engine](read, out_dir, voice, lang)
         wav = _assemble(res['wavs'], chunks, out_dir, lang)
     elif engine == 'elevenlabs':

@@ -12,6 +12,9 @@
   sync        {"cameras", "external_audio"?, "out_xml"?, "labels"?}   multicam sync (PluralEyes-style)
   clean       {"nle_xml", "max_pause"?, "fillers"?, "screen"?}  pauses + hesitations out of an edited sequence (new sequence)
   sfx         {"nle_xml", "whoosh"?, "pops"?, "sfx_dir"?}  whoosh into b-roll, pop on caption keywords (new audio track)
+  narrate     {"text", "engine", "lang"?, "said"?, "voice"? | "voice_stdin"}   narration made HERE for another machine
+                                                   (the Mac, over SSH): the voice to clone as base64 FLAC on stdin;
+                                                   returns the narration as base64 FLAC + words.json
   slowmo      {"nle_xml", "dry_run"?}              clips slowed in the NLE remade by RIFE (GPU), on a new video track
   mogrt       {"nle_xml", "style", "srt"?, "job"?}    caption MOGRTs: template (After Effects) + placement plan
   mogrt_styles {"job"?}                            the styles on offer (+ the client's brand one) and the .srt found
@@ -221,6 +224,25 @@ def _sfx(a):
                        a.get('sfx_dir') or prof.get('sfx_dir'), extra_keywords=(prof.get('caption_look') or {}).get('emphasis_words') or ())
 
 
+def _narrate(a):
+    import base64, shutil, tempfile
+    from claudio import core, motion
+    os.makedirs(os.path.join(core.CACHE, 'tmp'), exist_ok=True)                 # not /tmp: a small tmpfs on WSL
+    tmp = tempfile.mkdtemp(prefix='narr-', dir=os.path.join(core.CACHE, 'tmp'))
+    try:
+        voice = a.get('voice')
+        if a.get('voice_stdin'):
+            voice = os.path.join(tmp, 'voz_' + re.sub(r'[^\w.-]', '_', os.path.splitext(a['voice_stdin'])[0]) + '.flac')
+            open(voice, 'wb').write(base64.b64decode(sys.stdin.buffer.read()))
+        out = os.path.join(tmp, 'out')
+        r = motion.narration(a['text'], out, a.get('engine', 'kokoro'), voice, lang=a.get('lang', 'pt'), said=a.get('said') or {})
+        flac = core.run(['ffmpeg', '-v', 'error', '-i', os.path.join(out, 'narration.wav'), '-c:a', 'flac', '-f', 'flac', '-']).stdout
+        return {'info': r['info'], 'duration_s': r['duration_s'], 'flac': base64.b64encode(flac).decode(),
+                'words': json.load(open(os.path.join(out, 'words.json'), encoding='utf-8'))}
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
 def _slowmo(a):
     from claudio import slowmo
     return slowmo.slowmo_timeline(a['nle_xml'], _out_xml(a, 'câmera lenta'), dry_run=bool(a.get('dry_run')))
@@ -412,7 +434,7 @@ def _share(a):
 
 
 ACTIONS = {'share': _share, 'captions_prep': _captions_prep, 'captions_preview': _captions_preview, 'captions_make': _captions_make,
-           'search': _search, 'similar': _similar, 'learn': _learn, 'bench': _bench, 'recipes': _recipes, 'profile': _profile, 'stt': _stt, 'stt_check': _stt_check, 'retranscribe': _retranscribe, 'clean': _clean, 'sfx': _sfx, 'slowmo': _slowmo, 'mogrt': _mogrt, 'mogrt_styles': _mogrt_styles, 'describe': _describe, 'multicam_plan': _multicam_plan, 'status': _status, 'index': _index, 'stereo': _stereo, 'flatten': _flatten, 'qc': _qc, 'sync': _sync}
+           'search': _search, 'similar': _similar, 'learn': _learn, 'bench': _bench, 'recipes': _recipes, 'profile': _profile, 'stt': _stt, 'stt_check': _stt_check, 'retranscribe': _retranscribe, 'clean': _clean, 'sfx': _sfx, 'slowmo': _slowmo, 'narrate': _narrate, 'mogrt': _mogrt, 'mogrt_styles': _mogrt_styles, 'describe': _describe, 'multicam_plan': _multicam_plan, 'status': _status, 'index': _index, 'stereo': _stereo, 'flatten': _flatten, 'qc': _qc, 'sync': _sync}
 
 
 def main():

@@ -23,3 +23,31 @@ def test_spoken_reads_brands_as_they_sound():
     assert motion.spoken('Na INC, cada apartamento da inc', {'INC': 'Ínqui'}) == 'Na Ínqui, cada apartamento da Ínqui'
     assert motion.spoken('Na INC, cada apartamento', {}) == 'Na INC. cada apartamento'    # "INCada" no more
     assert motion.spoken('Incrível, não?', {'INC': 'Ínqui'}) == 'Incrível, não?'          # whole words only
+
+
+def test_remote_narration_round_trip(tmp_path, monkeypatch):
+    """The Mac side: script, pronunciation and the voice file go out, narration.wav + words.json come back."""
+    import base64, json, subprocess
+    from claudio import share
+    from conftest import ff
+    voice = str(tmp_path / 'voz.wav')
+    ff('-f', 'lavfi', '-i', 'sine=frequency=220:duration=2', voice)
+    sent = {}
+
+    def fake_ssh(args, timeout=120, data=None):                    # what the desktop's claudio-run narrate answers
+        a = json.loads(base64.b64decode(args[-1][4:]))
+        sent.update(a, cmd=args[:-2], voice_bytes=len(base64.b64decode(data)) if data else 0)
+        flac = subprocess.run(['ffmpeg', '-v', 'error', '-f', 'lavfi', '-i', 'sine=frequency=440:duration=1', '-c:a', 'flac',
+                               '-f', 'flac', '-'], capture_output=True).stdout
+        out = {'ok': True, 'info': 'Chatterbox · voz clonada', 'duration_s': 1.0, 'flac': base64.b64encode(flac).decode(),
+               'words': {'words': [{'w': 'INC', 's': 0.2, 'e': 0.5, 'act': 0}], 'chunks': [], 'dur': 1.0}}
+        return subprocess.CompletedProcess(args, 0, (json.dumps(out) + '\n').encode(), b'')
+    monkeypatch.setattr(share, '_ssh', fake_ssh)
+    monkeypatch.setattr(share, '_reachable', lambda progress: (True, None))
+    monkeypatch.setattr(motion, '_remote_ready', lambda engine: True)
+    monkeypatch.setenv('CLAUDIO_SHARE_FROM', 'bernardo@desktop')
+    r = motion.narration('Na INC, cada apartamento', str(tmp_path / 'out'), engine='chatterbox', voice=voice, said={'INC': 'Ink'})
+    assert sent['engine'] == 'chatterbox' and sent['said'] == {'INC': 'Ink'} and sent['voice_stdin'] == 'voz.wav'
+    assert sent['voice_bytes'] > 1000 and sent['cmd'][-1] == '/home/bernardo/.local/bin/claudio-run'
+    assert r['duration_s'] == 1.0 and 'no desktop' in r['info']
+    assert json.load(open(tmp_path / 'out' / 'words.json'))['words'][0]['w'] == 'INC'
