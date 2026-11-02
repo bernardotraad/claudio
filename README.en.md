@@ -48,7 +48,7 @@ card ─► ingest ─► logging (.md next to every clip) ─► overview + que
 | Selects | `make_selects` | Best-take and b-roll sequences + markers on every clip (✅ best / ✗ criticised / 👁 notes). |
 | Build | `music_map`, `music_windows`, `build_edit`, `edit_storyboard`, `export_edit` | Music first (BPM, bars, sections), cuts on the beat, b-roll over speech, a storyboard **without rendering**, FCP7 XML for the NLE. |
 | Review | `compare_with_nle`, `adopt_nle_timeline` | Reads the timeline as it is in the NLE: what you changed, and your markers as notes. Your changes become the new base. |
-| Captions & overlays | `caption_sentences`, `caption_style_preview`, `captions_srt`, `caption_overlay`, `render_overlay`, `narration` | Grammar fixed without changing the speech, 6 styles with a preview, editable SRT or an alpha overlay (ProRes 4444), lower thirds and titles, ElevenLabs/edge-tts narration. **Songs:** lyrics timed to the isolated vocal (UVR MDX-Net in ONNX, 67 MB model downloaded on first use), one block per sung line, the chorus fixing misheard lines. Uses the motion-designer skill. |
+| Captions & overlays | `caption_sentences`, `caption_style_preview`, `captions_srt`, `caption_overlay`, `render_overlay`, `narration` | Grammar fixed without changing the speech, 6 styles with a preview, editable SRT or an alpha overlay (ProRes 4444), lower thirds and titles, local pt-BR narration (Kokoro), voice cloning (Chatterbox), ElevenLabs or edge-tts. **Slow motion** with RIFE on the GPU. **Songs:** lyrics timed to the isolated vocal (UVR MDX-Net in ONNX, 67 MB model downloaded on first use), one block per sung line, the chorus fixing misheard lines. Uses the motion-designer skill. |
 | Finish | `qc_timeline` | Flags flash frames, black gaps, offline media, takes used twice, jump cuts, volume jumps and the wrong format for the platform. It fixes nothing on its own. |
 | Remember | `client_profile`, `save_client_profile`, `read_premiere_project` | One profile per client: vocabulary, end card, music, and the house style measured from your finished projects. |
 
@@ -227,8 +227,16 @@ Cláudio, o Editor**.
   It is Gabriel Greco's ([gabrielgreco1/skills](https://github.com/gabrielgreco1/skills)) and is downloaded from there,
   at the version Cláudio was tested with; `--fix-skill --force` replaces a hand-installed copy (the old one goes to
   `~/.claude/skills-backup`).
-- **ElevenLabs** (more natural narration): save the key in `~/.config/elevenlabs/api_key` inside Ubuntu. Without it,
-  narration uses free edge-tts.
+- **NVIDIA GPU: local slow motion and narration** (`claudio-doctor --fix-gpu`, ~12 GB): separate venvs with torch that
+  the Cláudio calls from outside (it stays torch-free). **RIFE** ([Practical-RIFE](https://github.com/hzwer/Practical-RIFE), MIT):
+  the **Slow motion** button remakes every clip you set below 100 % in Premiere with real in-between frames, on a new
+  track (4K at 50 %: ~80 s per 3 s shot on an RTX 3060). **Kokoro** ([hexgrad/kokoro](https://github.com/hexgrad/kokoro),
+  Apache-2.0): free narration with native pt-BR voices, the `narration` default. **Chatterbox**
+  ([resemble-ai/chatterbox](https://github.com/resemble-ai/chatterbox), MIT): `engine="chatterbox"` clones a voice from
+  a file and keeps a Brazilian accent (the reference is reduced to the voice first). Qwen3-TTS (`engine="qwen"`) clones
+  too, but its Portuguese is European. A brand's pronunciation goes in the client profile: `"pronuncia": {"INC": "Ink"}`.
+  **On a Mac** with `share_from`, local narration runs on the desktop over SSH (woken through Home Assistant).
+- **ElevenLabs** (most natural narration, paid): save the key in `~/.config/elevenlabs/api_key` inside Ubuntu.
 - **Claude Desktop**: in `claude_desktop_config.json`, use the same command as step 5:
   `"command": "C:\\Windows\\System32\\wsl.exe", "args": ["-d", "Ubuntu", "--", "/home/<user>/.local/bin/claudio"]`.
 
