@@ -45,16 +45,18 @@ def _has(mod):
 
 
 def status():
+    # Chatterbox has its own venv, so it is checked even where the GPU venv is missing (a Mac without one)
+    clone = (None if os.path.exists(clone_python()) and subprocess.run([clone_python(), '-c', 'import chatterbox'],
+                                                                       capture_output=True).returncode == 0
+             else f'Chatterbox não instalado ({clone_python()}): claudio-doctor --fix-gpu')
     if not os.path.exists(python()):
         miss = f'venv da GPU não encontrado ({python()}): claudio-doctor --fix-gpu'
-        return {'python': miss, 'rife': miss, 'tts': miss}
+        return {'python': miss, 'rife': miss, 'tts': miss, 'clone': clone}
     return {'python': None,
             'rife': None if os.path.exists(os.path.join(rife_dir(), 'train_log', 'flownet.pkl')) and _has('torchvision')
             else f'RIFE não instalado em {rife_dir()}: claudio-doctor --fix-gpu',
             'tts': None if _has('kokoro') else 'kokoro não instalado no venv da GPU: claudio-doctor --fix-gpu',
-            'clone': None if os.path.exists(clone_python()) and subprocess.run([clone_python(), '-c', 'import chatterbox'],
-                                                                                capture_output=True).returncode == 0
-            else f'Chatterbox não instalado ({clone_python()}): claudio-doctor --fix-gpu'}
+            'clone': clone}
 
 
 def setup(log=print):
