@@ -46,6 +46,43 @@ def install():
     return dst
 
 
+def _files(root):
+    out = {}
+    for d, dirs, files in os.walk(root):
+        dirs[:] = [x for x in dirs if x != '__pycache__']
+        for f in files:
+            if f != '.DS_Store':
+                full = os.path.join(d, f)
+                out[os.path.relpath(full, root)] = full
+    return out
+
+
+def outdated():
+    """True when the panel is installed but differs from the one in this package (an upgrade does not recopy it)."""
+    try:
+        dst = os.path.join(_ext_dir(), ID)
+    except Exception:
+        return False
+    if not os.path.isdir(dst):
+        return False
+    a, b = _files(SRC), _files(dst)
+    if a.keys() != b.keys():
+        return True
+    for rel, src in a.items():
+        with open(src, 'rb') as x, open(b[rel], 'rb') as y:
+            if x.read() != y.read():
+                return True
+    return False
+
+
+def sync():
+    """Reinstall the panel if it is installed and stale. Never raises; returns the path when it reinstalled."""
+    try:
+        return install() if outdated() else None
+    except Exception:
+        return None
+
+
 def main():
     if sys.argv[1:] in ([], ['install']):
         print('painel instalado em', core.nle_path(install()), '— reinicie o Premiere: Janela › Extensões › Cláudio, o Editor')

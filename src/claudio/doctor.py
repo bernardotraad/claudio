@@ -98,7 +98,10 @@ def check():
     try:
         from claudio import panel
         d = os.path.join(panel._ext_dir(), panel.ID)
-        add(OK if os.path.isdir(d) else WARN, 'painel no Premiere', core.nle_path(d) if os.path.isdir(d) else 'claudio-panel install')
+        if panel.sync():
+            add(OK, 'painel no Premiere', 'estava desatualizado — reinstalado agora (reinicie o Premiere)')
+        else:
+            add(OK if os.path.isdir(d) else WARN, 'painel no Premiere', core.nle_path(d) if os.path.isdir(d) else 'claudio-panel install')
     except Exception as e:
         add(WARN, 'painel no Premiere', str(e)[:100])
     return rows

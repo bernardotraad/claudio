@@ -1363,6 +1363,8 @@ for _t in mcp._tool_manager.list_tools():
 
 
 def main():
+    from claudio import panel
+    panel.sync()        # `uv tool upgrade` does not recopy the Premiere panel; keep the installed one in step (silent: stdio)
     mcp.run()
 
 
