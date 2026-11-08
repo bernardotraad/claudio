@@ -1005,15 +1005,18 @@ async function mogrtRun(style, srt) {
   });
 }
 async function multicamPlan() {
-  await localJob('multicâmera: lendo as pastas', async () => {
-    const r = await runLocal('multicam_plan', { folder: jobFolder() });
+  await localJob('multicâmera: lendo o projeto e as pastas', async () => {
+    const r = await runLocal('multicam_plan', { folder: jobFolder(), project: ctx.project || null });
     if (!r.ok) return add('local err', r.error);
     const cams = Object.entries(r.cameras || {});
     const rows = cams.map(([n, c]) => `| ${n} | \`${path.basename(c.folder.replace(/\\/g, '/'))}\` | ${c.clips} | ${c.label} |`)
       .concat((r.external_audio || []).map((e) => `| áudio externo | \`${path.basename(e.folder.replace(/\\/g, '/'))}\` | ${e.files} | ${r.audio_label} |`));
-    const d = add('local', `**Multicâmera** — achei ${cams.length} câmera(s)` + ((r.external_audio || []).length ? ' e um gravador externo' : '') + ':\n\n' +
+    const npx = Object.keys(r.proxies || {}).length;
+    const d = add('local', `**Multicâmera** — achei ${cams.length} câmera(s)` + ((r.external_audio || []).length ? ' e um gravador externo' : '') +
+      (r.source && r.source !== 'pastas' ? ` no projeto \`${path.basename(r.source.replace(/\\/g, '/'))}\`` + (npx ? ` (${npx} original(is) com proxy: analiso o proxy, o XML liga no original)` : '') : ' nas pastas') + ':\n\n' +
       '| fonte | pasta | arquivos | cor |\n|---|---|---|---|\n' + rows.join('\n') +
       (r.music ? `\n\n**Parece um clipe musical:** \`${path.basename(r.guide.replace(/\\/g, '/'))}\` vira a trilha guia, cada take é alinhado contra ela e os takes que se sobrepõem ficam em trilhas empilhadas. Takes de refrão repetido saem marcados para você conferir.` : '') +
+      (r.ready && r.note ? `\n\n${r.note}` : '') +
       (r.ready ? '\n\nSincronizo pelo áudio (sem IA) e gero a "Synced Sequence" com cada câmera na sua cor? Se o mapeamento estiver errado, peça ao Cláudio.' : `\n\n${r.note}`));
     if (!r.ready) return;
     const go = document.createElement('button'); go.textContent = 'Sincronizar (sem IA)';
@@ -1026,9 +1029,10 @@ async function multicamPlan() {
 async function multicamSync(plan) {
   await localJob('multicâmera: sincronizando pelo áudio', async () => {
     const cameras = {}, labels = {};
-    for (const [n, c] of Object.entries(plan.cameras)) { cameras[n] = c.folder; labels[n] = c.label; }
+    for (const [n, c] of Object.entries(plan.cameras)) { cameras[n] = c.files || c.folder; labels[n] = c.label; }
     if (plan.audio_label) labels.AUDIO = plan.audio_label;
-    const r = await runLocal('sync', { cameras, external_audio: (plan.external_audio || []).map((e) => e.folder), labels, music: !!plan.music,
+    const r = await runLocal('sync', { cameras, external_audio: (plan.external_audio || []).flatMap((e) => e.paths || [e.folder]), labels, music: !!plan.music,
+                                       proxies: plan.proxies || {},
                                        out_xml: jobPath('projeto', 'claudio_sync.xml') });
     if (!r.ok) return add('local err', r.error);
     const clips = r.clips || [];

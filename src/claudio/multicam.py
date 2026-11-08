@@ -206,10 +206,7 @@ def _files(spec, exts):
     for p in ([spec] if isinstance(spec, str) else spec):
         lp = core.local_path(p)
         if os.path.isdir(lp):
-            for dp, dn, fn in os.walk(lp):
-                dn[:] = [x for x in dn if x.lower() not in core.PROXY_DIRS and not x.startswith(('.', '_'))]
-                out += [os.path.join(dp, f) for f in sorted(fn) if os.path.splitext(f)[1].lower() in exts
-                        and not f.startswith('._') and not core.is_proxy(os.path.join(dp, f))]
+            out += core.media_files(lp, exts)       # originals, or the proxies when they are all that was kept
         elif os.path.isfile(lp):
             out.append(lp)
     return out

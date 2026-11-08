@@ -8,7 +8,7 @@
   flatten     {"nle_xml"}                          nested sequences → clips straight on the tracks
   qc          {"nle_xml", "platform"?}             timeline + audio QC (loudness, ducking)
   describe    {"folder" | "paths"}                what is seen in each stretch → clip logs (no AI)
-  multicam_plan {"folder"}                        cameras/recorders from the folders + colours (no AI)
+  multicam_plan {"folder", "project"?}            cameras/recorders from the Premiere project (else the folders) + colours (no AI)
   sync        {"cameras", "external_audio"?, "out_xml"?, "labels"?}   multicam sync (PluralEyes-style)
   clean       {"nle_xml", "max_pause"?, "fillers"?, "screen"?}  pauses + hesitations out of an edited sequence (new sequence)
   sfx         {"nle_xml", "whoosh"?, "pops"?, "sfx_dir"?}  whoosh into b-roll, pop on caption keywords (new audio track)
@@ -106,6 +106,7 @@ def _qc(a):
 def _sync(a):
     import os as _os
     from claudio import core, multicam
+    core.register_proxies(a.get('proxies'))      # analyse the proxies attached in the project, write the originals
     res = multicam.sync_cameras(a['cameras'], a.get('external_audio'), a.get('fps'), a.get('correct_drift', True),
                                 music=bool(a.get('music')))
     base = _os.path.dirname(_os.path.commonpath([n['path'] for n in res['nodes']]))
@@ -120,12 +121,85 @@ def _sync(a):
     return {'xml': x, 'sync_json': core.nle_path(sj), **summ}
 
 
+def _find_prproj(a, root):
+    from claudio import core, profile
+    if a.get('project') and os.path.isfile(core.local_path(a['project'])):
+        return core.local_path(a['project'])
+    for d in (os.path.join(root, profile.get('pastas.projeto')), root):
+        try:
+            ps = sorted((os.path.join(d, f) for f in os.listdir(d) if f.lower().endswith('.prproj') and not f.startswith('.')),
+                        key=os.path.getmtime, reverse=True)
+        except OSError:
+            continue
+        if ps:
+            return ps[0]
+    return None
+
+
+def _cams_from_project(prproj, work):
+    """Cameras and recorders from the media the editor's project actually uses (wherever they live: originals on an
+    external drive, proxies on the laptop) — the folder of each original names its camera. Offline originals are
+    synced from their proxy (the XML then points at the proxy: reconnect the drive for the originals)."""
+    from claudio import core, multicam, profile
+    groups, proxies, offline = {}, {}, []
+    for m in core.project_media(prproj):
+        o, px = m['original'], m['proxy']
+        folder = os.path.dirname(o)
+        if profile.skip_dir(os.path.basename(folder), work) or os.path.basename(folder).startswith('_'):
+            continue                                  # music, captions, overlays, our own renders
+        kind = 'video' if os.path.splitext(o)[1].lower() in core.VIDEO_EXT else 'audio'
+        use = o
+        if not os.path.exists(o):
+            if not (px and os.path.exists(px)):
+                continue
+            offline.append(o)
+            use = px
+        elif px and os.path.exists(px):
+            proxies[o] = px
+        groups.setdefault(folder, {'video': [], 'audio': []})[kind].append(use)
+    cams, ext = {}, []
+    for folder, g in sorted(groups.items()):
+        if g['video']:
+            model = ''
+            try:
+                model = core.camera_of(g['video'][0]) or ''
+            except Exception:
+                pass
+            name = os.path.basename(folder)
+            cams[name + (f' — {model}' if model and model.lower() not in name.lower() else '')] = {
+                'folder': core.nle_path(folder), 'files': [core.nle_path(p) for p in g['video']],
+                'clips': len(g['video']), 'model': model}
+        elif g['audio']:
+            ext.append({'folder': core.nle_path(folder), 'paths': [core.nle_path(p) for p in g['audio']],
+                        'files': len(g['audio'])})
+    return cams, ext, proxies, offline
+
+
 def _multicam_plan(a):
-    """Cameras and recorders of a job from its folders, without AI: every folder with videos is a camera (named after
-    the folder + the camera model), folders with only audio files are external recorders. Colours: the multicam palette."""
+    """Cameras and recorders of a job, without AI. From the editor's Premiere project when there is one (the media it
+    uses, wherever it lives, and the proxies attached to it); else from the job's folders: every folder with videos is a
+    camera (named after the folder + the camera model), folders with only audio files are external recorders.
+    Colours: the multicam palette."""
     from claudio import core, multicam, profile
     root = core.local_path(a['folder'])
     work = profile.work_dirs()
+    proxies, offline, source = {}, [], None
+    prproj = _find_prproj(a, root)
+    cams, ext = {}, []
+    if prproj:
+        try:
+            cams, ext, proxies, offline = _cams_from_project(prproj, work)
+            source = core.nle_path(prproj)
+        except Exception:
+            cams, ext = {}, []
+    if not cams and not ext:
+        source = None
+        cams, ext = _cams_from_folders(root, work)
+    return _plan_result(cams, ext, proxies, offline, source)
+
+
+def _cams_from_folders(root, work):
+    from claudio import core, multicam, profile
     skip = lambda n: n.startswith('_') or profile.skip_dir(n, work) or n.lower() in core.PROXY_DIRS
     cams, ext = {}, []
     for dp, dn, fn in os.walk(root):
@@ -133,7 +207,12 @@ def _multicam_plan(a):
         if os.path.relpath(dp, root).count(os.sep) > 2:
             dn[:] = []
             continue
-        vids = [f for f in fn if os.path.splitext(f)[1].lower() in core.VIDEO_EXT and not f.startswith('._')]
+        vids = [f for f in fn if os.path.splitext(f)[1].lower() in core.VIDEO_EXT and not f.startswith('._')
+                and not core.is_proxy(os.path.join(dp, f))]
+        if not vids and dp != root:             # only the NLE proxies were kept (CAM/Proxy/*_Proxy.mov): they are the camera
+            vids = [os.path.join(d, f) for d in os.listdir(dp) if d.lower() in core.PROXY_ONLY_DIRS
+                    and os.path.isdir(os.path.join(dp, d)) for f in os.listdir(os.path.join(dp, d))
+                    if os.path.splitext(f)[1].lower() in core.VIDEO_EXT and not f.startswith('._')]
         auds = [f for f in fn if os.path.splitext(f)[1].lower() in multicam.AUDIO_EXT and not f.startswith('._')]
         if vids:
             model = ''
@@ -145,10 +224,15 @@ def _multicam_plan(a):
             cams[name + (f' — {model}' if model and model.lower() not in name.lower() else '')] = {
                 'folder': core.nle_path(dp), 'clips': len(vids), 'model': model}
         elif auds:
-            ext.append({'folder': core.nle_path(dp), 'files': len(auds)})
+            ext.append({'folder': core.nle_path(dp), 'paths': [core.nle_path(os.path.join(dp, f)) for f in sorted(auds)],
+                        'files': len(auds)})
+    return cams, ext
+
+
+def _plan_result(cams, ext, proxies, offline, source):
+    from claudio import core, multicam
     # one short external audio file and takes no longer than it: a music video with its guide track
-    files = [os.path.join(core.local_path(e['folder']), f) for e in ext for f in os.listdir(core.local_path(e['folder']))
-             if os.path.splitext(f)[1].lower() in multicam.AUDIO_EXT]
+    files = [core.local_path(p) for e in ext for p in e['paths']]
     music = False
     if len(files) == 1:
         try:
@@ -159,10 +243,15 @@ def _multicam_plan(a):
     labels = multicam.camera_labels(list(cams) + (['AUDIO'] if ext else []))
     for k in cams:
         cams[k]['label'] = labels[k]
+    n = len(cams) + (1 if ext else 0)
+    notes = [] if n >= 2 else ['precisa de pelo menos 2 fontes (câmeras e/ou gravador)']
+    if offline:
+        notes.append(f'{len(offline)} original(is) offline (ex.: {os.path.dirname(offline[0])}) — sincronizo pelos proxies, '
+                     'mas o XML vai apontar para eles: conecte o HD dos originais e rode de novo para o XML ligar nos originais')
     return {'cameras': cams, 'external_audio': ext, 'audio_label': labels.get('AUDIO'), 'music': music,
-            'guide': core.nle_path(files[0]) if music else None,
-            'ready': len(cams) + (1 if ext else 0) >= 2,
-            'note': None if len(cams) + (1 if ext else 0) >= 2 else 'precisa de pelo menos 2 fontes (câmeras e/ou gravador)'}
+            'guide': core.nle_path(files[0]) if music else None, 'source': source or 'pastas',
+            'proxies': {core.nle_path(o): core.nle_path(p) for o, p in proxies.items()},
+            'ready': n >= 2, 'note': ' · '.join(notes) or None}
 
 
 def _describe(a):

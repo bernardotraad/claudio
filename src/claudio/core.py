@@ -107,6 +107,23 @@ def is_proxy(path):
     return any(p in PROXY_DIRS for p in parts[:-1]) or re.search(r'_proxy\.[a-z0-9]+$', parts[-1]) is not None
 
 
+PROXY_ONLY_DIRS = ('proxies', 'proxy', 'proxys')       # NLE proxy folders (not our own _claudio/cache folders)
+
+
+def media_files(folder, exts):
+    """Media of a camera folder: the originals; when the card was not kept and only the NLE proxies exist
+    (CAM/Proxy/C0001_Proxy.mov), the proxies — they are then the only copy of that camera, not a duplicate."""
+    orig, prox = [], []
+    for dp, dn, fn in os.walk(folder):
+        dn[:] = sorted(x for x in dn if not x.startswith(('.', '_'))
+                       and (x.lower() not in PROXY_DIRS or x.lower() in PROXY_ONLY_DIRS))
+        for f in sorted(fn):
+            if os.path.splitext(f)[1].lower() in exts and not f.startswith('._'):
+                p = os.path.join(dp, f)
+                (prox if is_proxy(p) else orig).append(p)
+    return orig or prox
+
+
 def analysis_source(path):
     """What to decode for analysis: the clip's proxy when one exists AND has the same duration (an outdated proxy is
     ignored), else the original. Everything we write (.md, XML, timelines) always points at the original."""
@@ -114,7 +131,8 @@ def analysis_source(path):
     cp = os.path.join(d, 'proxy.json')
     if os.path.exists(cp):
         j = json.load(open(cp))
-        if j.get('proxy') is None or os.path.exists(j['proxy']):
+        stale = j.get('proxy') is None and _pkey(path) in NLE_PROXIES   # a proxy attached since
+        if not stale and (j.get('proxy') is None or os.path.exists(j['proxy'])):
             return j.get('proxy') or path
     px = proxy_for(path)
     ok = None
@@ -129,8 +147,64 @@ def analysis_source(path):
     return ok or path
 
 
+NLE_PROXIES = {}        # original → proxy, as attached in the editor's project (they can live on different drives)
+
+
+def _pkey(p):
+    """Key of a path in NLE_PROXIES: Windows paths are case-insensitive and may come with either slash."""
+    return os.path.normcase(os.path.normpath(p))
+
+
+def register_proxies(mapping):
+    for o, p in (mapping or {}).items():
+        if o and p:
+            NLE_PROXIES[_pkey(local_path(o))] = local_path(p)
+
+
+def _boot_volume_path(p):
+    """Premiere writes the boot disk as "/Volumes/Macintosh HD/Users/…": the same file as "/Users/…"."""
+    m = re.match(r'^/Volumes/[^/]+(/.*)$', p)
+    if m and IS_MAC and os.path.realpath(p[:len(p) - len(m.group(1))]) == '/':
+        return m.group(1)
+    return p
+
+
+def project_media(prproj):
+    """Every media file of a Premiere project, as [{'original', 'proxy'}]: the editor's own map of where the camera
+    files and their proxies are (originals on an external drive, proxies on the laptop…). Proxies are paired with
+    their original by name (<stem>_Proxy.* ↔ <stem>.*), as Premiere's ingest names them."""
+    import gzip, html
+    raw = open(prproj, 'rb').read()
+    try:
+        raw = gzip.decompress(raw)
+    except OSError:
+        pass
+    paths = []
+    for m in re.finditer(rb'<ActualMediaFilePath>([^<]+)</ActualMediaFilePath>', raw):
+        p = _boot_volume_path(local_path(html.unescape(m.group(1).decode('utf-8', 'replace'))))
+        if p not in paths and os.path.splitext(p)[1].lower() in MEDIA_EXT:
+            paths.append(p)
+    origs = [p for p in paths if not is_proxy(p)]
+    prox = {}
+    for p in paths:
+        if is_proxy(p):
+            stem = re.sub(r'_proxy$', '', os.path.splitext(os.path.basename(p))[0], flags=re.I).lower()
+            prox.setdefault(stem, []).append(p)
+    out = []
+    for o in origs:
+        cands = prox.get(os.path.splitext(os.path.basename(o))[0].lower(), [])
+        # same stem on two cameras (C0001 on two Sonys): the proxy whose folder path shares the camera folder name
+        best = next((c for c in cands if os.path.basename(os.path.dirname(o)).lower() in c.lower()), cands[0] if cands else None)
+        out.append({'original': o, 'proxy': best})
+    return out
+
+
 def proxy_for(path):
-    """An existing proxy of this clip (Premiere convention: <dir>/Proxies/<stem>_Proxy.*), or None."""
+    """An existing proxy of this clip: the one attached in the editor's project (register_proxies), else Premiere's
+    convention next to it (<dir>/Proxies/<stem>_Proxy.*), or None."""
+    px = NLE_PROXIES.get(_pkey(path))
+    if px and os.path.exists(px):
+        return px
     d, f = os.path.split(path)
     stem = os.path.splitext(f)[0]
     for sub in ('Proxies', 'Proxy', 'proxies'):
