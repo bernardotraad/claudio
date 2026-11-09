@@ -105,8 +105,11 @@ def _qc(a):
 
 _SYNC_STAGES = (                 # stage of multicam.place* → (start, end) of the panel's bar, and how to say it
     ('audio', 0.0, 0.25, lambda r: f'lendo o áudio · {r}'),
-    ('align', 0.25, 0.35, lambda r: 'alinhando pelo áudio'),
+    ('align', 0.25, 0.35, lambda r: 'alinhando as câmeras pelo áudio'),
     ('transcript', 0.35, 0.9, lambda r: f'clipes sem encaixe pelo áudio: comparando a letra · {r}'),
+    ('clips', 0.35, 0.6, lambda r: 'acertando cada clipe contra as outras câmeras'),       # place_sequence (shows)
+    ('songs', 0.6, 0.85, lambda r: f'procurando os áudios externos nas câmeras · {r}'),
+    ('fine', 0.85, 0.97, lambda r: 'acerto fino de frame (todos os pares juntos)'),
     ('xml', 0.97, 1.0, lambda r: 'drift do gravador e XML'),
 )
 

@@ -4,7 +4,15 @@
                                     one timeline by its audio, external recorder clock drift measured and corrected,
                                     exported as an FCP7 XML that Premiere and Resolve import ("Synced Sequence").
 
-How it aligns (all from audio, no timecode needed):
+How it aligns a show (cameras with a clock — place_sequence, the way PluralEyes does it):
+  1. each camera's clips laid out in recording order by its own clock (one clip at a time; ~1 s resolution)
+  2. whole cameras aligned to each other at once by what is played (chroma: same notes in every mic, any room)
+  3. every clip refined in a ±3 s window against the other cameras; then the external recordings (board mix, one file
+     per song) searched in the cameras' sound — their order on the timeline is whatever the show's was
+  4. frame accuracy: every overlapping pair measured on band onsets (8 bands, 5 ms) and solved together by weighted
+     least squares, outliers dropped — no chain of clip-to-clip guesses
+Without clocks (or when cameras do not line up) it falls back to clip-by-clip placement:
+
   1. every file → 8 kHz mono audio (cached) → 100 Hz onset envelope (rise of log energy: robust across different mics)
   2. graph placement: start from the anchor (the longest external recording, else the longest clip); repeatedly place the
      unplaced file whose best envelope cross-correlation against an already placed file is the most confident
@@ -409,6 +417,302 @@ def _place_islands(todo, placed, env, cache, min_conf, progress):
             placed.append(n)
 
 
+# ───────────────────────────── sequence placement (PluralEyes-style, for shows) ─────────────────────────────
+CFPS = SR / CH_HOP                     # chroma frames per second (20)
+
+
+def _clock_starts(ns):
+    """Start of each clip on its camera's own clock. Most cameras stamp creation_time at the start; some at the end of
+    the recording — chosen by which reading leaves the camera's clips not overlapping (a camera records one at a time)."""
+    def overlaps(starts):
+        o = sorted(zip(starts, ns), key=lambda x: x[0])
+        return sum(1 for (s0, a), (s1, _) in zip(o, o[1:]) if s1 < s0 + a['duration'] - 2.0)
+    start = [n['_clk'] for n in ns]
+    end = [n['_clk'] - n['duration'] for n in ns]
+    return end if overlaps(end) < overlaps(start) else start
+
+
+def _lane(items, length, dim=None, rate=CFPS):
+    """items [(t0_s, features)] → one array on a common clock (zeros where nothing rolls)."""
+    lane = np.zeros((length, dim) if dim else length, np.float32)
+    for t, f in items:
+        i = int(round(t * rate))
+        a, b = max(0, i), min(length, i + len(f))
+        if b > a:
+            lane[a:b] = f[a - i:b - i]
+    return lane
+
+
+def _chroma_mix(lanes):
+    """Average of several chroma lanes, renormalised per frame; frames where nothing rolls stay zero."""
+    s = sum(lanes)
+    nrm = np.linalg.norm(s, axis=1, keepdims=True)
+    return np.where(nrm > 1e-6, s / (nrm + 1e-9), 0).astype(np.float32)
+
+
+def _chroma_search(a, b, min_overlap, k=2, sep_s=4.0):
+    """Best alignments of chroma a inside chroma b over every lag: [(lag_s, score)], b[t] ≈ a[t - lag]. score = mean
+    frame similarity over the frames where BOTH have sound (gaps between clips don't dilute it), only for lags where
+    that overlap is at least min_overlap frames."""
+    if not len(a) or not len(b):
+        return []
+    n = 1 << int(math.ceil(math.log2(len(a) + len(b))))
+    cc = sum(np.fft.irfft(np.fft.rfft(b[:, j], n) * np.conj(np.fft.rfft(a[:, j], n)), n) for j in range(12))
+    ma, mb = (np.abs(a).sum(1) > 0).astype(np.float64), (np.abs(b).sum(1) > 0).astype(np.float64)
+    ov = np.fft.irfft(np.fft.rfft(mb, n) * np.conj(np.fft.rfft(ma, n)), n)
+    lags = np.r_[np.arange(0, len(b)), np.arange(-len(a) + 1, 0)]
+    cc, ov = np.r_[cc[:len(b)], cc[n - len(a) + 1:]], np.r_[ov[:len(b)], ov[n - len(a) + 1:]]
+    score = np.where(ov >= min_overlap, cc / np.maximum(ov, 1), -1.0)
+    out, sep = [], int(sep_s * CFPS)
+    for i in np.argsort(-score)[:4000]:
+        if score[i] <= 0:
+            break
+        if all(abs(lags[i] - l) > sep for l, _ in out):
+            out.append((int(lags[i]), float(score[i])))
+        if len(out) == k:
+            break
+    return [(l / CFPS, s) for l, s in out]
+
+
+def _chroma_near(a, b, lag_s, reach_s):
+    """Best lag of chroma a inside b within ±reach of lag_s: (lag_s, score), score over the frames where both sound."""
+    c, r = int(round(lag_s * CFPS)), int(round(reach_s * CFPS))
+    best = (lag_s, -1.0)
+    for lag in range(c - r, c + r + 1):
+        x0, y0 = max(0, -lag), max(0, lag)
+        L = min(len(a) - x0, len(b) - y0)
+        if L < CFPS * 3:
+            continue
+        xa, yb = a[x0:x0 + L], b[y0:y0 + L]
+        both = (np.abs(xa).sum(1) > 0) & (np.abs(yb).sum(1) > 0)
+        if both.sum() < CFPS * 3:
+            continue
+        v = float((xa[both] * yb[both]).sum(1).mean())
+        if v > best[1]:
+            best = (lag / CFPS, v)
+    return best
+
+
+BF_RATE = 200                          # band onsets: 5 ms frames
+
+
+def band_onsets(x):
+    """Onsets in 8 log-spaced bands (100 Hz–3.6 kHz) at 5 ms: the timing of what every mic hears, band by band —
+    far sharper between different mics/rooms than one broadband envelope (which a loud band dominates)."""
+    hop, N = SR // BF_RATE, 512
+    m = 1 + (len(x) - N) // hop
+    if m < 4:
+        return np.zeros((0, 8), np.float32)
+    edges = np.geomspace(100, 3600, 9)
+    f = np.fft.rfftfreq(N, 1 / SR)
+    sel = [(f >= edges[b]) & (f < edges[b + 1]) for b in range(8)]
+    win = np.hanning(N).astype(np.float32)
+    out = np.zeros((m, 8), np.float32)
+    for i in range(0, m, 4096):
+        idx = np.arange(i, min(m, i + 4096))[:, None] * hop + np.arange(N)[None]
+        S = np.abs(np.fft.rfft(x[idx] * win, axis=1)) ** 2
+        for b in range(8):
+            out[i:i + len(idx), b] = np.log(S[:, sel[b]].sum(1) + 1e-9)
+    d = np.maximum(np.diff(out, axis=0, prepend=out[:1]), 0)
+    return ((d - d.mean(0)) / (d.std(0) + 1e-9)).astype(np.float32)
+
+
+def _pair_offset(a, b, reach_s=0.4, chunk_s=30.0, chunks=4):
+    """Fine timing error of b relative to a where they overlap (both already placed to ~0.2 s): band onsets
+    correlated over a few chunks spread along the overlap. Returns (err_s, weight) — b's true start is
+    b['t0'] - err_s relative to a — or None when there is no clear peak."""
+    t0 = max(a['t0'], b['t0']) + reach_s + 0.5
+    t1 = min(a['t0'] + a['duration'], b['t0'] + b['duration']) - reach_s - 0.5
+    if t1 - t0 < 8:
+        return None
+    fa, fb, R = a['_bf'], b['_bf'], int(reach_s * BF_RATE)
+    W = min(chunk_s, t1 - t0)
+    starts = np.linspace(t0, t1 - W, max(1, min(chunks, int((t1 - t0) // W))))
+    L = int(W * BF_RATE)
+    acc = np.zeros(2 * R + 1)
+    for t in starts:
+        ia, ib = int((t - a['t0']) * BF_RATE), int((t - b['t0']) * BF_RATE)
+        sa = fa[ia:ia + L]
+        if len(sa) < L or ib - R < 0:
+            continue
+        for k in range(2 * R + 1):
+            sb = fb[ib - R + k: ib - R + k + L]
+            if len(sb) == L:
+                acc[k] += float((sa * sb).mean())
+    i = int(np.argmax(acc))
+    m = np.ones(len(acc), bool)
+    m[max(0, i - 10):i + 11] = False
+    peak, second = acc[i] / len(starts), (acc[m].max() / len(starts) if m.any() else 0.0)
+    if peak < 0.06 or peak < 2.5 * max(second, 1e-6) or i in (0, 2 * R):
+        return None
+    return (i - R) / BF_RATE, peak * min(t1 - t0, 120.0)
+
+
+def _refine_jointly(nodes, fixed):
+    """Every overlapping pair of placed files (different cameras, or a recording against a camera) gives a measured
+    timing error; one weighted least-squares solve turns them into a correction per file, with `fixed` held still —
+    the way PluralEyes settles a whole show at once instead of trusting a chain. Measurements that disagree with the
+    solution (> 40 ms) are dropped and it is solved again."""
+    placed = [n for n in nodes if n.get('t0') is not None and len(n.get('_bf', ())) and n.get('method') != 'unplaced']
+    idx = {id(n): k for k, n in enumerate(placed)}
+    eqs = []
+    for i, a in enumerate(placed):
+        for b in placed[i + 1:]:
+            if a['cam'] == b['cam'] or (a['kind'] == 'audio' and b['kind'] == 'audio'):
+                continue
+            r = _pair_offset(a, b)
+            if r:
+                eqs.append((idx[id(a)], idx[id(b)], -r[0], r[1]))       # c_b - c_a = -err
+    if not eqs or id(fixed) not in idx:
+        return 0
+    for _ in range(3):
+        rows = [(i, j, d, w) for i, j, d, w in eqs]
+        A = np.zeros((len(rows) + 1, len(placed)))
+        y = np.zeros(len(rows) + 1)
+        for k, (i, j, d, w) in enumerate(rows):
+            s = math.sqrt(w)
+            A[k, j], A[k, i], y[k] = s, -s, d * s
+        A[-1, idx[id(fixed)]] = 1e3                                       # the reference stays where it is
+        c = np.linalg.lstsq(A, y, rcond=None)[0]
+        keep = [(i, j, d, w) for i, j, d, w in eqs if abs(c[j] - c[i] - d) <= 0.04]
+        if len(keep) == len(eqs):
+            break
+        eqs = keep
+    # only files tied to the reference by at least one kept measurement move
+    linked = {idx[id(fixed)]}
+    grew = True
+    while grew:
+        grew = False
+        for i, j, _, _ in eqs:
+            if (i in linked) != (j in linked):
+                linked |= {i, j}; grew = True
+    moved = 0
+    for k, n in enumerate(placed):
+        if k in linked and abs(c[k]) <= 0.4:
+            n['t0'] += float(c[k])
+            n['fine'] = True
+            moved += 1
+    return moved
+
+
+def _confident(peaks, min_score=0.3, ratio=1.4):
+    if not peaks or peaks[0][1] < min_score:
+        return False
+    return len(peaks) < 2 or peaks[0][1] >= ratio * max(peaks[1][1], 1e-6)
+
+
+def place_sequence(nodes, progress=lambda *_: None):
+    """Shows and events, the way PluralEyes does it: each camera's clips are laid out in recording order by its own
+    clock (a camera records one clip at a time), whole cameras are aligned to each other at once by what is being
+    played (chroma: the same notes reach every mic, whatever the mic, mix or room), every clip is then refined in a
+    few seconds' window against the other cameras, and only then the external recordings (board mix, one file per
+    song…) are looked for in the cameras' sound. Returns False when it does not apply (fewer than two cameras with a
+    clock, or cameras that do not line up) — the caller falls back to place()."""
+    try:
+        return _place_sequence(nodes, progress)
+    finally:
+        for n in nodes:
+            for key in ('_chr', '_bf', '_clk'):
+                n.pop(key, None)
+
+
+def _place_sequence(nodes, progress):
+    from concurrent.futures import as_completed
+    vids = [n for n in nodes if n['kind'] == 'video']
+    with ThreadPoolExecutor(3) as ex:
+        futs = {ex.submit(audio8k, n['path']): n for n in nodes}
+        for k, f in enumerate(as_completed(futs)):
+            f.result()
+            progress(f"audio {futs[f]['name']}", (k + 1) / len(nodes) * 0.5)
+    for k, n in enumerate(nodes):
+        x = audio8k(n['path'])
+        n['_chr'], n['_bf'] = chroma(x), band_onsets(x)
+        n['_clk'] = _clock(n) if n['kind'] == 'video' else None
+        progress(f"audio {n['name']}", 0.5 + (k + 1) / len(nodes) * 0.5)
+    cams = {}
+    for n in vids:
+        cams.setdefault(n['cam'], []).append(n)
+    lanes, rel = {}, {}
+    for cam, ns in cams.items():
+        if any(n['_clk'] is None for n in ns):
+            continue
+        st = _clock_starts(ns)
+        c0 = min(st)
+        for n, s in zip(ns, st):
+            rel[n['path']] = s - c0
+        L = int(math.ceil(max(rel[n['path']] + n['duration'] for n in ns) * CFPS)) + 1
+        lanes[cam] = _lane([(rel[n['path']], n['_chr']) for n in ns], L, 12)
+    if len(lanes) < 2:
+        return False
+    # 1. whole cameras against each other, the one that rolled longest first
+    ref = max(lanes, key=lambda c: sum(n['duration'] for n in cams[c]))
+    off = {ref: 0.0}
+    while len(off) < len(lanes):
+        t_lo = min(off.values())
+        T = int(math.ceil((max(off[c] + len(lanes[c]) / CFPS for c in off) - t_lo) * CFPS)) + 1
+        mix = _chroma_mix([_lane([(off[c] - t_lo, lanes[c])], T, 12) for c in off])
+        best = None
+        for c in lanes:
+            if c in off:
+                continue
+            pk = _chroma_search(lanes[c], mix, min_overlap=60 * CFPS)
+            if _confident(pk) and (best is None or pk[0][1] > best[1][0][1]):
+                best = (c, pk)
+        if not best:
+            break
+        c, pk = best
+        off[c] = t_lo + pk[0][0]
+        progress('align', len(off) / len(lanes))
+    if len(off) < 2:
+        return False
+    for c in off:
+        for n in cams[c]:
+            n.update(t0=off[c] + rel[n['path']], via=None, conf=None, method='sequência da câmera (relógio, aprox. ±1 s)')
+    # 2. every clip in a few seconds' window against the other cameras (the clock is good to ~1 s), frame-accurate on
+    #    band onsets (all pairs solved together, below); a camera never overlaps itself
+    t_lo = min(n['t0'] for c in off for n in cams[c])
+    T = int(math.ceil((max(n['t0'] + n['duration'] for c in off for n in cams[c]) - t_lo) * CFPS)) + CFPS * 10
+    cam_lane = {c: _lane([(n['t0'] - t_lo, n['_chr']) for n in cams[c]], int(T), 12) for c in off}
+    seq = [n for c in off for n in cams[c]]
+    for k, n in enumerate(seq):
+        others = _chroma_mix([cam_lane[c] for c in off if c != n['cam']])
+        lag, s = _chroma_near(n['_chr'], others, n['t0'] - t_lo, reach_s=3.0)
+        if s >= 0.3:
+            n.update(t0=t_lo + lag, conf=round(s, 2), method='sequência da câmera + áudio')
+        progress('clips', (k + 1) / len(seq))
+    for c in off:
+        ns = sorted(cams[c], key=lambda n: rel[n['path']])
+        for a, b in zip(ns, ns[1:]):                       # refinement may not make a camera overlap itself
+            if b['t0'] < a['t0'] + a['duration'] - 0.5:
+                b.update(t0=a['t0'] + (rel[b['path']] - rel[a['path']]), conf=None,
+                         method='sequência da câmera (relógio, aprox. ±1 s)')
+    # 3. what is left (external recordings, clips without clock or of a camera that did not line up): searched in the
+    #    sound of all the cameras, and accepted only if it fits there clearly
+    mix = _chroma_mix(list(cam_lane.values()))
+    rest = [n for n in nodes if n.get('t0') is None]
+    for k, n in enumerate(rest):
+        progress(f"songs {n['name']}", (k + 1) / len(rest))
+        if len(n['_chr']) < CFPS * 10:
+            continue
+        pk = _chroma_search(n['_chr'], mix, min_overlap=0.8 * len(n['_chr']))
+        if _confident(pk):
+            n.update(t0=t_lo + pk[0][0], via=None, conf=round(pk[0][1], 2), method='áudio (procurado nas câmeras)')
+    for n in nodes:
+        if n.get('t0') is None:
+            n.update(t0=None, via=None, conf=None, method='unplaced')
+    # 4. frame accuracy: every overlapping pair measured on band onsets, solved together (the longest clip of the
+    #    reference camera stays put); then a camera still may not overlap itself
+    progress('fine', 0.0)
+    _refine_jointly(nodes, max(cams[ref], key=lambda n: n['duration']))
+    for c in off:
+        ns = sorted(cams[c], key=lambda n: n['t0'])
+        for a, b in zip(ns, ns[1:]):
+            if b['t0'] < a['t0'] + a['duration'] - 0.1:
+                b['t0'] = a['t0'] + a['duration']
+    progress('fine', 1.0)
+    return True
+
+
 # ───────────────────────────── drift ─────────────────────────────
 def measure_drift(clip, ref, step=30.0, win=12.0):
     """Offset of `clip` against `ref` measured every `step` s along the clip (8 kHz waveform match around the
@@ -473,7 +777,7 @@ def sync_cameras(cameras, external=None, fps=None, correct_drift=True, progress=
         if not ext0:
             raise ValueError('music video mode needs the guide track as external audio')
         place_music(nodes, max(ext0, key=lambda n: n['duration']), progress)
-    else:
+    elif not place_sequence(nodes, progress):         # cameras with a clock: by sequence; else clip by clip
         place(nodes, progress=progress)
     placed = [n for n in nodes if n.get('t0') is not None]
     ext = [n for n in placed if n['kind'] == 'audio']
