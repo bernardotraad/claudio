@@ -103,12 +103,68 @@ def _qc(a):
     return r
 
 
+_SYNC_STAGES = (                 # stage of multicam.place* → (start, end) of the panel's bar, and how to say it
+    ('audio', 0.0, 0.25, lambda r: f'lendo o áudio · {r}'),
+    ('align', 0.25, 0.35, lambda r: 'alinhando pelo áudio'),
+    ('transcript', 0.35, 0.9, lambda r: f'clipes sem encaixe pelo áudio: comparando a letra · {r}'),
+    ('xml', 0.97, 1.0, lambda r: 'drift do gravador e XML'),
+)
+
+
+def _sync_progress(a):
+    """progress(line, fraction) of multicam.sync_cameras → <job>/_claudio/progress.json, the file the panel's bar reads
+    (the same one as indexing and Descrever planos), with a beat every 15 s: transcribing one long clip takes minutes and
+    the panel calls 60 s of silence "parou"."""
+    import threading, time
+    from claudio import core
+    folder = core.local_path(a['folder']) if a.get('folder') else None
+    t0, last, stop = time.time(), [0.0, 'começando…'], threading.Event()
+
+    def write(state='running'):
+        if not folder:
+            return
+        try:
+            pd = core.data_dir(folder)
+            pub = {'folder': core.nle_path(folder), 'kind': 'sync', 'title': 'Sincronizando multicâmera', 'state': state,
+                   'started': t0, 'updated': time.time(), 'fraction': round(last[0], 3), 'line': last[1]}
+            json.dump(pub, open(os.path.join(pd, 'progress.json.tmp'), 'w'), ensure_ascii=False)
+            os.replace(os.path.join(pd, 'progress.json.tmp'), os.path.join(pd, 'progress.json'))
+        except OSError:
+            pass
+
+    def prog(line, f=0.0):
+        stage, _, rest = str(line).partition(' ')
+        lo, hi, say = next(((lo, hi, say) for s, lo, hi, say in _SYNC_STAGES if s == stage),
+                           (0.9, 0.97, lambda r: 'posicionando os clipes que sobraram'))
+        last[:] = [max(last[0], lo + (hi - lo) * max(0.0, min(1.0, float(f or 0)))), say(rest)]
+        write()
+
+    def done(state, line):
+        stop.set()
+        last[:] = [1.0 if state == 'done' else last[0], line]
+        write(state)
+
+    def beat():
+        while not stop.wait(15):
+            write()
+    write()
+    threading.Thread(target=beat, daemon=True).start()
+    return prog, done
+
+
 def _sync(a):
     import os as _os
     from claudio import core, multicam
     core.register_proxies(a.get('proxies'))      # analyse the proxies attached in the project, write the originals
-    res = multicam.sync_cameras(a['cameras'], a.get('external_audio'), a.get('fps'), a.get('correct_drift', True),
-                                music=bool(a.get('music')))
+    prog, done = _sync_progress(a)
+    try:
+        res = multicam.sync_cameras(a['cameras'], a.get('external_audio'), a.get('fps'), a.get('correct_drift', True),
+                                    progress=prog, music=bool(a.get('music')))
+        prog('xml', 1.0)
+    except Exception as e:
+        done('interrupted', f'erro: {e}')
+        raise
+    done('done', f"{sum(1 for n in res['nodes'] if n.get('t0') is not None)} de {len(res['nodes'])} clipe(s) posicionados")
     base = _os.path.dirname(_os.path.commonpath([n['path'] for n in res['nodes']]))
     out = core.local_path(a['out_xml']) if a.get('out_xml') else _os.path.join(base, 'claudio_sync.xml')
     _os.makedirs(_os.path.dirname(out), exist_ok=True)

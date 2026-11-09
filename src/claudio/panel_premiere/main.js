@@ -1031,8 +1031,9 @@ async function multicamSync(plan) {
     const cameras = {}, labels = {};
     for (const [n, c] of Object.entries(plan.cameras)) { cameras[n] = c.files || c.folder; labels[n] = c.label; }
     if (plan.audio_label) labels.AUDIO = plan.audio_label;
+    progScan = 0; setTimeout(() => (progScan = 0), 3000);          // the bar finds this job's progress.json right away
     const r = await runLocal('sync', { cameras, external_audio: (plan.external_audio || []).flatMap((e) => e.paths || [e.folder]), labels, music: !!plan.music,
-                                       proxies: plan.proxies || {},
+                                       proxies: plan.proxies || {}, folder: jobFolder(),
                                        out_xml: jobPath('projeto', 'claudio_sync.xml') });
     if (!r.ok) return add('local err', r.error);
     const clips = r.clips || [];

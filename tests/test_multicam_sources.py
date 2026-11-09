@@ -67,3 +67,18 @@ def test_project_media_with_windows_paths(tmp_path, monkeypatch):
     media = {m['original']: m['proxy'] for m in core.project_media(str(prproj))}
     assert media == {'/mnt/d/AnR & Co/VIDEOS/01 be/BER_1729.MP4': '/mnt/c/Users/b/Proxies/01 be/Proxy/BER_1729_Proxy.mov',
                      '/mnt/d/AnR & Co/AUDIOS/01 - song.wav': None}
+
+
+def test_sync_progress_feeds_the_panels_bar(tmp_path):
+    import json
+    prog, done = run._sync_progress({'folder': str(tmp_path)})
+    read = lambda: json.load(open(tmp_path / '_claudio' / 'progress.json'))
+    prog('audio C0001.MP4', 0.5)
+    j = read()
+    assert j['state'] == 'running' and j['kind'] == 'sync' and abs(j['fraction'] - 0.125) < 1e-6 and 'C0001.MP4' in j['line']
+    prog('transcript BER_1730.MP4', 0.0)
+    assert read()['fraction'] == 0.35 and 'BER_1730.MP4' in read()['line']
+    prog('audio late.MP4', 0.1)                       # never goes backwards
+    assert read()['fraction'] == 0.35
+    done('done', '21 de 21 clipe(s) posicionados')
+    assert read()['state'] == 'done' and read()['fraction'] == 1.0
