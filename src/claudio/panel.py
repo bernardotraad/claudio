@@ -18,7 +18,9 @@ def _ext_dir():
     if core.IS_WIN:
         return os.path.join(os.environ['APPDATA'], 'Adobe', 'CEP', 'extensions')
     if core.IS_WSL:
-        appdata = subprocess.run(['cmd.exe', '/c', 'echo %APPDATA%'], capture_output=True, text=True, cwd='/mnt/c').stdout.strip()
+        # stdin=DEVNULL: on a stdio MCP server cmd.exe would otherwise read the client's first message (initialize)
+        appdata = subprocess.run(['cmd.exe', '/c', 'echo %APPDATA%'], capture_output=True, text=True, cwd='/mnt/c',
+                                 stdin=subprocess.DEVNULL).stdout.strip()
         return core.local_path(appdata) + '/Adobe/CEP/extensions'
     raise RuntimeError('Premiere panels need Windows or macOS')
 
@@ -26,12 +28,13 @@ def _ext_dir():
 def _debug_mode():
     if core.IS_MAC:
         for v in range(9, 15):
-            subprocess.run(['defaults', 'write', f'com.adobe.CSXS.{v}', 'PlayerDebugMode', '1'], capture_output=True)
+            subprocess.run(['defaults', 'write', f'com.adobe.CSXS.{v}', 'PlayerDebugMode', '1'], capture_output=True,
+                           stdin=subprocess.DEVNULL)
     else:
         reg = 'reg.exe' if core.IS_WSL else 'reg'
         for v in range(9, 15):
             subprocess.run([reg, 'add', f'HKCU\\Software\\Adobe\\CSXS.{v}', '/v', 'PlayerDebugMode', '/t', 'REG_SZ', '/d', '1', '/f'],
-                           capture_output=True, cwd='/mnt/c' if core.IS_WSL else None)
+                           capture_output=True, cwd='/mnt/c' if core.IS_WSL else None, stdin=subprocess.DEVNULL)
 
 
 def install():
