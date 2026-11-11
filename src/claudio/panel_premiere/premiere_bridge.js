@@ -19,6 +19,13 @@ function registration() {
   const all = JSON.parse(fs.readFileSync(path.join(os.homedir(), '.claude.json'), 'utf8')).mcpServers || {};
   const m = all['premiere-pro'];
   if (!m || !m.command) throw new Error('premiere-pro não está registrado no ~/.claude.json');
+  // Claude Code may store the env encrypted ("__encrypted__:…"), which is useless here: the token's own file wins
+  try {
+    const t = fs.readFileSync(path.join(os.homedir(), '.claudio', 'premiere_uxp_token'), 'utf8').trim();
+    if (t) m.env = Object.assign({}, m.env, { PREMIERE_UXP_TOKEN: t });
+  } catch (e) {}
+  if (/^__encrypted__:/.test((m.env || {}).PREMIERE_UXP_TOKEN || ''))
+    log('PREMIERE_UXP_TOKEN está cifrado no ~/.claude.json e não há ~/.claudio/premiere_uxp_token: a UXP não vai conectar');
   return m;
 }
 

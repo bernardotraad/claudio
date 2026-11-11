@@ -201,6 +201,8 @@ Abra o Premiere com um projeto → **Janela › Extensões › MCP for Adobe Pre
   (`premiere_bridge.js`, em `http://127.0.0.1:7788/mcp`), e cada mensagem conversa com ele: a UXP fica conectada entre
   as mensagens, em vez de só durante cada uma. A ponte sai sozinha 10 min depois de o Premiere fechar; o log fica em
   `%TEMP%\claudio-premiere-bridge.log`. Só um processo segura a porta 7777: deixe o token fora do Claude Desktop.
+  Se o Claude Code gravar o `env` cifrado (`__encrypted__:…`), ponha o token em `~/.claudio/premiere_uxp_token`
+  (texto puro, no Windows): a ponte lê esse arquivo primeiro.
 - **Instalando de dentro do Claude Desktop (Windows)?** Ele é um app MSIX e virtualiza o `%APPDATA%`: um `npm i -g`
   rodado de lá vai para `%LOCALAPPDATA%\Packages\Claude_*\LocalCache\Roaming\npm`, que o Premiere e o painel não
   enxergam — rode no PowerShell normal (ou copie de lá para `%APPDATA%\npm`).
