@@ -42,7 +42,9 @@ def test_builtin_recipes_parse(monkeypatch, tmp_path):
         assert meta['nome'] == name and isinstance(meta['ferramentas'], list) and isinstance(meta['entregas'], list)
 
 
-def test_recipes_name_only_real_tools(tools, arguments):
+def test_recipes_name_only_real_tools(tools, arguments, monkeypatch, tmp_path):
+    # only the built-in ones: the editor's own recipes may name tools of other MCPs (Drive, Premiere)
+    monkeypatch.setenv('CLAUDIO_RECIPES', str(tmp_path / 'none'))
     assert 'recipe' in tools
     for p, _ in recipes._files().values():
         meta, body = recipes._read(p)
