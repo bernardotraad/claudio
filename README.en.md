@@ -199,6 +199,10 @@ Open Premiere with a project → **Window › Extensions › MCP for Adobe Premi
   own switches: `compact` schemas and only the ~90 tools an edit uses (of ~445), each at half the context. More tools:
   `{"premiere_mcp_extra_tools": "a,b"}` in `~/.config/claudio/settings.json`; to turn it off:
   `{"premiere_mcp_lean": false}`. `claudio-doctor` shows the state.
+- **One copy for every session:** with the panel installed, the `premiere-pro` registration goes through the panel's
+  `premiere_proxy.js`, which relays to the bridge (port 7788) and starts it when it is down. Each Claude Code session
+  used to start its own Premiere MCP and the first one kept the UXP; now the panel and every session share one copy.
+  Back to one copy per session: `{"premiere_mcp_shared": false}`.
 
 #### 7. DaVinci Resolve MCP — [hiteshK03/davinci-resolve-mcp](https://github.com/hiteshK03/davinci-resolve-mcp)
 
@@ -305,6 +309,10 @@ already in Claude Desktop, register them in Claude Code too (that is what the pa
   own switches: `compact` schemas and only the ~90 tools an edit uses (of ~445), each at half the context. More tools:
   `{"premiere_mcp_extra_tools": "a,b"}` in `~/.config/claudio/settings.json`; to turn it off:
   `{"premiere_mcp_lean": false}`. `claudio-doctor` shows the state.
+- **One copy for every session:** with the panel installed, the `premiere-pro` registration goes through the panel's
+  `premiere_proxy.js`, which relays to the bridge (port 7788) and starts it when it is down. Each Claude Code session
+  used to start its own Premiere MCP and the first one kept the UXP; now the panel and every session share one copy.
+  Back to one copy per session: `{"premiere_mcp_shared": false}`.
 
 #### 5. DaVinci Resolve MCP — [hiteshK03/davinci-resolve-mcp](https://github.com/hiteshK03/davinci-resolve-mcp)
 

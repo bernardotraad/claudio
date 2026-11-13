@@ -210,6 +210,10 @@ Abra o Premiere com um projeto → **Janela › Extensões › MCP for Adobe Pre
   chaves do pacote: esquemas `compact` e só as ~90 ferramentas que uma edição usa (de ~445). Cada ferramenta custa
   metade do contexto. Ferramentas a mais: `{"premiere_mcp_extra_tools": "a,b"}` em `~/.config/claudio/settings.json`;
   para desligar: `{"premiere_mcp_lean": false}`. O `claudio-doctor` mostra o estado.
+- **Uma cópia para todas as sessões:** com o painel instalado, o registro `premiere-pro` passa pelo
+  `premiere_proxy.js` do painel, que repassa para a ponte (porta 7788) e a sobe se ela estiver fora do ar. Cada
+  sessão do Claude Code subia o seu próprio MCP do Premiere, e a primeira ficava com a UXP; agora o painel e todas as
+  sessões usam a mesma cópia. Para voltar a uma cópia por sessão: `{"premiere_mcp_shared": false}`.
 
 #### 7. MCP do DaVinci Resolve — [hiteshK03/davinci-resolve-mcp](https://github.com/hiteshK03/davinci-resolve-mcp)
 
@@ -321,6 +325,10 @@ o Premiere e o Resolve já estão no Claude Desktop, registre-os também no Clau
   chaves do pacote: esquemas `compact` e só as ~90 ferramentas que uma edição usa (de ~445). Cada ferramenta custa
   metade do contexto. Ferramentas a mais: `{"premiere_mcp_extra_tools": "a,b"}` em `~/.config/claudio/settings.json`;
   para desligar: `{"premiere_mcp_lean": false}`. O `claudio-doctor` mostra o estado.
+- **Uma cópia para todas as sessões:** com o painel instalado, o registro `premiere-pro` passa pelo
+  `premiere_proxy.js` do painel, que repassa para a ponte (porta 7788) e a sobe se ela estiver fora do ar. Cada
+  sessão do Claude Code subia o seu próprio MCP do Premiere, e a primeira ficava com a UXP; agora o painel e todas as
+  sessões usam a mesma cópia. Para voltar a uma cópia por sessão: `{"premiere_mcp_shared": false}`.
 
 #### 5. MCP do DaVinci Resolve — [hiteshK03/davinci-resolve-mcp](https://github.com/hiteshK03/davinci-resolve-mcp)
 

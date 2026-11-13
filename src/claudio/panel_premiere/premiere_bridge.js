@@ -19,6 +19,12 @@ function registration() {
   const all = JSON.parse(fs.readFileSync(path.join(os.homedir(), '.claude.json'), 'utf8')).mcpServers || {};
   const m = all['premiere-pro'];
   if (!m || !m.command) throw new Error('premiere-pro não está registrado no ~/.claude.json');
+  // registered through premiere_proxy.js (claudio's premiere_mcp.sync): the real command follows "--"
+  const a = m.args || [], k = a.indexOf('--');
+  if (a.some((x) => /premiere_proxy\.js$/.test(String(x)))) {
+    if (k < 0 || !a[k + 1]) throw new Error('registro premiere-pro pelo proxy sem o comando real depois de "--"');
+    m.command = a[k + 1]; m.args = a.slice(k + 2);
+  }
   // Claude Code may store the env encrypted ("__encrypted__:…"), which is useless here: the token's own file wins
   try {
     const t = fs.readFileSync(path.join(os.homedir(), '.claudio', 'premiere_uxp_token'), 'utf8').trim();

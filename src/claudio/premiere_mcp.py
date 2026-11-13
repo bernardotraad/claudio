@@ -1,4 +1,9 @@
-"""claudio.premiere_mcp — keeps the "premiere-pro" registration in ~/.claude.json lean.
+"""claudio.premiere_mcp — keeps the "premiere-pro" registration in ~/.claude.json lean and shared.
+
+Shared: every Claude Code session used to start its own premiere-pro-mcp, and the first one up held the UXP port
+(7777) — the panel's bridge and later sessions ran without UXP. With the panel installed, the registration runs
+premiere_proxy.js (node premiere_proxy.js -- <real command>), which relays to the panel's one bridge (7788) and starts
+it when it is down: sessions and panel share one premiere-pro-mcp. {"premiere_mcp_shared": false} goes back.
 
 premiere-pro-mcp lists ~445 tools and repeats the same guard fields in every schema (~1.7k tokens per tool). Its own
 switches cut that: PREMIERE_MCP_SCHEMA_PROFILE=compact halves each schema, PREMIERE_MCP_TOOL_PACKS=essential +
@@ -113,11 +118,54 @@ def enabled():
     return str(core.env('PREMIERE_MCP_LEAN', 'true')).strip().lower() not in ('0', 'false', 'no', 'off')
 
 
+def shared_enabled():
+    return str(core.env('PREMIERE_MCP_SHARED', 'true')).strip().lower() not in ('0', 'false', 'no', 'off')
+
+
+def proxy_path():
+    """premiere_proxy.js in the installed panel, as the NLE side sees it (Windows path from WSL), or None."""
+    try:
+        from claudio import panel
+        p = os.path.join(panel._ext_dir(), panel.ID, 'premiere_proxy.js')
+        return core.nle_path(p) if os.path.isfile(p) else None
+    except Exception:
+        return None
+
+
+def _is_proxy(entry):
+    return any(re.search(r'[\\/]premiere_proxy\.js$', str(a)) for a in entry.get('args') or [])
+
+
+def real_command(entry):
+    """(command, args) of the real premiere-pro-mcp, whether or not the entry goes through the proxy."""
+    a = list(entry.get('args') or [])
+    if _is_proxy(entry) and '--' in a:
+        k = a.index('--')
+        return a[k + 1], a[k + 2:]
+    return entry.get('command'), a
+
+
+def shaped(entry, proxy=None, lean=True, found=None):
+    """The registration as it should be: through the proxy when one is given (Claude Code sessions and the panel then
+    share ONE premiere-pro-mcp, so the UXP port stops going to whichever session opened first), lean env."""
+    e = dict(entry)
+    cmd, args = real_command(entry)
+    if proxy:
+        is_node = re.search(r'(^|[\\/])node(\.exe)?$', str(cmd), re.I)
+        node = cmd if is_node else (entry.get('command') if _is_proxy(entry) else 'node')
+        e['command'], e['args'] = node, [proxy, '--', cmd, *args]
+    else:
+        e['command'], e['args'] = cmd, args
+    if lean:
+        e['env'] = wanted(entry.get('env'), found)
+    return e
+
+
 def sync():
-    """Bring every premiere-pro registration in step. Never raises. Returns [{config, version, dropped, changed}]."""
+    """Bring every premiere-pro registration in step. Never raises.
+    Returns [{config, version, dropped, changed, shared}]."""
     out = []
-    if not enabled():
-        return out
+    lean, proxy = enabled(), (proxy_path() if shared_enabled() else None)
     for cfg in configs():
         try:
             with open(cfg, encoding='utf-8') as f:
@@ -125,16 +173,16 @@ def sync():
             entry = (data.get('mcpServers') or {}).get('premiere-pro')
             if not isinstance(entry, dict):
                 continue
-            pkg = package_dir(entry, cfg)
+            pkg = package_dir(entry, cfg) if lean else None
             ver, found = known(pkg) if pkg else (None, None)
-            env = wanted(entry.get('env'), found)
+            new = shaped(entry, proxy, lean, found)
             row = {'config': cfg, 'version': ver, 'dropped': sorted(set(TOOLS) - found) if found is not None else [],
-                   'changed': env != (entry.get('env') or {})}
+                   'changed': new != entry, 'shared': bool(proxy), 'lean': lean}
             if row['changed']:
                 # re-read right before writing: Claude Code rewrites this file often; keep the window tiny
                 with open(cfg, encoding='utf-8') as f:
                     data = json.load(f)
-                data['mcpServers']['premiere-pro']['env'] = wanted(data['mcpServers']['premiere-pro'].get('env'), found)
+                data['mcpServers']['premiere-pro'] = shaped(data['mcpServers']['premiere-pro'], proxy, lean, found)
                 tmp = cfg + '.claudio-tmp'
                 with open(tmp, 'w', encoding='utf-8') as f:
                     json.dump(data, f, indent=2, ensure_ascii=False)

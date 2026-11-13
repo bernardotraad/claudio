@@ -20,6 +20,7 @@ def setup(tmp_path, monkeypatch):
                          'env': {'PREMIERE_UXP_TOKEN': 'tok', 'PREMIERE_MCP_SCHEMA_PROFILE': 'full'}}}}))
     settings = {}
     monkeypatch.setattr(pm, 'configs', lambda: [str(cfg)])
+    monkeypatch.setattr(pm, 'proxy_path', lambda: None)               # panel not installed
     monkeypatch.setattr(pm, 'CACHE', str(tmp_path / 'cache.json'))
     monkeypatch.setattr(core, 'env', lambda name, default=None: settings.get(name.lower(), default))
     return pm, cfg, settings
@@ -49,10 +50,40 @@ def test_extra_tools_and_opt_out(setup):
     assert names[-1] == 'detect_beats' and names.count('overwrite_clip') == 1
     settings['premiere_mcp_lean'] = False
     before = cfg.read_text()
-    assert pm.sync() == [] and cfg.read_text() == before
+    settings['premiere_mcp_shared'] = False
+    [r] = pm.sync()
+    assert not r['changed'] and not r['lean'] and cfg.read_text() == before
 
 
 def test_no_premiere_registration_is_left_alone(setup):
     pm, cfg, _ = setup
     cfg.write_text(json.dumps({'mcpServers': {'claudio': {'command': 'claudio'}}}))
     assert pm.sync() == [] and 'premiere-pro' not in cfg.read_text()
+
+
+def test_sessions_go_through_the_panels_bridge(setup, monkeypatch):
+    pm, cfg, settings = setup
+    proxy = r'C:\Users\x\AppData\Roaming\Adobe\CEP\extensions\com.claudio.panel\premiere_proxy.js'
+    monkeypatch.setattr(pm, 'proxy_path', lambda: proxy)
+    real = json.loads(cfg.read_text())['mcpServers']['premiere-pro']
+    [r] = pm.sync()
+    assert r['changed'] and r['shared']
+    e = json.loads(cfg.read_text())['mcpServers']['premiere-pro']
+    assert e['command'] == 'node' and e['args'] == [proxy, '--', real['command'], *real['args']]
+    assert e['env']['PREMIERE_UXP_TOKEN'] == 'tok' and 'PREMIERE_MCP_TOOL_LIST' in e['env']
+    assert pm.real_command(e) == (real['command'], real['args'])      # what the bridge starts
+    assert r['version'] == '9.9.9'                                    # the package is still found through the args
+    [again] = pm.sync()
+    assert not again['changed']
+    settings['premiere_mcp_shared'] = False                           # back to one copy per session
+    pm.sync()
+    e = json.loads(cfg.read_text())['mcpServers']['premiere-pro']
+    assert e['command'] == real['command'] and e['args'] == real['args']
+
+
+def test_a_node_command_is_kept_for_the_proxy(setup, monkeypatch):
+    pm, _, _ = setup
+    e = pm.shaped({'command': r'C:\Program Files\nodejs\node.exe', 'args': [r'x\dist\index.js']}, '/p/premiere_proxy.js', lean=False)
+    assert e['command'] == r'C:\Program Files\nodejs\node.exe'
+    assert e['args'] == ['/p/premiere_proxy.js', '--', r'C:\Program Files\nodejs\node.exe', r'x\dist\index.js']
+    assert pm.shaped(e, '/p/premiere_proxy.js', lean=False) == e      # already through the proxy: unchanged

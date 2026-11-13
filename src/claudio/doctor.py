@@ -95,23 +95,6 @@ def check():
             if wsl_side and name != 'claudio':
                 continue                      # Premiere/Resolve MCPs live on the Windows side, next to the NLEs
             add(OK if name in servers else WARN, f'MCP "{name}" em {core.nle_path(cfg)}', '' if name in servers else 'veja o README: claude mcp add -s user ...')
-    from claudio import premiere_mcp
-    if not premiere_mcp.enabled():
-        add(OK, 'MCP "premiere-pro" enxuto', 'desligado ({"premiere_mcp_lean": false} no settings.json)')
-    for r in premiere_mcp.sync():
-        where = core.nle_path(r['config'])
-        if r.get('error'):
-            add(WARN, f'MCP "premiere-pro" enxuto em {where}', r['error'])
-            continue
-        n = len(premiere_mcp.TOOLS) - len(r['dropped'])
-        what = f'MCP "premiere-pro" enxuto em {where}: esquemas compact, {n} ferramentas de edição'
-        if r['version'] is None:
-            add(WARN, what, 'premiere-pro-mcp não encontrado para conferir os nomes: se ele não subir, '
-                            'ponha {"premiere_mcp_lean": false} em ~/.config/claudio/settings.json')
-        elif r['dropped']:
-            add(WARN, what, f'a v{r["version"]} não tem: {", ".join(r["dropped"])}')
-        else:
-            add(OK, what, f'v{r["version"]}' + (' — ajustado agora (reinicie o Claude Code)' if r['changed'] else ''))
     try:
         from claudio import panel
         d = os.path.join(panel._ext_dir(), panel.ID)
@@ -121,6 +104,28 @@ def check():
             add(OK if os.path.isdir(d) else WARN, 'painel no Premiere', core.nle_path(d) if os.path.isdir(d) else 'claudio-panel install')
     except Exception as e:
         add(WARN, 'painel no Premiere', str(e)[:100])
+    from claudio import premiere_mcp
+    for r in premiere_mcp.sync():
+        where = core.nle_path(r['config'])
+        if r.get('error'):
+            add(WARN, f'MCP "premiere-pro" em {where}', r['error'])
+            continue
+        again = ' — ajustado agora (reinicie o Claude Code)' if r['changed'] else ''
+        if not r['lean']:
+            add(OK, f'MCP "premiere-pro" em {where}: completo', '{"premiere_mcp_lean": false} no settings.json')
+        else:
+            n = len(premiere_mcp.TOOLS) - len(r['dropped'])
+            what = f'MCP "premiere-pro" enxuto em {where}: esquemas compact, {n} ferramentas de edição'
+            if r['version'] is None:
+                add(WARN, what, 'premiere-pro-mcp não encontrado para conferir os nomes: se ele não subir, '
+                                'ponha {"premiere_mcp_lean": false} em ~/.config/claudio/settings.json')
+            elif r['dropped']:
+                add(WARN, what, f'a v{r["version"]} não tem: {", ".join(r["dropped"])}')
+            else:
+                add(OK, what, f'v{r["version"]}')
+        add(OK if r['shared'] else WARN, 'MCP "premiere-pro" ' + ('pela ponte do painel: uma cópia para todas as sessões, UXP compartilhada'
+                                                                if r['shared'] else 'próprio em cada sessão (a primeira fica com a UXP)'),
+            again if r['shared'] else 'instale o painel (claudio-panel) ou tire {"premiere_mcp_shared": false}' + again)
     return rows
 
 
