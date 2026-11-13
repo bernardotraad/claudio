@@ -39,8 +39,9 @@ mole, corte que decepa cabeça, b-roll que não bate com o que é dito, tempo mo
 
 - UMA sequência com os clipes direto nas trilhas: nunca aninhe sequências (o editor corrige cor take a take; para juntar
   partes, monte um edit só ou rode flatten_timeline na sequência juntada).
-- export_edit → Premiere: entregue o caminho do .xml para o editor importar (Ctrl+I); nunca import_media num .xml, derruba
-  o Premiere. Resolve: import_timeline_from_file(xml) (ou nle_cut_list + ferramentas de inserção).
+- export_edit → Premiere: import_fcp_xml(xml, mode "into_open_project") e escreva o caminho do .xml (o painel também
+  importa); nunca import_media num .xml, derruba o Premiere. Resolve: import_timeline_from_file(xml) (ou nle_cut_list +
+  ferramentas de inserção).
 - Diga em 3–5 linhas o que montou e por quê, e peça notas.
 
 ## Rodadas de notas

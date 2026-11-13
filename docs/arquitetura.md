@@ -161,7 +161,7 @@ O que hoje está espalhado como "cuidado com o Premiere" vira conhecimento do de
 
 | Destino | Saída | Regras que saem do motor |
 |---|---|---|
-| `premiere` | XML FCP7 com extensão de trilha estéreo, painel, leitura de `.prproj` | não importar XML pelo MCP; overlay pelo botão do painel; `add_to_timeline` é insert |
+| `premiere` | XML FCP7 com extensão de trilha estéreo, painel, leitura de `.prproj` | XML pelo `import_fcp_xml` (`into_open_project`), nunca `import_media`; overlay pelo botão do painel; `add_to_timeline` é insert (empurra a trilha) |
 | `resolve` | XML FCP7 / `import_timeline_from_file` | — |
 | `hyperframes` (futuro) | composição HTML → MP4 final, sem NLE | render local e determinístico |
 | `arquivo` | EDL CMX3600 / JSON | — |

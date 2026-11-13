@@ -206,6 +206,10 @@ Abra o Premiere com um projeto → **Janela › Extensões › MCP for Adobe Pre
 - **Instalando de dentro do Claude Desktop (Windows)?** Ele é um app MSIX e virtualiza o `%APPDATA%`: um `npm i -g`
   rodado de lá vai para `%LOCALAPPDATA%\Packages\Claude_*\LocalCache\Roaming\npm`, que o Premiere e o painel não
   enxergam — rode no PowerShell normal (ou copie de lá para `%APPDATA%\npm`).
+- **Enxuto sozinho:** ao subir, o Cláudio ajusta o registro `premiere-pro` no `~/.claude.json` com as próprias
+  chaves do pacote: esquemas `compact` e só as ~90 ferramentas que uma edição usa (de ~445). Cada ferramenta custa
+  metade do contexto. Ferramentas a mais: `{"premiere_mcp_extra_tools": "a,b"}` em `~/.config/claudio/settings.json`;
+  para desligar: `{"premiere_mcp_lean": false}`. O `claudio-doctor` mostra o estado.
 
 #### 7. MCP do DaVinci Resolve — [hiteshK03/davinci-resolve-mcp](https://github.com/hiteshK03/davinci-resolve-mcp)
 
@@ -313,6 +317,10 @@ claude mcp add -s user premiere-pro -- "$(which premiere-pro-mcp)"
 Abra o Premiere → **Janela › Extensões › MCP for Adobe Premiere Pro** → *Running*. Para conferir:
 `premiere-pro-mcp --doctor`. Se aparecer *server disconnected*, registre com `-e PREMIERE_MCP_PROTOCOL_MODE=legacy`. Se
 o Premiere e o Resolve já estão no Claude Desktop, registre-os também no Claude Code (é o que o painel usa).
+- **Enxuto sozinho:** ao subir, o Cláudio ajusta o registro `premiere-pro` no `~/.claude.json` com as próprias
+  chaves do pacote: esquemas `compact` e só as ~90 ferramentas que uma edição usa (de ~445). Cada ferramenta custa
+  metade do contexto. Ferramentas a mais: `{"premiere_mcp_extra_tools": "a,b"}` em `~/.config/claudio/settings.json`;
+  para desligar: `{"premiere_mcp_lean": false}`. O `claudio-doctor` mostra o estado.
 
 #### 5. MCP do DaVinci Resolve — [hiteshK03/davinci-resolve-mcp](https://github.com/hiteshK03/davinci-resolve-mcp)
 
@@ -572,10 +580,9 @@ dentro do limite do gancho. Cada rodada vai para `benchmark-results.jsonl`, ao l
 - Câmeras sem timecode (ex.: Canon `MVI_*`) começam em `00:00:00:00`, mas os frames continuam exatos.
 - A NVDEC não decodifica HEVC/H.264 4:2:2. Nesses casos o Cláudio analisa só os keyframes, ou você pode usar proxies.
 - Uma taxa de quadros por timeline exportada (com fps misturado, gere uma timeline por fps).
-- No Premiere, **importe os XMLs à mão** (Arquivo › Importar / Ctrl+I). Importar XML pelo `import_media` do MCP do Premiere
-  derruba o Premiere; a importação manual funciona. O Cláudio entrega o caminho do XML, e no painel aparece
-  o botão **Importar no Premiere**, que salva o projeto e importa um XML por vez com as janelas do Premiere visíveis.
-  Mídia comum (overlays `.mov`, `.wav`, `.srt`) pode ir pelo MCP.
+- No Premiere, XML entra pelo `import_fcp_xml` do MCP (modo `into_open_project`, chega como sequência nova), pelo
+  botão **Importar no Premiere** do painel (salva o projeto e importa um XML por vez) ou à mão (Ctrl+I). Nunca pelo
+  `import_media`: com um XML ele derruba o Premiere. Mídia comum (overlays `.mov`, `.wav`, `.srt`) vai pelo `import_media`.
 - O ranking de takes é evidência, não veredito. Em atuação, olhe o vencedor e o segundo colocado.
 
 ## Gastar pouca IA

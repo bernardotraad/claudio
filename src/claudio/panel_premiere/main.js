@@ -181,7 +181,7 @@ function add(cls, text, keep = true, t = Date.now()) {
 }
 
 // XML paths in Claude's answer get an "Importar no Premiere" button: one file per click, project saved first,
-// Premiere's own dialogs shown. (Importing XML through the Premiere MCP crashed Premiere.)
+// Premiere's own dialogs shown. (import_media on an XML crashed Premiere; the MCP's import_fcp_xml is fine.)
 const XML_RE = process.platform === 'win32' ? /[A-Za-z]:\\[^\n"`*<>|]*?\.xml\b/g : /\/[^\n"`*<>|]*?\.xml\b/g;
 const PLAN_RE = process.platform === 'win32' ? /[A-Za-z]:\\[^\n"`*<>|]*?\.claudio-mogrt\.jsx\b/g : /\/[^\n"`*<>|]*?\.claudio-mogrt\.jsx\b/g;
 function mogrtButtons(d, text) {
@@ -326,7 +326,7 @@ function rawFolder() {
 
 const QUICK = {
   index: () => `Analise o material bruto deste trabalho: index_folder na pasta "${rawFolder()}" (mostre o progresso). Se houver perfil do cliente (client_profile), use o vocabulário dele. No fim, me diga em 4–6 linhas o que tem no material.`,
-  selects: () => `Faça as selects deste trabalho com make_selects (pasta "${rawFolder()}", XML em "${jobPath('projeto', 'claudio_selects.xml')}") e escreva o caminho completo do XML (o painel mostra o botão de importar) — não importe XML pelo MCP do Premiere. Depois me resuma as escolhas.`,
+  selects: () => `Faça as selects deste trabalho com make_selects (pasta "${rawFolder()}", XML em "${jobPath('projeto', 'claudio_selects.xml')}") e escreva o caminho completo do XML (o painel mostra o botão de importar); ou importe você mesmo com import_fcp_xml (mode into_open_project), nunca com import_media. Depois me resuma as escolhas.`,
   notes: () => `Com o XML da sequência ativa ("${ctx.sequence || ''}") que o painel já exportou (está no contexto), rode compare_with_nle contra a última versão entregue pelo Cláudio deste trabalho, e me mostre o que eu mudei e as notas (marcadores) que deixei. Não aplique nada ainda: proponha e espere meu ok.`,
   qc: () => `Faça o QC da sequência ativa ("${ctx.sequence || ''}", ${ctx.frame_size || ''}) antes de eu exportar: rode qc_timeline no XML da sequência ativa que o painel já exportou (está no contexto). Liste os problemas e pergunte se quero que você marque cada um como marcador na timeline.`,
   status: () => `Rode index_status e me diga o progresso em uma linha.`,

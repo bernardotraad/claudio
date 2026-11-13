@@ -1399,8 +1399,9 @@ for _t in mcp._tool_manager.list_tools():
 
 
 def main():
-    from claudio import panel
+    from claudio import panel, premiere_mcp
     panel.sync()        # `uv tool upgrade` does not recopy the Premiere panel; keep the installed one in step (silent: stdio)
+    premiere_mcp.sync()  # and the premiere-pro registration lean (compact schemas, the tools an edit uses)
     mcp.run()
 
 

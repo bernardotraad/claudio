@@ -95,6 +95,23 @@ def check():
             if wsl_side and name != 'claudio':
                 continue                      # Premiere/Resolve MCPs live on the Windows side, next to the NLEs
             add(OK if name in servers else WARN, f'MCP "{name}" em {core.nle_path(cfg)}', '' if name in servers else 'veja o README: claude mcp add -s user ...')
+    from claudio import premiere_mcp
+    if not premiere_mcp.enabled():
+        add(OK, 'MCP "premiere-pro" enxuto', 'desligado ({"premiere_mcp_lean": false} no settings.json)')
+    for r in premiere_mcp.sync():
+        where = core.nle_path(r['config'])
+        if r.get('error'):
+            add(WARN, f'MCP "premiere-pro" enxuto em {where}', r['error'])
+            continue
+        n = len(premiere_mcp.TOOLS) - len(r['dropped'])
+        what = f'MCP "premiere-pro" enxuto em {where}: esquemas compact, {n} ferramentas de edição'
+        if r['version'] is None:
+            add(WARN, what, 'premiere-pro-mcp não encontrado para conferir os nomes: se ele não subir, '
+                            'ponha {"premiere_mcp_lean": false} em ~/.config/claudio/settings.json')
+        elif r['dropped']:
+            add(WARN, what, f'a v{r["version"]} não tem: {", ".join(r["dropped"])}')
+        else:
+            add(OK, what, f'v{r["version"]}' + (' — ajustado agora (reinicie o Claude Code)' if r['changed'] else ''))
     try:
         from claudio import panel
         d = os.path.join(panel._ext_dir(), panel.ID)

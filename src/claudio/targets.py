@@ -11,10 +11,11 @@ RULES = {
         'The timeline AS IT IS: export the sequence first (Premiere MCP export_as_fcp_xml); the Cláudio panel already '
         'puts that XML in the message.',
         'Write the full path of every .xml / .mov / .jsx you produce: the Cláudio panel shows its import / apply button. '
-        'NEVER import an .xml through the Premiere MCP (importFiles on an FCP XML crashes Premiere) — the editor imports '
-        'it (Ctrl+I).',
-        'Overlays and music go in by overwrite on the new track (the panel\'s buttons, or overwrite_clip); never '
-        'add_to_timeline / insert, which ripples the whole sequence right.',
+        'Import an .xml yourself with the Premiere MCP import_fcp_xml (mode "into_open_project": it arrives as a NEW '
+        'sequence); never import_media on an .xml (importFiles on an FCP XML crashes Premiere).',
+        'Overlays and music go in by overwrite on the new track (the panel\'s buttons, or overwrite_clip). '
+        'add_to_timeline is an insert: it ripples the track right, so use it only where that is wanted (an empty '
+        'sequence, after the last clip).',
     ],
     'resolve': [
         'The timeline AS IT IS: export it first (Resolve MCP export_timeline, format FCP_7_XML).',

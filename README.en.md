@@ -195,6 +195,10 @@ Open Premiere with a project → **Window › Extensions › MCP for Adobe Premi
   `claude mcp add -s user -e PREMIERE_MCP_PROTOCOL_MODE=legacy premiere-pro -- cmd /c premiere-pro-mcp`.
 - Already using the Premiere MCP in Claude Desktop (`.mcpb` bundle)? Keep it. The Cláudio panel uses **Claude Code**,
   which needs the registration above (a different client, so nothing is duplicated).
+- **Lean on its own:** on start, Cláudio sets the `premiere-pro` registration in `~/.claude.json` with the package's
+  own switches: `compact` schemas and only the ~90 tools an edit uses (of ~445), each at half the context. More tools:
+  `{"premiere_mcp_extra_tools": "a,b"}` in `~/.config/claudio/settings.json`; to turn it off:
+  `{"premiere_mcp_lean": false}`. `claudio-doctor` shows the state.
 
 #### 7. DaVinci Resolve MCP — [hiteshK03/davinci-resolve-mcp](https://github.com/hiteshK03/davinci-resolve-mcp)
 
@@ -297,6 +301,10 @@ claude mcp add -s user premiere-pro -- "$(which premiere-pro-mcp)"
 Open Premiere → **Window › Extensions › MCP for Adobe Premiere Pro** → *Running*. To check: `premiere-pro-mcp --doctor`.
 If you get *server disconnected*, register it with `-e PREMIERE_MCP_PROTOCOL_MODE=legacy`. If Premiere and Resolve are
 already in Claude Desktop, register them in Claude Code too (that is what the panel uses).
+- **Lean on its own:** on start, Cláudio sets the `premiere-pro` registration in `~/.claude.json` with the package's
+  own switches: `compact` schemas and only the ~90 tools an edit uses (of ~445), each at half the context. More tools:
+  `{"premiere_mcp_extra_tools": "a,b"}` in `~/.config/claudio/settings.json`; to turn it off:
+  `{"premiere_mcp_lean": false}`. `claudio-doctor` shows the state.
 
 #### 5. DaVinci Resolve MCP — [hiteshK03/davinci-resolve-mcp](https://github.com/hiteshK03/davinci-resolve-mcp)
 
@@ -532,10 +540,10 @@ first word inside the hook limit. Each run goes to `benchmark-results.jsonl`, ne
 - Cameras without timecode (e.g. Canon `MVI_*`) start at `00:00:00:00`; frames stay exact.
 - NVDEC can't decode HEVC/H.264 4:2:2. Cláudio then analyses keyframes only, or you can use proxies.
 - One frame rate per exported timeline (with mixed fps, make one timeline per fps).
-- In Premiere, **import the XMLs by hand** (File › Import / Ctrl+I). Importing an XML through the Premiere MCP's
-  `import_media` crashes Premiere; manual import works. Cláudio hands you the XML path, and the panel shows an
-  **Importar no Premiere** button that saves the project and imports one XML at a time with Premiere's dialogs shown.
-  Regular media (`.mov` overlays, `.wav`, `.srt`) can go through the MCP.
+- In Premiere, an XML goes in through the MCP's `import_fcp_xml` (mode `into_open_project`, it arrives as a new
+  sequence), the panel's **Importar no Premiere** button (saves the project, one XML at a time) or by hand (Ctrl+I).
+  Never through `import_media`: on an XML it crashes Premiere. Regular media (`.mov` overlays, `.wav`, `.srt`) goes
+  through `import_media`.
 - Take ranking is evidence, not a verdict. For performances, look at the winner and the runner-up.
 
 ## Spending little AI
