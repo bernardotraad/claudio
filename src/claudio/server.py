@@ -1138,12 +1138,11 @@ def event_recap(project: str, footage: str, music: str, duration: float = 45, as
 def narration(text: str, out_folder: str, engine: str = 'kokoro', voice: str = None, budget: int = None,
               speed: float = None, sentence_break: float = None, take: str = None, fix_line: int = None) -> dict:
     """Narration for the edit (paragraphs = acts). engine='kokoro' (default: local, free, pt-BR voices pm_alex ·
-    pm_santa · pf_dora) · 'elevenlabs' (paid, voice = voice_id; say the cost — ~1 credit/character — BEFORE running):
-    one take PER PARAGRAPH with word timings → .mp3 + _words.json; sentence_break s of pause after each sentence
-    (0.55); speed 1.0 (lower chokes the voice); budget = character cap · 'chatterbox' (local, clones the voice file
-    passed as voice) · 'qwen' (clones, European Portuguese) · 'edge' (free). Fix ONE sentence of an ElevenLabs take:
-    take=its audio, fix_line=N (1-based), text=the new sentence ('' = same words again) → spliced _fixN.wav. Brand
-    names follow the client profile's "pronuncia"."""
+    pm_santa · pf_dora) · 'elevenlabs' (paid, voice = voice_id; say the cost, ~1 credit/char, BEFORE running): one
+    take PER PARAGRAPH + word timings → .mp3 + _words.json; sentence_break = pause after each sentence (0.55);
+    speed 1.0 (lower chokes the voice); budget = character cap · 'chatterbox' (local, clones the voice file) ·
+    'qwen' (clones, pt-PT) · 'edge' (free). Redo ONE sentence of an ElevenLabs take: take=its audio, fix_line=N
+    (1-based), text=new sentence ('' = same words) → spliced _fixN.wav. Brand names: client profile "pronuncia"."""
     if take or fix_line:
         from claudio import voiceover
         if not (take and fix_line):
@@ -1175,8 +1174,8 @@ def clean_narration_gaps(audio: str, words: str = None, gain_db: float = 0.0, mi
 def lower_third(places: list, out_folder: str, size: str = '1920x1080', fps: str = '24000/1001', duration: float = 4.0,
                 preset: str = 'territorios') -> dict:
     """Place lower-thirds (title + subtitle, e.g. city + state) → one ProRes 4444 .mov with alpha each + preview PNG.
-    places: ["Recife | Pernambuco", …] or [{title, subtitle}]. preset 'territorios': cream Montserrat, shadow, small
-    slide-in, alpha fades, 4 s ('territorios_placa' adds a soft dark plate + bar). size/fps: the sequence's."""
+    places: ["Recife | Pernambuco", …] or [{title, subtitle}]. preset 'territorios': cream Montserrat, shadow,
+    slide-in, fades ('territorios_placa' adds a dark plate + bar). size/fps: the sequence's."""
     from claudio import voiceover
     return voiceover.lower_third(places, out_folder, size, fps, duration, preset)
 
