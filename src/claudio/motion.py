@@ -8,7 +8,7 @@ Everything here produces ASSETS for the editor's timeline (never the final video
   caption_overlay(nle_xml)      styled social captions (the skill's Captions(): chunked per sentence, word pops on the
                                 spoken word, plate behind) synced to the edit → one alpha .mov over the whole timeline
   captions_srt(nle_xml)         the same captions as an .srt — editable in Premiere's caption track / Resolve subtitles
-  narration(text, ...)          ElevenLabs (skill's el_tts.py: one take, word timings, credit budget), Qwen3-TTS (local
+  narration(text, ...)          ElevenLabs (claudio.voiceover: one take per paragraph, word timings), Qwen3-TTS (local
                                 GPU, free, clones a voice) or edge-tts
                                 → narration.wav + words.json to place on an audio track
   reference(topic)              the skill's craft rules (readability, safe zones, captions, narration…) to follow
@@ -726,10 +726,10 @@ def _remote_narration(text, out_dir, engine, voice, lang, said, progress=lambda 
     return wav, j['info'] + ' · no desktop' + (f' ({note})' if note else '')
 
 
-def narration(text, out_dir, engine='elevenlabs', voice=None, budget=None, lang='pt', said=None):
-    """Narration for the edit. elevenlabs: the skill's el_tts.py (one take, word timings, cache, hard credit budget —
-    budget defaults to the text length + 10 %). edge: free edge-tts voices (pt-BR Thalita/Antonio). kokoro: local and
-    free, native pt-BR voices (pm_alex, pm_santa, pf_dora). chatterbox: local, clones the voice of a file (voice = the
+def narration(text, out_dir, engine='elevenlabs', voice=None, budget=None, lang='pt', said=None, speed=None, sentence_break=None):
+    """Narration for the edit. elevenlabs: claudio.voiceover.take — one natural take PER PARAGRAPH through
+    /with-timestamps (word timings, a pause after each sentence, speed 1.0; budget = a hard cap on characters).
+    edge: free edge-tts voices (pt-BR Thalita/Antonio). kokoro: local and free, native pt-BR voices (pm_alex, pm_santa, pf_dora). chatterbox: local, clones the voice of a file (voice = the
     file), Brazilian accent kept. qwen: Qwen3-TTS, local, clones too — but its Portuguese is European.
     Brands are read as the client profile's "pronuncia" says ({"INC": "Ínqui"}); words.json keeps the spelling.
     Paragraphs (blank line between) are the acts: one take each, joined with a breath."""
@@ -746,17 +746,9 @@ def narration(text, out_dir, engine='elevenlabs', voice=None, budget=None, lang=
     elif engine in local:
         res, info = local[engine](read, out_dir, voice, lang)
         wav = _assemble(res['wavs'], chunks, out_dir, lang)
-    elif engine == 'elevenlabs':
-        sd = skill_dir()
-        if not voice:
-            raise ValueError('voice (ElevenLabs voice_id) is required — list voices with the skill (el_voices.py)')
-        budget = budget or int(len(text) * 1.1) + 20
-        r = subprocess.run([sys.executable, os.path.join(sd, 'scripts', 'el_tts.py'), script, '--voice', voice, '--budget', str(budget)],
-                           capture_output=True, text=True, cwd=out_dir)
-        if r.returncode:
-            raise RuntimeError('el_tts failed: ' + (r.stderr or r.stdout)[-600:])
-        wav = os.path.join(out_dir, 'narration.wav')
-        info = r.stdout.strip().splitlines()[-1] if r.stdout.strip() else ''
+    elif engine == 'elevenlabs':                       # one natural take per paragraph, word timings from the API
+        from claudio import voiceover
+        return voiceover.take(text, out_dir, voice, speed=speed, sentence_break=sentence_break, budget=budget, said=said)
     else:
         v = voice or ('pt-BR-ThalitaMultilingualNeural' if lang.startswith('pt') else 'en-US-AndrewMultilingualNeural')
         wav = os.path.join(out_dir, 'narration.wav')

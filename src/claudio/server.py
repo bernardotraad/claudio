@@ -10,6 +10,8 @@ Tools, in the order an edit uses them:
   6. snap_cut → export_timeline / nle_cut_list   → frame-accurate handoff to the Premiere / Resolve MCPs
   7. build_edit → edit_storyboard → export_edit    → a reviewable timeline in Premiere / Resolve (no render)
   Multicam: sync_multicam (PluralEyes-style, from audio) → XML. Every indexed clip gets a <clip>.md next to it.
+  Narration: narration (ElevenLabs take per paragraph + word timings; fix_line redoes one sentence) →
+  clean_narration_gaps → retime_plan (the picture moves to the new words) → lower_third for places.
 Kind of project (depoimento, recap, beat edit, show multicam, curta…): recipe() — the steps and taste rules are there.
 Rules for every tool:
   - A tool that writes a sequence writes a NEW one, never the editor's.
@@ -1133,15 +1135,50 @@ def event_recap(project: str, footage: str, music: str, duration: float = 45, as
 
 
 @mcp.tool()
-def narration(text: str, out_folder: str, engine: str = 'kokoro', voice: str = None, budget: int = None) -> dict:
+def narration(text: str, out_folder: str, engine: str = 'kokoro', voice: str = None, budget: int = None,
+              speed: float = None, sentence_break: float = None, take: str = None, fix_line: int = None) -> dict:
     """Narration for the edit (paragraphs = acts). engine='kokoro' (default: local, free, pt-BR voices pm_alex ·
-    pm_santa · pf_dora) · 'elevenlabs' (paid: one take; voice = voice_id; hard credit budget, default = text length
-    + 10 % — tell the user the cost BEFORE running) · 'chatterbox' (local, clones the voice file passed as voice,
-    Brazilian accent) · 'qwen' (clones, European Portuguese) · 'edge' (free edge-tts). Brand names follow the client
-    profile's "pronuncia". Returns narration.wav + words.json for an audio track. Follow motion_reference('Narration')
-    for how to write the script."""
+    pm_santa · pf_dora) · 'elevenlabs' (paid, voice = voice_id; say the cost — ~1 credit/character — BEFORE running):
+    one take PER PARAGRAPH with word timings → .mp3 + _words.json; sentence_break s of pause after each sentence
+    (0.55); speed 1.0 (lower chokes the voice); budget = character cap · 'chatterbox' (local, clones the voice file
+    passed as voice) · 'qwen' (clones, European Portuguese) · 'edge' (free). Fix ONE sentence of an ElevenLabs take:
+    take=its audio, fix_line=N (1-based), text=the new sentence ('' = same words again) → spliced _fixN.wav. Brand
+    names follow the client profile's "pronuncia"."""
+    if take or fix_line:
+        from claudio import voiceover
+        if not (take and fix_line):
+            raise ValueError('a line fix needs both take and fix_line')
+        return voiceover.fix_line(take, fix_line, text or None, voice, speed)
     from claudio import motion
-    return motion.narration(text, out_folder, engine, voice, budget)
+    return motion.narration(text, out_folder, engine, voice, budget, speed=speed, sentence_break=sentence_break)
+
+
+@mcp.tool()
+def retime_plan(old_words: str, new_words: str, clips: list[dict], fps: str = '24000/1001', offset: float = 0.0) -> dict:
+    """The picture follows a NEW narration (never chop the voice to the old cuts). old_words/new_words: _words.json
+    paths. clips: [{label, start, end, src_in?, node_id?}] on the old narration (seconds; offset = where clip time 0
+    sits in it). Each start keeps its anchor word and lead, snapped to fps → new_start, duration, src_out, and ordered
+    steps for the Premiere MCP (move / trim_out)."""
+    from claudio import voiceover
+    return voiceover.retime_plan(old_words, new_words, clips, fps, offset)
+
+
+@mcp.tool()
+def clean_narration_gaps(audio: str, words: str = None, gain_db: float = 0.0, min_gap: float = 0.3) -> dict:
+    """Silence mouth clicks ("tsc") and breaths in the pauses between sentences of a narration, words untouched (soft
+    consonants keep their start) → <name>_clean.wav + words. words: defaults to <name>_words.json beside it."""
+    from claudio import voiceover
+    return voiceover.clean_gaps(audio, words, gain_db=gain_db, min_gap=min_gap)
+
+
+@mcp.tool()
+def lower_third(places: list, out_folder: str, size: str = '1920x1080', fps: str = '24000/1001', duration: float = 4.0,
+                preset: str = 'territorios') -> dict:
+    """Place lower-thirds (title + subtitle, e.g. city + state) → one ProRes 4444 .mov with alpha each + preview PNG.
+    places: ["Recife | Pernambuco", …] or [{title, subtitle}]. preset 'territorios': cream Montserrat, shadow, small
+    slide-in, alpha fades, 4 s ('territorios_placa' adds a soft dark plate + bar). size/fps: the sequence's."""
+    from claudio import voiceover
+    return voiceover.lower_third(places, out_folder, size, fps, duration, preset)
 
 
 EDIT_DOC = """edit = {

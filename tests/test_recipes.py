@@ -11,7 +11,9 @@ BUILTIN = {'depoimento', 'depoimento-horizontal', 'recap-evento', 'beat-edit', '
 
 # snake_case words in the recipes that are not claudio tools nor their arguments: edit JSON keys, other MCPs' tools
 NOT_TOOLS = {'pace_follows_music', 'cut_on', 'reframe_x', 'reframe_y', 'end_card', 'import_media', 'import_timeline_from_file',
-             'search_audio', 'get_download_url', 'synced_sequence', 'legendas_srt', 'entregar_no_nle'}
+             'search_audio', 'get_download_url', 'synced_sequence', 'legendas_srt', 'entregar_no_nle', 'move_clip', 'trim_clip',
+             'new_out_seconds', 'new_start_seconds', 'src_in', 'node_id',
+             'delta_s', 'territorios_placa', 'trim_out'}
 
 
 @pytest.fixture(scope='module')

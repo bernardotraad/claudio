@@ -16,7 +16,7 @@ def test_what_goes_out_with_every_message_stays_lean():
     tools = asyncio.run(server.mcp.list_tools())
     desc = ' '.join(t.description or '' for t in tools)
     schemas = [json.dumps(t.inputSchema) for t in tools]
-    assert len(desc) < 25000 and sum(map(len, schemas)) < 17000, (len(desc), sum(map(len, schemas)))
+    assert len(desc) < 26000 and sum(map(len, schemas)) < 18000, (len(desc), sum(map(len, schemas)))
     assert not re.search(r'\bINC\b|Enki|bernardo|claudio-ae|D:\\\\Documentos', desc)
     assert desc.count('crashes Premiere') == 0 and 'crashes Premiere' in server.mcp.instructions
     assert not any('"title": "' in s.replace('"title": {', '') for s in schemas)   # pydantic titles dropped
