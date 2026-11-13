@@ -22,7 +22,7 @@ def test_file_urls_from_premiere():
 
 
 def test_browser_url_keeps_hash_in_path():
-    u = pathlib.Path(NASTY).as_uri()                     # what the overlay renderer opens
+    u = pathlib.Path(os.path.abspath(NASTY)).as_uri()    # what the overlay renderer opens (abspath: C:\tmp on Windows)
     assert urllib.parse.urlparse(u).fragment == ''
     assert urllib.parse.unquote(urllib.parse.urlparse(u).path).endswith('#projeto/legendas ção.xml')
 
@@ -69,6 +69,7 @@ def test_folder_index_takes_loose_audio(tmp_path):
               'AUDIO/notas.md', 'VIDEOS/._A001.MP4']:
         (tmp_path / p).parent.mkdir(parents=True, exist_ok=True)
         (tmp_path / p).write_bytes(b'')
-    got = sorted(os.path.relpath(p, tmp_path) for p in indexer.list_media(str(tmp_path)))
+    rel = lambda p: os.path.relpath(p, tmp_path).replace(os.sep, '/')
+    got = sorted(rel(p) for p in indexer.list_media(str(tmp_path)))
     assert got == ['AUDIO/musica.wav', 'AUDIO/zap.mpeg', 'VIDEOS/A001.MP4']
-    assert [os.path.relpath(p, tmp_path) for p in indexer.list_videos(str(tmp_path))] == ['VIDEOS/A001.MP4']
+    assert [rel(p) for p in indexer.list_videos(str(tmp_path))] == ['VIDEOS/A001.MP4']

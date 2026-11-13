@@ -5,6 +5,15 @@ import json, os, time
 from claudio import core, share
 
 
+def _link_dir(target, link):
+    """A folder link. On Windows a directory symlink needs admin / developer mode; a junction does not."""
+    if os.name == 'nt':
+        import _winapi
+        _winapi.CreateJunction(str(target), str(link))
+    else:
+        os.symlink(target, link)
+
+
 def _machine(monkeypatch, tmp_path, name):
     c = tmp_path / f'cache_{name}'
     c.mkdir(exist_ok=True)
@@ -17,7 +26,7 @@ def _setup(tmp_path, monkeypatch):
     clip = disk / 'C0011.MP4'
     clip.write_bytes(b'x' * 1000)
     (tmp_path / 'Volumes').mkdir()
-    os.symlink(tmp_path / 'E', tmp_path / 'Volumes' / 'E')              # the Mac's SMB mount: same files, other path
+    _link_dir(tmp_path / 'E', tmp_path / 'Volumes' / 'E')               # the Mac's SMB mount: same files, other path
     monkeypatch.setattr(share, 'enabled', lambda: True)
     _machine(monkeypatch, tmp_path, 'desktop')
     d = core.cache_dir(str(clip))
@@ -159,7 +168,7 @@ def test_the_mac_sends_its_new_work_back_to_the_desktop(tmp_path, monkeypatch):
     up['v'] = True
     r = share.push_back([])                                               # next time it answers
     assert r == {'pushed': 1}
-    assert sent['names'] == [os.path.relpath(share.shared_dir(mac_clip), hd) + '/vlm_v1.json']
+    assert sent['names'] == [os.path.relpath(share.shared_dir(mac_clip), hd).replace(os.sep, '/') + '/vlm_v1.json']
     assert "$job = 'E'" in sent['script'] and '--keep-newer-files' in sent['script']
     assert "$pairs += ,@('BRUTOS\\_claudio\\analise\\C0011.MP4-" in sent['script'] and "'BRUTOS\\C0011.MP4')" in sent['script']
     _machine(monkeypatch, tmp_path, 'desktop')

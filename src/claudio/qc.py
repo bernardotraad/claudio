@@ -238,11 +238,16 @@ def mix_audio(tl):
 def loudness(x):
     """Integrated loudness (LUFS), loudness range and true peak of mono samples, by ffmpeg's ebur128."""
     import re, subprocess, tempfile
-    with tempfile.NamedTemporaryFile(suffix='.f32', dir=core.CACHE) as f:
-        np.asarray(x, np.float32).tofile(f.name)
+    # closed before writing: Windows won't let numpy / ffmpeg open a NamedTemporaryFile that is still open
+    fd, tmp = tempfile.mkstemp(suffix='.f32', dir=core.CACHE)
+    os.close(fd)
+    try:
+        np.asarray(x, np.float32).tofile(tmp)
         # measured as dual mono (the same signal on L and R, as the export plays it): +3 dB vs reading it as mono
-        r = subprocess.run(['ffmpeg', '-v', 'info', '-nostats', '-f', 'f32le', '-ar', str(MSR_MIX), '-ac', '1', '-i', f.name,
+        r = subprocess.run(['ffmpeg', '-v', 'info', '-nostats', '-f', 'f32le', '-ar', str(MSR_MIX), '-ac', '1', '-i', tmp,
                             '-af', 'pan=stereo|c0=c0|c1=c0,ebur128=peak=true', '-f', 'null', '-'], capture_output=True, text=True).stderr
+    finally:
+        os.remove(tmp)
     summ = r[r.rfind('Summary:'):]
     g = lambda k: float(re.search(rf'{k}:\s+(-?[\d.]+|-inf)', summ).group(1).replace('-inf', '-99')) if re.search(rf'{k}:\s+(-?[\d.]+|-inf)', summ) else None
     return {'lufs': g('I'), 'lra': g('LRA'), 'true_peak_db': g('Peak')}
